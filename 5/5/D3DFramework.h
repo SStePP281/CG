@@ -38,6 +38,7 @@ struct RenderItem
 {
     MeshGeometry* Geo;
     Material* Mat;
+    BoundingBox Bounds;
 
     std::string SubmeshName;
 
@@ -53,6 +54,129 @@ struct RenderItem
 
     XMFLOAT4X4 World = MathHelper::Identity4x4();
     XMFLOAT4X4 TexTransform = MathHelper::Identity4x4();
+};
+
+class OctreeNode
+{
+public:
+    static const int MAX_OBJECTS = 8;
+    static const int MAX_DEPTH = 6;
+    static const int NUM_CHILDREN = 8;
+
+    BoundingBox Region;
+    std::vector<RenderItem*> Objects;
+    std::unique_ptr<OctreeNode> Children[NUM_CHILDREN];
+    bool IsLeaf = true;
+
+    OctreeNode(BoundingBox region) : Region(region) {}
+
+    void Insert(RenderItem* item)
+    {
+        BoundingBox worldBounds;
+        item->Bounds.Transform(worldBounds, XMLoadFloat4x4(&item->World));
+
+        if (Region.Contains(worldBounds) == DirectX::DISJOINT) { return; }
+
+        if (IsLeaf && (Objects.size() < MAX_OBJECTS))
+        {
+            Objects.push_back(item);
+            return;
+        }
+
+        if (IsLeaf) { Subdivide(); }
+
+        bool placed = false;
+        for (int i = 0; i < NUM_CHILDREN; i++)
+        {
+            if (Children[i]->Region.Contains(worldBounds) == DirectX::CONTAINS)
+            {
+                Children[i]->Insert(item);
+                placed = true;
+                break;
+            }
+        }
+
+        if (!placed) { Objects.push_back(item); }
+    }
+
+    void Subdivide()
+    {
+        IsLeaf = false;
+        XMFLOAT3 center = Region.Center;
+        XMFLOAT3 extents = Region.Extents;
+        XMFLOAT3 halfExtents = { extents.x * 0.5f, extents.y * 0.5f, extents.z * 0.5f };
+
+        for (int i = 0; i < NUM_CHILDREN; i++)
+        {
+            XMFLOAT3 newCenter = center;
+            newCenter.x += halfExtents.x * (i & 1 ? 1 : -1);
+            newCenter.y += halfExtents.y * (i & 2 ? 1 : -1);
+            newCenter.z += halfExtents.z * (i & 4 ? 1 : -1);
+
+            Children[i] = std::make_unique<OctreeNode>(BoundingBox(newCenter, halfExtents));
+        }
+
+        auto it = Objects.begin();
+        while (it != Objects.end())
+        {
+            BoundingBox wb;
+            (*it)->Bounds.Transform(wb, XMLoadFloat4x4(&(*it)->World));
+
+            bool moved = false;
+            for (int i = 0; i < NUM_CHILDREN; i++)
+            {
+                if (Children[i]->Region.Contains(wb) == DirectX::CONTAINS)
+                {
+                    Children[i]->Insert(*it);
+                    it = Objects.erase(it);
+                    moved = true;
+                    break;
+                }
+            }
+            if (!moved) ++it;
+        }
+    }
+
+    void Query(const BoundingFrustum& frustum, std::vector<RenderItem*>& results)
+    {
+        auto containment = frustum.Contains(Region);
+        if (containment == DirectX::DISJOINT) { return; }
+
+        if (containment == DirectX::CONTAINS)
+        {
+            GatherAll(results);
+            return;
+        }
+
+        for (RenderItem* obj : Objects)
+        {
+            BoundingBox wb;
+            obj->Bounds.Transform(wb, XMLoadFloat4x4(&obj->World));
+            if (frustum.Contains(wb) != DirectX::DISJOINT)
+            {
+                results.push_back(obj);
+            }
+        }
+
+        if (!IsLeaf)
+        {
+            for (int i = 0; i < NUM_CHILDREN; i++)
+            {
+                Children[i]->Query(frustum, results);
+            }
+        }
+    }
+
+private:
+    void GatherAll(std::vector<RenderItem*>& results)
+    {
+        for (RenderItem* item : Objects) { results.push_back(item); }
+
+        if (!IsLeaf)
+        {
+            for (int i = 0; i < NUM_CHILDREN; i++) { Children[i]->GatherAll(results); }
+        }
+    }
 };
 
 class D3DFramework : public BaseD3DApp
@@ -141,6 +265,9 @@ private:
     PassConstants _mainPassCB;
 
     std::unique_ptr<GBuffer> _gBuffer;
+
+    BoundingFrustum _camFrustum;
+    std::unique_ptr<OctreeNode> _octreeRoot;
 
     XMFLOAT3 _eyePos = { 0.0f, 0.0f, 0.0f };
     XMFLOAT4X4 _view = MathHelper::Identity4x4();

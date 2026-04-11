@@ -15,6 +15,8 @@
 #include "WICTextureLoader.h"
 #include <ResourceUploadBatch.h>
 
+using namespace DirectX;
+
 D3DFramework::D3DFramework(HINSTANCE hInstance) : BaseD3DApp(hInstance) {}
 
 D3DFramework::~D3DFramework() { if (_d3dDevice != nullptr) { FlushCommandQueue(); } }
@@ -25,9 +27,10 @@ bool D3DFramework::Initialize()
 	ThrowIfFailed(_cmdList->Reset(_directCmdListAlloc.Get(), nullptr));
 	_cbvSrvDescriptorSize = _d3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
-	LoadModel("C:/Users/HUAWEI/Desktop/CG/5/Models/Model.obj");
-	LoadModel("C:/Users/HUAWEI/Desktop/CG/5/Models/Model_1.obj");
+	LoadModel("C:/Users/Stepan/Desktop/CG/5/Models/Model.obj");
+	LoadModel("C:/Users/Stepan/Desktop/CG/5/Models/A_LOT_OF_POLYGONS.obj");
 	//LoadModel("C:/Users/HUAWEI/Desktop/CG/5/Models/DispTest.obj");
+
 	CreateLight();
 
 	_gBuffer = std::make_unique<GBuffer>(_d3dDevice.Get(), CLIENT_WIDTH, CLIENT_HEIGHT);
@@ -50,6 +53,13 @@ bool D3DFramework::Initialize()
 	ID3D12CommandList* cmdsLists[] = { _cmdList.Get() };
 	_cmdQueue->ExecuteCommandLists(_countof(cmdsLists), cmdsLists);
 	FlushCommandQueue();
+
+	BoundingBox sceneBounds({ 0, 0, 0 }, { 500, 500, 500 });
+	_octreeRoot = std::make_unique<OctreeNode>(sceneBounds);
+
+	for (auto& ri : _allRitems) {
+		_octreeRoot->Insert(ri.get());
+	}
 
 	return true;
 }
@@ -128,6 +138,11 @@ void D3DFramework::Draw(const GameTimer& gt)
 	_cmdList->SetGraphicsRootConstantBufferView(7, dispCB->GetGPUVirtualAddress());
 
 	_cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST);
+	
+	_opaqueRitems.clear();
+	if (_octreeRoot) {
+		_octreeRoot->Query(_camFrustum, _opaqueRitems);
+	}
 	DrawRenderItems(_cmdList.Get(), _opaqueRitems);
 
 	_gBuffer->TransitToLightRenderingState(_cmdList.Get());
@@ -253,7 +268,7 @@ void D3DFramework::OnKeyboardInput(const GameTimer& gt)
 	float dt = gt.DeltaTime();
 	float speed = _moveSpeed * dt;
 
-	XMVECTOR pos = XMLoadFloat3(&_eyePos);
+	XMVECTOR pos = DirectX::XMLoadFloat3(&_eyePos);
 	XMVECTOR forward = XMLoadFloat3(&_forward);
 	XMVECTOR right = XMLoadFloat3(&_right);
 
@@ -404,6 +419,12 @@ void D3DFramework::UpdateMainPassCB(const GameTimer& gt)
 	DisplacementConstant disp = DisplacementConstant();
 	auto dispCB = _currFrameResource->DisplacementCB.get();
 	dispCB->CopyData(0, disp);
+
+	if (!_mainPassCB.DebugMode)
+	{
+		BoundingFrustum::CreateFromMatrix(_camFrustum, proj);
+		_camFrustum.Transform(_camFrustum, invView);
+	}
 }
 
 void D3DFramework::UpdateLightSB(const GameTimer& gt)
@@ -592,7 +613,6 @@ void D3DFramework::BuildGBufferPSO()
 	};
 
 	psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
-	psoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
 	psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
 	psoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
 
@@ -662,14 +682,14 @@ void D3DFramework::BuildLightPassPSO()
 
 void D3DFramework::BuildShadersAndInputLayout()
 {
-	_shaders["gbufferVS"] = D3DUtil::CompileShader(L"C:/Users/HUAWEI/Desktop/CG/5/Shaders/GBuffer.hlsl", nullptr, "VS", "vs_5_1");
-	_shaders["gbufferPS"] = D3DUtil::CompileShader(L"C:/Users/HUAWEI/Desktop/CG/5/Shaders/GBuffer.hlsl", nullptr, "PS", "ps_5_1");
+	_shaders["gbufferVS"] = D3DUtil::CompileShader(L"C:/Users/Stepan/Desktop/CG/5/Shaders/GBuffer.hlsl", nullptr, "VS", "vs_5_1");
+	_shaders["gbufferPS"] = D3DUtil::CompileShader(L"C:/Users/Stepan/Desktop/CG/5/Shaders/GBuffer.hlsl", nullptr, "PS", "ps_5_1");
 
-	_shaders["gbufferHS"] = D3DUtil::CompileShader(L"C:/Users/HUAWEI/Desktop/CG/5/Shaders/GBufferHS.hlsl", nullptr, "HS", "hs_5_1");
-	_shaders["gbufferDS"] = D3DUtil::CompileShader(L"C:/Users/HUAWEI/Desktop/CG/5/Shaders/GBufferDS.hlsl", nullptr, "DS", "ds_5_1");
+	_shaders["gbufferHS"] = D3DUtil::CompileShader(L"C:/Users/Stepan/Desktop/CG/5/Shaders/GBufferHS.hlsl", nullptr, "HS", "hs_5_1");
+	_shaders["gbufferDS"] = D3DUtil::CompileShader(L"C:/Users/Stepan/Desktop/CG/5/Shaders/GBufferDS.hlsl", nullptr, "DS", "ds_5_1");
 
-	_shaders["lightVS"] = D3DUtil::CompileShader(L"C:/Users/HUAWEI/Desktop/CG/5/Shaders/LightPass.hlsl", nullptr, "VS", "vs_5_1");
-	_shaders["lightPS"] = D3DUtil::CompileShader(L"C:/Users/HUAWEI/Desktop/CG/5/Shaders/LightPass.hlsl", nullptr, "PS", "ps_5_1");
+	_shaders["lightVS"] = D3DUtil::CompileShader(L"C:/Users/Stepan/Desktop/CG/5/Shaders/LightPass.hlsl", nullptr, "VS", "vs_5_1");
+	_shaders["lightPS"] = D3DUtil::CompileShader(L"C:/Users/Stepan/Desktop/CG/5/Shaders/LightPass.hlsl", nullptr, "PS", "ps_5_1");
 
 	_inputLayout =
 	{
@@ -777,15 +797,48 @@ void D3DFramework::LoadModel(std::string path)
 
 void D3DFramework::CreateSceneObjects()
 {
-	if (_models.size() == 0) { return; }
+	if (_models.empty()) { return; }
 
 	for (auto& model : _models)
 	{
-		auto sceneObj = std::make_unique<SceneObject>();
-		sceneObj->ModelData =model.second.get();
-		XMStoreFloat4x4(&sceneObj->World, XMMatrixIdentity());
+		if (model.second->Mesh->Name == "C:/Users/Stepan/Desktop/CG/5/Models/A_LOT_OF_POLYGONS.obj")
+		{
+			XMINT3 gridInstanceCount = XMINT3(10, 10, 10);
+			float spacing = 1.0f;
 
-		_sceneObjects.push_back(std::move(sceneObj));
+			float offsetX = (gridInstanceCount.x * spacing) / 2.0f;
+			float offsetY = (gridInstanceCount.y * spacing) / 2.0f;
+			float offsetZ = (gridInstanceCount.z * spacing) / 2.0f;
+
+			for (int x = 0; x < gridInstanceCount.x; x++)
+			{
+				for (int y = 0; y < gridInstanceCount.y; y++)
+				{
+					for (int z = 0; z < gridInstanceCount.z; z++)
+					{
+						auto sceneObj = std::make_unique<SceneObject>();
+						sceneObj->ModelData = model.second.get();
+
+						float px = x * spacing - offsetX;
+						float py = y * spacing - offsetY;
+						float pz = z * spacing - offsetZ;
+
+						XMMATRIX world = XMMatrixTranslation(px, py, pz);
+						XMStoreFloat4x4(&sceneObj->World, world);
+
+						_sceneObjects.push_back(std::move(sceneObj));
+					}
+				}
+			}
+		}
+		else
+		{
+			auto sceneObj = std::make_unique<SceneObject>();
+			sceneObj->ModelData = model.second.get();
+			XMStoreFloat4x4(&sceneObj->World, XMMatrixIdentity());
+
+			_sceneObjects.push_back(std::move(sceneObj));
+		}
 	}
 }
 
@@ -814,14 +867,15 @@ void D3DFramework::BuildRenderItems()
 
 		if (!model || !model->Mesh) { continue; }
 
-		for (const auto& part : model->Parts)
+		for (const Model::Part& part : model->Parts)
 		{
 			auto ri = std::make_unique<RenderItem>();
 
 			auto& sub = model->Mesh->DrawArgs[part.SubmeshName];
 
 			ri->Geo = model->Mesh;
-			ri->UsedPso = part.SubmeshName == "mesh_0_2" ? "anim" : "opaque";
+			ri->Bounds = BoundingBox(sub.Bounds);
+			ri->UsedPso = part.SubmeshName == "opaque";
 
 			if (!part.MaterialName.empty() && _materials.count(part.MaterialName)) { ri->Mat = _materials[part.MaterialName].get(); }
 			else if (!_materials.empty()) { ri->Mat = _materials.begin()->second.get(); }
@@ -988,6 +1042,7 @@ void D3DFramework::ParseMesh(const ModelParse::MeshInfo& meshData)
 		subGeo.IndexCount = sub.IndexCount;
 		subGeo.StartIndexLocation = sub.IndexOffset;
 		subGeo.BaseVertexLocation = sub.VertexOffset;
+		subGeo.Bounds = sub.Bounds;
 
 		geo->DrawArgs[sub.Name] = subGeo;
 	}
@@ -1017,15 +1072,13 @@ void D3DFramework::LoadTextures(const ModelParse::MeshInfo& meshData)
 		"T_DEFAULT_DISPLACEMENT.png"
 	};
 
-	int srvIndex = 0;
-
 	if (_textures.size() == 0)
 	{
 		for (auto& texName : DEFAULT_TEXTURE)
 		{
 			auto tex = std::make_unique<Texture>();
 			tex->Name = texName;
-			tex->Filename = L"C:/Users/HUAWEI/Desktop/CG/5/DefaultTextures/" + std::wstring(texName.begin(), texName.end());
+			tex->Filename = L"C:/Users/Stepan/Desktop/CG/5/DefaultTextures/" + std::wstring(texName.begin(), texName.end());
 
 			ResourceUploadBatch resourceUpload(_d3dDevice.Get());
 			resourceUpload.Begin();
@@ -1035,7 +1088,7 @@ void D3DFramework::LoadTextures(const ModelParse::MeshInfo& meshData)
 			auto uploadResourcesFinished = resourceUpload.End(_cmdQueue.Get());
 			uploadResourcesFinished.wait();
 
-			tex->SrvHeapIndex = srvIndex++;
+			tex->SrvHeapIndex = (int)_textures.size();
 
 			_textures[texName] = std::move(tex);
 		}
@@ -1062,7 +1115,7 @@ void D3DFramework::LoadTextures(const ModelParse::MeshInfo& meshData)
 
 			auto tex = std::make_unique<Texture>();
 			tex->Name = texName;
-			tex->Filename = L"C:/Users/HUAWEI/Desktop/CG/5/Textures/" + std::wstring(texName.begin(), texName.end());
+			tex->Filename = L"C:/Users/Stepan/Desktop/CG/5/Textures/" + std::wstring(texName.begin(), texName.end());
 
 			ResourceUploadBatch resourceUpload(_d3dDevice.Get());
 			resourceUpload.Begin();
@@ -1072,7 +1125,7 @@ void D3DFramework::LoadTextures(const ModelParse::MeshInfo& meshData)
 			auto uploadResourcesFinished = resourceUpload.End(_cmdQueue.Get());
 			uploadResourcesFinished.wait();
 
-			tex->SrvHeapIndex = srvIndex++;
+			tex->SrvHeapIndex = (int)_textures.size();
 
 			_textures[texName] = std::move(tex);
 		}
@@ -1081,7 +1134,6 @@ void D3DFramework::LoadTextures(const ModelParse::MeshInfo& meshData)
 
 void D3DFramework::ParseMaterials(const ModelParse::MeshInfo& meshData)
 {
-	int matCBIndex = 0;
 	for (auto& kv : meshData.Materials)
 	{
 		std::string matName = kv.first;
@@ -1091,7 +1143,7 @@ void D3DFramework::ParseMaterials(const ModelParse::MeshInfo& meshData)
 
 		auto mat = std::make_unique<Material>();
 		mat->Name = matName;
-		mat->MatCBIndex = matCBIndex++;
+		mat->MatCBIndex = (int)_materials.size();
 
 		MaterialConstants data;
 

@@ -168,6 +168,14 @@ namespace
             meshInfo.Vertices.push_back(vert);
         }
 
+        BoundingBox submeshBounds;
+        if (mesh->mNumVertices > 0)
+        {
+            const Vertex* firstVertex = &meshInfo.Vertices[vertexOffset];
+
+            BoundingBox::CreateFromPoints(submeshBounds, mesh->mNumVertices, &firstVertex->Pos, sizeof(Vertex));
+        }
+
         for (uint32_t f = 0; f < mesh->mNumFaces; f++)
         {
             aiFace& face = mesh->mFaces[f];
@@ -196,6 +204,7 @@ namespace
         sub.VertexOffset = vertexOffset;
         sub.IndexOffset = indexOffset;
         sub.IndexCount = mesh->mNumFaces * 3;
+        sub.Bounds = submeshBounds;
 
         meshInfo.Submeshes.push_back(sub);
     }

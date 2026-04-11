@@ -4,6 +4,7 @@
 #include <Windows.h>
 #include <cstdint>
 #include <DirectXMath.h>
+#include <DirectXCollision.h>
 #include <vector>
 #include <unordered_map>
 #include <string>
@@ -24,6 +25,7 @@ public:
 	{
 		std::string Name;
 		std::string MaterialName;
+		BoundingBox Bounds;
 
 		UINT VertexOffset = 0;
 		UINT IndexOffset = 0;
