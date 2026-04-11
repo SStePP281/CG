@@ -50,36 +50,43 @@ struct RenderItem
     UINT StartIndexLocation;
     int BaseVertexLocation;
 
-    UINT ObjCBIndex;
-
-    XMFLOAT4X4 World = MathHelper::Identity4x4();
-    XMFLOAT4X4 TexTransform = MathHelper::Identity4x4();
+    std::vector<InstanceData> Instances;
+    UINT VisibleInstanceCount = 0;
+    UINT InstanceOffset = 0;
 };
 
 class OctreeNode
 {
 public:
-    static const int MAX_OBJECTS = 8;
-    static const int MAX_DEPTH = 6;
+    struct InstanceRef
+    {
+        RenderItem* Item;
+        uint32_t Index;
+    };
+
+public:
+    static const int MAX_OBJECTS = 16;
+    static const int MAX_DEPTH = 8;
     static const int NUM_CHILDREN = 8;
 
     BoundingBox Region;
-    std::vector<RenderItem*> Objects;
+    std::vector<InstanceRef> Objects;
     std::unique_ptr<OctreeNode> Children[NUM_CHILDREN];
     bool IsLeaf = true;
 
     OctreeNode(BoundingBox region) : Region(region) {}
 
-    void Insert(RenderItem* item)
+    void Insert(RenderItem* item, uint32_t instanceIdx)
     {
         BoundingBox worldBounds;
-        item->Bounds.Transform(worldBounds, XMLoadFloat4x4(&item->World));
+        XMMATRIX world = XMLoadFloat4x4(&item->Instances[instanceIdx].World);
+        item->Bounds.Transform(worldBounds, world);
 
         if (Region.Contains(worldBounds) == DirectX::DISJOINT) { return; }
 
         if (IsLeaf && (Objects.size() < MAX_OBJECTS))
         {
-            Objects.push_back(item);
+            Objects.push_back({ item, instanceIdx });
             return;
         }
 
@@ -90,13 +97,13 @@ public:
         {
             if (Children[i]->Region.Contains(worldBounds) == DirectX::CONTAINS)
             {
-                Children[i]->Insert(item);
+                Children[i]->Insert(item, instanceIdx);
                 placed = true;
                 break;
             }
         }
 
-        if (!placed) { Objects.push_back(item); }
+        if (!placed) Objects.push_back({ item, instanceIdx });
     }
 
     void Subdivide()
@@ -104,30 +111,30 @@ public:
         IsLeaf = false;
         XMFLOAT3 center = Region.Center;
         XMFLOAT3 extents = Region.Extents;
-        XMFLOAT3 halfExtents = { extents.x * 0.5f, extents.y * 0.5f, extents.z * 0.5f };
+        XMFLOAT3 h = { extents.x * 0.5f, extents.y * 0.5f, extents.z * 0.5f };
 
         for (int i = 0; i < NUM_CHILDREN; i++)
         {
-            XMFLOAT3 newCenter = center;
-            newCenter.x += halfExtents.x * (i & 1 ? 1 : -1);
-            newCenter.y += halfExtents.y * (i & 2 ? 1 : -1);
-            newCenter.z += halfExtents.z * (i & 4 ? 1 : -1);
-
-            Children[i] = std::make_unique<OctreeNode>(BoundingBox(newCenter, halfExtents));
+            XMFLOAT3 nc = center;
+            nc.x += h.x * (i & 1 ? 1 : -1);
+            nc.y += h.y * (i & 2 ? 1 : -1);
+            nc.z += h.z * (i & 4 ? 1 : -1);
+            Children[i] = std::make_unique<OctreeNode>(BoundingBox(nc, h));
         }
 
         auto it = Objects.begin();
         while (it != Objects.end())
         {
             BoundingBox wb;
-            (*it)->Bounds.Transform(wb, XMLoadFloat4x4(&(*it)->World));
+            XMMATRIX world = XMLoadFloat4x4(&it->Item->Instances[it->Index].World);
+            it->Item->Bounds.Transform(wb, world);
 
             bool moved = false;
             for (int i = 0; i < NUM_CHILDREN; i++)
             {
                 if (Children[i]->Region.Contains(wb) == DirectX::CONTAINS)
                 {
-                    Children[i]->Insert(*it);
+                    Children[i]->Insert(it->Item, it->Index);
                     it = Objects.erase(it);
                     moved = true;
                     break;
@@ -137,7 +144,7 @@ public:
         }
     }
 
-    void Query(const BoundingFrustum& frustum, std::vector<RenderItem*>& results)
+    void Query(const BoundingFrustum& frustum, std::vector<InstanceRef>& results)
     {
         auto containment = frustum.Contains(Region);
         if (containment == DirectX::DISJOINT) { return; }
@@ -148,14 +155,14 @@ public:
             return;
         }
 
-        for (RenderItem* obj : Objects)
+        for (InstanceRef& ref : Objects)
         {
             BoundingBox wb;
-            obj->Bounds.Transform(wb, XMLoadFloat4x4(&obj->World));
+            XMMATRIX world = XMLoadFloat4x4(&ref.Item->Instances[ref.Index].World);
+            ref.Item->Bounds.Transform(wb, world);
+
             if (frustum.Contains(wb) != DirectX::DISJOINT)
-            {
-                results.push_back(obj);
-            }
+                results.push_back(ref);
         }
 
         if (!IsLeaf)
@@ -167,14 +174,16 @@ public:
         }
     }
 
-private:
-    void GatherAll(std::vector<RenderItem*>& results)
+    void GatherAll(std::vector<InstanceRef>& results)
     {
-        for (RenderItem* item : Objects) { results.push_back(item); }
+        for (InstanceRef& ref : Objects) { results.push_back(ref); }
 
         if (!IsLeaf)
         {
-            for (int i = 0; i < NUM_CHILDREN; i++) { Children[i]->GatherAll(results); }
+            for (int i = 0; i < NUM_CHILDREN; i++)
+            {
+                Children[i]->GatherAll(results);
+            }
         }
     }
 };
@@ -203,10 +212,11 @@ private:
 
     void AnimateMaterials(const GameTimer& gt);
     void AnimateLight(const GameTimer& gt);
-    void UpdateObjectCBs(const GameTimer& gt);
     void UpdateMaterialCBs(const GameTimer& gt);
     void UpdateMainPassCB(const GameTimer& gt);
     void UpdateLightSB(const GameTimer& gt);
+
+    void UpdateInstanceData(const GameTimer& gt);
 
     void BuildRootSignatureGBuffer();
     void BuildRootSignatureLightPass();

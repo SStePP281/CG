@@ -54,11 +54,15 @@ bool D3DFramework::Initialize()
 	_cmdQueue->ExecuteCommandLists(_countof(cmdsLists), cmdsLists);
 	FlushCommandQueue();
 
-	BoundingBox sceneBounds({ 0, 0, 0 }, { 500, 500, 500 });
+	BoundingBox sceneBounds({ 0, 0, 0 }, { 100, 100, 100 });
 	_octreeRoot = std::make_unique<OctreeNode>(sceneBounds);
 
-	for (auto& ri : _allRitems) {
-		_octreeRoot->Insert(ri.get());
+	for (auto& ri : _allRitems)
+	{
+		for (uint32_t i = 0; i < (uint32_t)ri->Instances.size(); i++)
+		{
+			_octreeRoot->Insert(ri.get(), i);
+		}
 	}
 
 	return true;
@@ -93,10 +97,11 @@ void D3DFramework::Update(const GameTimer& gt)
 	AnimateMaterials(gt);
 	AnimateLight(gt);
 
-	UpdateObjectCBs(gt);
 	UpdateMaterialCBs(gt);
 	UpdateMainPassCB(gt);
 	UpdateLightSB(gt);
+
+	UpdateInstanceData(gt);
 }
 
 void D3DFramework::Draw(const GameTimer& gt)
@@ -129,20 +134,16 @@ void D3DFramework::Draw(const GameTimer& gt)
 	_cmdList->SetDescriptorHeaps(1, srv_heaps);
 
 	auto passCB = _currFrameResource->PassCB->Resource();
-	_cmdList->SetGraphicsRootConstantBufferView(4, passCB->GetGPUVirtualAddress());
+	_cmdList->SetGraphicsRootConstantBufferView(3, passCB->GetGPUVirtualAddress());
 
 	auto tessCB = _currFrameResource->TessellationCB->Resource();
-	_cmdList->SetGraphicsRootConstantBufferView(6, tessCB->GetGPUVirtualAddress());
+	_cmdList->SetGraphicsRootConstantBufferView(5, tessCB->GetGPUVirtualAddress());
 
 	auto dispCB = _currFrameResource->DisplacementCB->Resource();
-	_cmdList->SetGraphicsRootConstantBufferView(7, dispCB->GetGPUVirtualAddress());
+	_cmdList->SetGraphicsRootConstantBufferView(6, dispCB->GetGPUVirtualAddress());
 
 	_cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST);
 	
-	_opaqueRitems.clear();
-	if (_octreeRoot) {
-		_octreeRoot->Query(_camFrustum, _opaqueRitems);
-	}
 	DrawRenderItems(_cmdList.Get(), _opaqueRitems);
 
 	_gBuffer->TransitToLightRenderingState(_cmdList.Get());
@@ -346,28 +347,6 @@ void D3DFramework::AnimateLight(const GameTimer& gt)
 	}*/
 }
 
-void D3DFramework::UpdateObjectCBs(const GameTimer& gt)
-{
-	UploadBuffer<ObjectConstants>* currObjectCB = _currFrameResource->ObjectCB.get();
-
-	for (auto& e : _allRitems)
-	{
-		if (e->NumFramesDirty > 0)
-		{
-			XMMATRIX world = XMLoadFloat4x4(&e->World);
-			XMMATRIX texTransform = XMLoadFloat4x4(&e->TexTransform);
-
-			ObjectConstants objConstants;
-			XMStoreFloat4x4(&objConstants.World, XMMatrixTranspose(world));
-			XMStoreFloat4x4(&objConstants.TexTransform, XMMatrixTranspose(texTransform));
-
-			currObjectCB->CopyData(e->ObjCBIndex, objConstants);
-
-			e->NumFramesDirty--;
-		}
-	}
-}
-
 void D3DFramework::UpdateMaterialCBs(const GameTimer& gt)
 {
 	auto currMaterialCB = _currFrameResource->MaterialCB.get();
@@ -452,6 +431,60 @@ void D3DFramework::UpdateLightSB(const GameTimer& gt)
 	currLightInfo->CopyData(0, lightInfo);
 }
 
+void D3DFramework::UpdateInstanceData(const GameTimer& gt)
+{
+	_opaqueRitems.clear();
+
+	std::vector<OctreeNode::InstanceRef> visibleInstances;
+	if (_octreeRoot)
+	{
+		_octreeRoot->Query(_camFrustum, visibleInstances);
+	}
+
+	auto currInstanceBuffer = _currFrameResource->InstanceDataSB.get();
+	int globalOffset = 0;
+
+	for (std::unique_ptr<RenderItem>& ri : _allRitems)
+	{
+		ri->VisibleInstanceCount = 0;
+		ri->InstanceOffset = globalOffset;
+	}
+
+	for (const OctreeNode::InstanceRef& ref : visibleInstances)
+	{
+		RenderItem* ri = ref.Item;
+		const InstanceData& inst = ri->Instances[ref.Index];
+
+		InstanceData gpuData;
+		XMStoreFloat4x4(&gpuData.World, XMMatrixTranspose(XMLoadFloat4x4(&inst.World)));
+		XMStoreFloat4x4(&gpuData.TexTransform, XMMatrixTranspose(XMLoadFloat4x4(&inst.TexTransform)));
+	}
+
+	std::unordered_map<RenderItem*, std::vector<uint32_t>> grouped;
+	for (const auto& ref : visibleInstances)
+	{
+		grouped[ref.Item].push_back(ref.Index);
+	}
+
+	globalOffset = 0;
+	for (auto& pair : grouped)
+	{
+		RenderItem* ri = pair.first;
+		ri->InstanceOffset = globalOffset;
+		ri->VisibleInstanceCount = (UINT)pair.second.size();
+
+		for (uint32_t idx : pair.second)
+		{
+			InstanceData data;
+			XMStoreFloat4x4(&data.World, XMMatrixTranspose(XMLoadFloat4x4(&ri->Instances[idx].World)));
+			XMStoreFloat4x4(&data.TexTransform, XMMatrixTranspose(XMLoadFloat4x4(&ri->Instances[idx].TexTransform)));
+
+			currInstanceBuffer->CopyData(globalOffset++, data);
+		}
+		_opaqueRitems.push_back(ri);
+	}
+}
+
 void D3DFramework::BuildRootSignatureGBuffer()
 {
 	CD3DX12_DESCRIPTOR_RANGE defTable;
@@ -468,11 +501,12 @@ void D3DFramework::BuildRootSignatureGBuffer()
 	slotRootParameter[1].InitAsDescriptorTable(1, &normTable, D3D12_SHADER_VISIBILITY_ALL);
 	slotRootParameter[2].InitAsDescriptorTable(1, &dispTable, D3D12_SHADER_VISIBILITY_ALL);
 
-	slotRootParameter[3].InitAsConstantBufferView(0); //b0
-	slotRootParameter[4].InitAsConstantBufferView(1); //b1
-	slotRootParameter[5].InitAsConstantBufferView(2); //b2
-	slotRootParameter[6].InitAsConstantBufferView(3); //b3
-	slotRootParameter[7].InitAsConstantBufferView(4); //b4
+	slotRootParameter[3].InitAsConstantBufferView(0); //b0 cbPass
+	slotRootParameter[4].InitAsConstantBufferView(1); //b1 cbMat
+	slotRootParameter[5].InitAsConstantBufferView(2); //b2 cbTess
+	slotRootParameter[6].InitAsConstantBufferView(3); //b3 cbDisp
+
+	slotRootParameter[7].InitAsShaderResourceView(3, 1, D3D12_SHADER_VISIBILITY_ALL); //t3
 
 	auto staticSamplers = GetStaticSamplers();
 
@@ -503,19 +537,14 @@ void D3DFramework::BuildRootSignatureLightPass()
 
 	CD3DX12_ROOT_PARAMETER slotRootParameter[3];
 
-	slotRootParameter[0].InitAsDescriptorTable(1, &texTable, D3D12_SHADER_VISIBILITY_PIXEL);
+	slotRootParameter[0].InitAsDescriptorTable(1, &texTable, D3D12_SHADER_VISIBILITY_ALL);
 
-	slotRootParameter[1].InitAsConstantBufferView(1, 0, D3D12_SHADER_VISIBILITY_ALL);
-
-	slotRootParameter[2].InitAsConstantBufferView(3, 0, D3D12_SHADER_VISIBILITY_PIXEL);
+	slotRootParameter[1].InitAsConstantBufferView(0); //b0 cbPass
+	slotRootParameter[2].InitAsConstantBufferView(1); //b1 cbLight
 
 	auto staticSamplers = GetStaticSamplers();
 
-	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(
-		3, slotRootParameter,
-		(UINT)staticSamplers.size(), staticSamplers.data(),
-		D3D12_ROOT_SIGNATURE_FLAG_NONE
-	);
+	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(3, slotRootParameter, (UINT)staticSamplers.size(), staticSamplers.data(), D3D12_ROOT_SIGNATURE_FLAG_NONE);
 
 	ComPtr<ID3DBlob> serializedRootSig = nullptr;
 	ComPtr<ID3DBlob> errorBlob = nullptr;
@@ -846,11 +875,7 @@ void D3DFramework::BuildFrameResources()
 {
 	for (int i = 0; i < NUM_FRAME_RECOURCES; ++i)
 	{
-		_frameResources.push_back(std::make_unique<FrameResource>(_d3dDevice.Get(),
-			(UINT)4,
-			(UINT)_allRitems.size(),
-			(UINT)_materials.size(),
-			(UINT)_lights.size()));
+		_frameResources.push_back(std::make_unique<FrameResource>(_d3dDevice.Get(), (UINT)4, (UINT)_materials.size(), (UINT)_lights.size()));
 	}
 }
 
@@ -859,7 +884,8 @@ void D3DFramework::BuildRenderItems()
 	_allRitems.clear();
 	_opaqueRitems.clear();
 
-	UINT objIndex = 0;
+	std::unordered_map<std::string, std::unique_ptr<RenderItem>> ritemsMap;
+
 	for (auto& objPtr : _sceneObjects)
 	{
 		SceneObject* obj = objPtr.get();
@@ -869,44 +895,63 @@ void D3DFramework::BuildRenderItems()
 
 		for (const Model::Part& part : model->Parts)
 		{
-			auto ri = std::make_unique<RenderItem>();
+			std::string matName = part.MaterialName.empty() ? "DefaultMat" : part.MaterialName;
+			std::string key = model->Mesh->Name + "_" + part.SubmeshName + "_" + matName;
 
-			auto& sub = model->Mesh->DrawArgs[part.SubmeshName];
+			if (ritemsMap.find(key) == ritemsMap.end())
+			{
+				auto ri = std::make_unique<RenderItem>();
+				auto& sub = model->Mesh->DrawArgs[part.SubmeshName];
 
-			ri->Geo = model->Mesh;
-			ri->Bounds = BoundingBox(sub.Bounds);
-			ri->UsedPso = part.SubmeshName == "opaque";
+				ri->Geo = model->Mesh;
+				ri->SubmeshName = part.SubmeshName;
+				ri->Bounds = BoundingBox(sub.Bounds);
 
-			if (!part.MaterialName.empty() && _materials.count(part.MaterialName)) { ri->Mat = _materials[part.MaterialName].get(); }
-			else if (!_materials.empty()) { ri->Mat = _materials.begin()->second.get(); }
-			else { ri->Mat = nullptr; }
+				if (_materials.count(matName))
+				{
+					ri->Mat = _materials[matName].get();
+				}
+				else if (!_materials.empty())
+				{
+					ri->Mat = _materials.begin()->second.get();
+				}
 
-			ri->IndexCount = sub.IndexCount;
-			ri->StartIndexLocation = sub.StartIndexLocation;
-			ri->BaseVertexLocation = sub.BaseVertexLocation;
+				ri->IndexCount = sub.IndexCount;
+				ri->StartIndexLocation = sub.StartIndexLocation;
+				ri->BaseVertexLocation = sub.BaseVertexLocation;
 
-			ri->World = obj->World;
-			ri->ObjCBIndex = objIndex++;
+				ri->UsedPso = (part.SubmeshName == "opaque") ? "opaque" : "opaque";
 
-			_allRitems.push_back(std::move(ri));
+				ritemsMap[key] = std::move(ri);
+			}
 
-			RenderItem* rawPtr = _allRitems.back().get();
-			_opaqueRitems.push_back(rawPtr);
+			InstanceData inst;
+			inst.World = obj->World;
+			XMStoreFloat4x4(&inst.TexTransform, XMMatrixIdentity());
+
+			ritemsMap[key]->Instances.push_back(inst);
 		}
+	}
+
+	for (auto& kv : ritemsMap)
+	{
+		_allRitems.push_back(std::move(kv.second));
+		_opaqueRitems.push_back(_allRitems.back().get());
 	}
 }
 
 void D3DFramework::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
 {
-	UINT objCBByteSize = D3DUtil::CalcConstantBufferSize(sizeof(ObjectConstants));
 	UINT matCBByteSize = D3DUtil::CalcConstantBufferSize(sizeof(MaterialConstants));
 
-	auto objectCB = _currFrameResource->ObjectCB->Resource();
 	auto matCB = _currFrameResource->MaterialCB->Resource();
 
-	for (auto ri : ritems)
+	auto instanceBuffer = _currFrameResource->InstanceDataSB->Resource();
+	UINT instanceByteSize = sizeof(InstanceData);
+
+	for (RenderItem* ri : ritems)
 	{
-		if (!ri || !ri->Mat) { continue; }
+		if (!ri || !ri->Mat || ri->VisibleInstanceCount == 0) continue;
 
 		auto vertexBuffer = ri->Geo->VertexBufferView();
 		cmdList->IASetVertexBuffers(0, 1, &vertexBuffer);
@@ -931,17 +976,17 @@ void D3DFramework::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std
 		CD3DX12_GPU_DESCRIPTOR_HANDLE dispHandle(_srvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
 		dispHandle.Offset(dispIndex, _cbvSrvDescriptorSize);
 
-		D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + ri->ObjCBIndex * objCBByteSize;
 		D3D12_GPU_VIRTUAL_ADDRESS matCBAddress = matCB->GetGPUVirtualAddress() + ri->Mat->MatCBIndex * matCBByteSize;
+		D3D12_GPU_VIRTUAL_ADDRESS instAddress = instanceBuffer->GetGPUVirtualAddress() + (ri->InstanceOffset * instanceByteSize);
 
 		cmdList->SetGraphicsRootDescriptorTable(0, diffuseHandle);
 		cmdList->SetGraphicsRootDescriptorTable(1, normalHandle);
 		cmdList->SetGraphicsRootDescriptorTable(2, dispHandle);
 
-		cmdList->SetGraphicsRootConstantBufferView(3, objCBAddress);
-		cmdList->SetGraphicsRootConstantBufferView(5, matCBAddress);
+		cmdList->SetGraphicsRootConstantBufferView(4, matCBAddress);
+		cmdList->SetGraphicsRootShaderResourceView(7, instAddress);
 
-		cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, 0);
+		cmdList->DrawIndexedInstanced(ri->IndexCount, ri->VisibleInstanceCount, ri->StartIndexLocation, ri->BaseVertexLocation, 0);
 	}
 }
 

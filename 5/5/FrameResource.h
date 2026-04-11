@@ -15,12 +15,6 @@
 
 using namespace Microsoft::WRL;
 
-struct ObjectConstants
-{
-    XMFLOAT4X4 World = MathHelper::Identity4x4();
-    XMFLOAT4X4 TexTransform = MathHelper::Identity4x4();
-};
-
 struct PassConstants
 {
     XMFLOAT4X4 View = MathHelper::Identity4x4();
@@ -73,18 +67,23 @@ struct DisplacementConstant
     float Pad[2] = { 0.0f, 0.0f };
 };
 
+struct InstanceData
+{
+    XMFLOAT4X4 World = MathHelper::Identity4x4();
+    XMFLOAT4X4 TexTransform = MathHelper::Identity4x4();
+};
+
 struct FrameResource
 {
 public:
 
-    FrameResource(ID3D12Device* device, UINT passCount, UINT objectCount, UINT materialCount, UINT lightCount);
+    FrameResource(ID3D12Device* device, UINT passCount, UINT materialCount, UINT lightCount);
     FrameResource(const FrameResource& rhs) = delete;
     FrameResource& operator=(const FrameResource& rhs) = delete;
     ~FrameResource() {}
 
     ComPtr<ID3D12CommandAllocator> CmdListAlloc;
 
-    std::unique_ptr<UploadBuffer<ObjectConstants>> ObjectCB = nullptr;
     std::unique_ptr<UploadBuffer<PassConstants>> PassCB = nullptr;
     std::unique_ptr<UploadBuffer<MaterialConstants>> MaterialCB = nullptr;
     std::unique_ptr<UploadBuffer<LightConstants>> LightSB = nullptr;
@@ -92,6 +91,8 @@ public:
 
     std::unique_ptr<UploadBuffer<TessellationConstant>> TessellationCB = nullptr;
     std::unique_ptr<UploadBuffer<DisplacementConstant>> DisplacementCB = nullptr;
+
+    std::unique_ptr<UploadBuffer<InstanceData>> InstanceDataSB = nullptr;
 
     UINT64 Fence = 0;
 };

@@ -12,6 +12,14 @@ SamplerState gsamLinearClamp : register(s3);
 SamplerState gsamAnisotropicWrap : register(s4);
 SamplerState gsamAnisotropicClamp : register(s5);
 
+struct InstanceData
+{
+    float4x4 World;
+    float4x4 TexTransform;
+};
+
+StructuredBuffer<InstanceData> gInstanceData : register(t3, space1);
+
 struct VertexIn
 {
     float3 PosL : POSITION;
@@ -26,19 +34,21 @@ struct GBufferOutput
     float4 Normal : SV_Target1;
 };
 
-VertexOut VS(VertexIn vin)
+VertexOut VS(VertexIn vin, uint instanceID : SV_InstanceID)
 {
     VertexOut vout;
     
-    float4 posW = mul(float4(vin.PosL, 1.0f), gWorld);
+    InstanceData instData = gInstanceData[instanceID];
+    
+    float4 posW = mul(float4(vin.PosL, 1.0f), instData.World);
     vout.PosW = posW.xyz;
     
-    vout.NormalW = normalize(mul(vin.NormalL, (float3x3) gWorld));
-    vout.TangentW = float4(normalize(mul(vin.TangentL.xyz, (float3x3) gWorld)), vin.TangentL.w);
+    vout.NormalW = normalize(mul(vin.NormalL, (float3x3) instData.World));
+    vout.TangentW = float4(normalize(mul(vin.TangentL.xyz, (float3x3) instData.World)), vin.TangentL.w);
 
     vout.PosH = mul(posW, gViewProj);
     
-    float4 texC = mul(float4(vin.TexC, 0.0f, 1.0f), gTexTransform);
+    float4 texC = mul(float4(vin.TexC, 0.0f, 1.0f), instData.TexTransform);
     vout.TexC = mul(texC, gMatTransform).xy;
     
     return vout;

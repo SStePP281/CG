@@ -30,13 +30,7 @@ struct DS_OUTPUT
     float2 TexC : TEXCOORD0;
 };
 
-cbuffer cbPerObject : register(b0)
-{
-    float4x4 gWorld;
-    float4x4 gTexTransform;
-};
-
-cbuffer cbPass : register(b1)
+cbuffer cbPass : register(b0)
 {
     float4x4 gView;
     float4x4 gInvView;
@@ -58,7 +52,7 @@ cbuffer cbPass : register(b1)
     int2 Pad;
 };
 
-cbuffer cbMaterial : register(b2)
+cbuffer cbMaterial : register(b1)
 {
     float4x4 gMatTransform;
     
@@ -71,14 +65,14 @@ cbuffer cbMaterial : register(b2)
     float g_MaxTessellationDistance;
 };
 
-cbuffer cbTessellation : register(b3)
+cbuffer cbTessellation : register(b2)
 {
     float gTessellationFactor;
     float gMaxTessellationDistance;
     float2 gPad;
 };
 
-cbuffer cbDisplacement : register(b4)
+cbuffer cbDisplacement : register(b3)
 {
     float gDisplacementScale;
     float gDisplacementBias;

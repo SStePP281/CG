@@ -11,7 +11,7 @@ SamplerState gsamLinearClamp : register(s3);
 SamplerState gsamAnisotropicWrap : register(s4);
 SamplerState gsamAnisotropicClamp : register(s5);
 
-cbuffer cbPass : register(b1)
+cbuffer cbPass : register(b0)
 {
     float4x4 gView;
     float4x4 gInvView;
@@ -36,7 +36,7 @@ cbuffer cbPass : register(b1)
 
 StructuredBuffer<Light> gLights : register(t3);
 
-cbuffer cbLightInfo : register(b3)
+cbuffer cbLightInfo : register(b1)
 {
     uint gLightCount;
     int3 pad;
