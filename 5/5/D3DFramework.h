@@ -28,6 +28,7 @@
 #include "ModelStruct.h"
 #include "ModelParse.h"
 #include "GBuffer.h"
+#include "ShadowMap.h"
 
 using namespace Microsoft::WRL;
 using namespace DirectX;
@@ -53,6 +54,9 @@ struct RenderItem
     std::vector<InstanceData> Instances;
     UINT VisibleInstanceCount = 0;
     UINT InstanceOffset = 0;
+
+    UINT ShadowInstanceCount = 0;
+    UINT ShadowInstanceOffset = 0;
 };
 
 class OctreeNode
@@ -210,22 +214,26 @@ private:
     void OnKeyboardInput(const GameTimer& gt);
     void UpdateCamera(const GameTimer& gt);
 
+    void ComputeSceneBounds();
+
     void AnimateMaterials(const GameTimer& gt);
     void AnimateLight(const GameTimer& gt);
     void UpdateMaterialCBs(const GameTimer& gt);
     void UpdateMainPassCB(const GameTimer& gt);
     void UpdateLightSB(const GameTimer& gt);
-
+    void UpdateShadowCB(const GameTimer& gt);
     void UpdateInstanceData(const GameTimer& gt);
 
     void BuildRootSignatureGBuffer();
     void BuildRootSignatureLightPass();
-
-    void BuildDescriptorHeaps();
-    void BuildLightSRV();
+    void BuildRootSignatureShadowPass();
 
     void BuildGBufferPSO();
     void BuildLightPassPSO();
+    void BuildShadowPassPSO();
+
+    void BuildDescriptorHeaps();
+    void BuildLightSRV();
 
     void BuildShadersAndInputLayout();
 
@@ -236,8 +244,9 @@ private:
     void BuildFrameResources();
 
     void DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
+    void DrawRenderItemsShadow(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
 
-    std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> GetStaticSamplers();
+    std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> GetStaticSamplers();
 
 private:
     void ParseMesh(const ModelParse::MeshInfo& meshData);
@@ -250,11 +259,9 @@ private:
     FrameResource* _currFrameResource = nullptr;
     int _currFrameResourceIndex = 0;
 
-    UINT _cbvSrvDescriptorSize = 0;
-
     ComPtr<ID3D12RootSignature> _rootSignatureGBuffer = nullptr;
     ComPtr<ID3D12RootSignature> _rootSignatureLightPass = nullptr;
-    ComPtr<ID3D12DescriptorHeap> _srvDescriptorHeap = nullptr;
+    ComPtr<ID3D12RootSignature> _rootSignatureShadowPass = nullptr;
 
     std::unordered_map<std::string, std::unique_ptr<MeshGeometry>> _geometries;
     std::unordered_map<std::string, std::unique_ptr<Material>> _materials;
@@ -266,6 +273,7 @@ private:
 
     std::vector<std::unique_ptr<RenderItem>> _allRitems;
     std::vector<RenderItem*> _opaqueRitems;
+    std::vector<RenderItem*> _shadowRitems;
 
     std::unordered_map<std::string, ComPtr<ID3DBlob>> _shaders;
     std::unordered_map<std::string, ComPtr<ID3D12PipelineState>> _psos;
@@ -275,6 +283,12 @@ private:
     PassConstants _mainPassCB;
 
     std::unique_ptr<GBuffer> _gBuffer;
+    std::unique_ptr<ShadowMap> _shadowMap;
+
+    UINT _lastSlot = 0;
+    UINT _gBufferSrvStart = 0;
+    UINT _lightSbSrvSlot = 0;
+    UINT _shadowSrvStart = 0;
 
     BoundingFrustum _camFrustum;
     std::unique_ptr<OctreeNode> _octreeRoot;
@@ -292,6 +306,8 @@ private:
 
     float _moveSpeed = 10.0f;
     float _rotateSpeed = 0.15f;
+
+    BoundingBox _sceneBounds;
 
     POINT _lastMousePos;
 

@@ -73,11 +73,19 @@ struct InstanceData
     XMFLOAT4X4 TexTransform = MathHelper::Identity4x4();
 };
 
+struct ShadowConstant
+{
+    XMFLOAT4X4 ViewProj = MathHelper::Identity4x4();
+    XMFLOAT4X4 ShadowTransform = MathHelper::Identity4x4();
+    XMFLOAT4 Distances = { 50.0f, 200.0f, 1000.0f, 0.0f };
+    XMFLOAT4 Padding[7];
+};
+
 struct FrameResource
 {
 public:
 
-    FrameResource(ID3D12Device* device, UINT passCount, UINT materialCount, UINT lightCount);
+    FrameResource(ID3D12Device* device, UINT passCount, UINT materialCount, UINT lightCount, UINT shadowCascadeCount);
     FrameResource(const FrameResource& rhs) = delete;
     FrameResource& operator=(const FrameResource& rhs) = delete;
     ~FrameResource() {}
@@ -93,6 +101,8 @@ public:
     std::unique_ptr<UploadBuffer<DisplacementConstant>> DisplacementCB = nullptr;
 
     std::unique_ptr<UploadBuffer<InstanceData>> InstanceDataSB = nullptr;
+
+    std::unique_ptr<UploadBuffer<ShadowConstant>> ShadowCB = nullptr;
 
     UINT64 Fence = 0;
 };

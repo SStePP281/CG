@@ -42,7 +42,7 @@ public:
 	virtual bool Initialize();
 	static LRESULT MsgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 protected:
-	virtual void CreateRtvAndDsvDescriptorHeaps();
+	virtual void CreateDescriptorHeaps();
 	virtual void OnResize();
 	virtual void Update(const GameTimer& gt) = 0;
 	virtual void Draw(const GameTimer& gt) = 0;
@@ -89,15 +89,16 @@ protected:
 	ComPtr<ID3D12Resource> _swapChainBuffer[SWAP_CHAIN_BUFFER_COUNT];
 	ComPtr<ID3D12Resource> _depthStencilBuffer;
 
+	ComPtr<ID3D12DescriptorHeap> _srvHeap;
 	ComPtr<ID3D12DescriptorHeap> _rtvHeap;
 	ComPtr<ID3D12DescriptorHeap> _dsvHeap;
 
-	D3D12_VIEWPORT _screenViewport;
-	D3D12_RECT _scissorRect;
-
 	UINT _rtvDescriptorSize = 0;
 	UINT _dsvDescriptorSize = 0;
-	UINT _cbvSrvUavDescriptorSize = 0;
+	UINT _srvDescriptorSize = 0;
+
+	D3D12_VIEWPORT _screenViewport;
+	D3D12_RECT _scissorRect;
 
 	std::wstring _mainWndCaption = L"D3D App";
 	D3D_DRIVER_TYPE _d3dDriverType = D3D_DRIVER_TYPE_HARDWARE;

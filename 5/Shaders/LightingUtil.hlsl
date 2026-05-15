@@ -1,3 +1,9 @@
+#define LIGHT_TYPE_DIRECTION 0
+#define LIGHT_TYPE_POINT 1
+#define LIGHT_TYPE_SPOT 2
+
+#define CASCADES_COUNT 3
+
 struct Light
 {
     float3 Strength;

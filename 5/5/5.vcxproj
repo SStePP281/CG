@@ -137,6 +137,7 @@
     <ClCompile Include="ModelParse.cpp" />
     <ClCompile Include="LunaDDSTextureLoader.cpp" />
     <ClCompile Include="MathHelper.cpp" />
+    <ClCompile Include="ShadowMap.cpp" />
     <ClCompile Include="WindowMain.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -153,6 +154,7 @@
     <ClInclude Include="LunaDDSTextureLoader.h" />
     <ClInclude Include="MathHelper.h" />
     <ClInclude Include="ModelStruct.h" />
+    <ClInclude Include="ShadowMap.h" />
     <ClInclude Include="UploadBuffer.h" />
     <ClInclude Include="ThrowIfFaild.h" />
   </ItemGroup>

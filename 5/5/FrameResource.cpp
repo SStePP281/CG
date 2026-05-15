@@ -1,7 +1,7 @@
 #include "FrameResource.h"
 #include "ThrowIfFaild.h"
 
-FrameResource::FrameResource(ID3D12Device* device, UINT passCount, UINT materialCount, UINT lightCount)
+FrameResource::FrameResource(ID3D12Device* device, UINT passCount, UINT materialCount, UINT lightCount, UINT shadowCascadeCount)
 {
 	ThrowIfFailed(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(CmdListAlloc.GetAddressOf())));
 
@@ -15,4 +15,6 @@ FrameResource::FrameResource(ID3D12Device* device, UINT passCount, UINT material
 	DisplacementCB = std::make_unique<UploadBuffer<DisplacementConstant>>(device, 1, true);
 
 	InstanceDataSB = std::make_unique<UploadBuffer<InstanceData>>(device, 10000, false);
+
+	ShadowCB = std::make_unique<UploadBuffer<ShadowConstant>>(device, shadowCascadeCount, true);
 }

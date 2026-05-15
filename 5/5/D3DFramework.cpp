@@ -25,37 +25,48 @@ bool D3DFramework::Initialize()
 {
 	if (!BaseD3DApp::Initialize()) { return false; }
 	ThrowIfFailed(_cmdList->Reset(_directCmdListAlloc.Get(), nullptr));
-	_cbvSrvDescriptorSize = _d3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
 	LoadModel("C:/Users/Stepan/Desktop/CG/5/Models/Model.obj");
-	LoadModel("C:/Users/Stepan/Desktop/CG/5/Models/A_LOT_OF_POLYGONS.obj");
+	//LoadModel("C:/Users/Stepan/Desktop/CG/5/Models/A_LOT_OF_POLYGONS.obj");
 	//LoadModel("C:/Users/HUAWEI/Desktop/CG/5/Models/DispTest.obj");
 
 	CreateLight();
 
-	_gBuffer = std::make_unique<GBuffer>(_d3dDevice.Get(), CLIENT_WIDTH, CLIENT_HEIGHT);
+	BuildDescriptorHeaps();
+
+	_gBufferSrvStart = _lastSlot;
+	CD3DX12_CPU_DESCRIPTOR_HANDLE gBufHandle(_srvHeap->GetCPUDescriptorHandleForHeapStart(), _gBufferSrvStart, _srvDescriptorSize);
+	_gBuffer = std::make_unique<GBuffer>(_d3dDevice.Get(), CLIENT_WIDTH, CLIENT_HEIGHT, gBufHandle, _srvDescriptorSize);
+	_lastSlot += (UINT)GBufferIndex::Count;
+
+	_shadowSrvStart = _lastSlot;
+	CD3DX12_CPU_DESCRIPTOR_HANDLE shadowHandle(_srvHeap->GetCPUDescriptorHandleForHeapStart(), _shadowSrvStart, _srvDescriptorSize);
+	_shadowMap = std::make_unique<ShadowMap>(_d3dDevice.Get(), shadowHandle, _srvDescriptorSize);
+	_lastSlot += 1;
 
 	CreateSceneObjects();
 	BuildRenderItems();
+	ComputeSceneBounds();
 
 	BuildFrameResources();
 	BuildLightSRV();
 
 	BuildRootSignatureGBuffer();
 	BuildRootSignatureLightPass();
-	BuildDescriptorHeaps();
+	BuildRootSignatureShadowPass();
+
 	BuildShadersAndInputLayout();
 
 	BuildGBufferPSO();
 	BuildLightPassPSO();
+	BuildShadowPassPSO();
 
 	ThrowIfFailed(_cmdList->Close());
 	ID3D12CommandList* cmdsLists[] = { _cmdList.Get() };
 	_cmdQueue->ExecuteCommandLists(_countof(cmdsLists), cmdsLists);
 	FlushCommandQueue();
 
-	BoundingBox sceneBounds({ 0, 0, 0 }, { 100, 100, 100 });
-	_octreeRoot = std::make_unique<OctreeNode>(sceneBounds);
+	_octreeRoot = std::make_unique<OctreeNode>(_sceneBounds);
 
 	for (auto& ri : _allRitems)
 	{
@@ -100,6 +111,7 @@ void D3DFramework::Update(const GameTimer& gt)
 	UpdateMaterialCBs(gt);
 	UpdateMainPassCB(gt);
 	UpdateLightSB(gt);
+	UpdateShadowCB(gt);
 
 	UpdateInstanceData(gt);
 }
@@ -110,10 +122,44 @@ void D3DFramework::Draw(const GameTimer& gt)
 	ThrowIfFailed(cmdListAlloc->Reset());
 	ThrowIfFailed(_cmdList->Reset(cmdListAlloc.Get(), nullptr));
 
-	_cmdList->RSSetViewports(1, &_screenViewport);
-	_cmdList->RSSetScissorRects(1, &_scissorRect);
+	//SHADOW PASS
+
+	D3D12_VIEWPORT shadowViewport = { 0, 0, SHADOW_MAP_TEXTURE_DEFAULT_SIZE, SHADOW_MAP_TEXTURE_DEFAULT_SIZE, 0.0f, 1.0f };
+	D3D12_RECT shadowScissor = { 0, 0, SHADOW_MAP_TEXTURE_DEFAULT_SIZE, SHADOW_MAP_TEXTURE_DEFAULT_SIZE };
+	
+	_cmdList->RSSetViewports(1, &shadowViewport);
+	_cmdList->RSSetScissorRects(1, &shadowScissor);
+
+	_shadowMap->TransitToOpaqueRenderingState(_cmdList.Get());
+	_shadowMap->ClearView(_cmdList.Get());
+
+	_cmdList->SetPipelineState(_psos["shadowPass"].Get());
+	_cmdList->SetGraphicsRootSignature(_rootSignatureShadowPass.Get());
+
+	ID3D12DescriptorHeap* heaps[] = { _srvHeap.Get() };
+	_cmdList->SetDescriptorHeaps(1, heaps);
+
+	_cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+	auto shadowCB = _currFrameResource->ShadowCB->Resource();
+	UINT shadowElementSize = D3DUtil::CalcConstantBufferSize(sizeof(ShadowConstant));
+	for (int k = 0; k < CASCADES_COUNT; k++)
+	{
+		D3D12_GPU_VIRTUAL_ADDRESS shadowAddr = shadowCB->GetGPUVirtualAddress() + k * shadowElementSize;
+		_cmdList->SetGraphicsRootConstantBufferView(1, shadowAddr);
+
+		auto dsv = _shadowMap->DSVs[k];
+		_cmdList->OMSetRenderTargets(0, nullptr, FALSE, &dsv);
+
+		DrawRenderItemsShadow(_cmdList.Get(), _shadowRitems);
+	}
+
+	_shadowMap->TransitToLightRenderingState(_cmdList.Get());
 
 	//GEOMETRY PASS (GBuffer)
+
+	_cmdList->RSSetViewports(1, &_screenViewport);
+	_cmdList->RSSetScissorRects(1, &_scissorRect);
 
 	_gBuffer->TransitToOpaqueRenderingState(_cmdList.Get());
 	_gBuffer->ClearView(_cmdList.Get());
@@ -129,9 +175,6 @@ void D3DFramework::Draw(const GameTimer& gt)
 
 	_cmdList->SetPipelineState(_psos["gbuffer"].Get());
 	_cmdList->SetGraphicsRootSignature(_rootSignatureGBuffer.Get());
-
-	ID3D12DescriptorHeap* srv_heaps[] = { _srvDescriptorHeap.Get() };
-	_cmdList->SetDescriptorHeaps(1, srv_heaps);
 
 	auto passCB = _currFrameResource->PassCB->Resource();
 	_cmdList->SetGraphicsRootConstantBufferView(3, passCB->GetGPUVirtualAddress());
@@ -160,18 +203,26 @@ void D3DFramework::Draw(const GameTimer& gt)
 	_cmdList->SetPipelineState(_psos["lightPass"].Get());
 	_cmdList->SetGraphicsRootSignature(_rootSignatureLightPass.Get());
 
-	ID3D12DescriptorHeap* heaps[] = {
-		_gBuffer->SRVHeap.Get(), // t0-t3
-	};
-	_cmdList->SetDescriptorHeaps(_countof(heaps), heaps);
+	CD3DX12_GPU_DESCRIPTOR_HANDLE albedoGpu(_srvHeap->GetGPUDescriptorHandleForHeapStart(), _gBufferSrvStart + 0, _srvDescriptorSize);
+	CD3DX12_GPU_DESCRIPTOR_HANDLE normalGpu(_srvHeap->GetGPUDescriptorHandleForHeapStart(), _gBufferSrvStart + 1, _srvDescriptorSize);
+	CD3DX12_GPU_DESCRIPTOR_HANDLE depthGpu (_srvHeap->GetGPUDescriptorHandleForHeapStart(), _gBufferSrvStart + 2, _srvDescriptorSize);
 
-	_cmdList->SetGraphicsRootDescriptorTable(0, _gBuffer->SRVHeap->GetGPUDescriptorHandleForHeapStart());
+	_cmdList->SetGraphicsRootDescriptorTable(0, albedoGpu);
+	_cmdList->SetGraphicsRootDescriptorTable(1, normalGpu);
+	_cmdList->SetGraphicsRootDescriptorTable(2, depthGpu);
+	_cmdList->SetGraphicsRootShaderResourceView(3, _currFrameResource->LightSB->Resource()->GetGPUVirtualAddress());
 
 	passCB = _currFrameResource->PassCB->Resource();
-	_cmdList->SetGraphicsRootConstantBufferView(1, passCB->GetGPUVirtualAddress());
+	_cmdList->SetGraphicsRootConstantBufferView(4, passCB->GetGPUVirtualAddress());
 
 	auto lightInfoCB = _currFrameResource->LightInfoCB->Resource();
-	_cmdList->SetGraphicsRootConstantBufferView(2, lightInfoCB->GetGPUVirtualAddress());
+	_cmdList->SetGraphicsRootConstantBufferView(5, lightInfoCB->GetGPUVirtualAddress());
+
+	auto shadowCBRes = _currFrameResource->ShadowCB->Resource();
+	_cmdList->SetGraphicsRootConstantBufferView(6, shadowCBRes->GetGPUVirtualAddress());
+
+	CD3DX12_GPU_DESCRIPTOR_HANDLE shadowGpu(_srvHeap->GetGPUDescriptorHandleForHeapStart(), _shadowSrvStart, _srvDescriptorSize);
+	_cmdList->SetGraphicsRootDescriptorTable(7, shadowGpu);
 
 	// Fullscreen quad
 	_cmdList->IASetVertexBuffers(0, 0, nullptr);
@@ -200,7 +251,7 @@ void D3DFramework::Draw(const GameTimer& gt)
 
 			D3D12_GPU_VIRTUAL_ADDRESS passAddr = _currFrameResource->PassCB->Resource()->GetGPUVirtualAddress() + i * passElementSize;
 
-			_cmdList->SetGraphicsRootConstantBufferView(1, passAddr);
+			_cmdList->SetGraphicsRootConstantBufferView(4, passAddr);
 			_cmdList->RSSetScissorRects(1, &scissorRects[i]);
 			_cmdList->DrawInstanced(3, 1, 0, 0);
 		}
@@ -213,7 +264,7 @@ void D3DFramework::Draw(const GameTimer& gt)
 		_mainPassCB.DebugMode = 0;
 		_currFrameResource->PassCB->CopyData(0, _mainPassCB);
 
-		_cmdList->SetGraphicsRootConstantBufferView(1, _currFrameResource->PassCB->Resource()->GetGPUVirtualAddress());
+		_cmdList->SetGraphicsRootConstantBufferView(4, _currFrameResource->PassCB->Resource()->GetGPUVirtualAddress());
 
 		_cmdList->DrawInstanced(3, 1, 0, 0);
 	}
@@ -336,15 +387,17 @@ void D3DFramework::AnimateMaterials(const GameTimer& gt)
 
 void D3DFramework::AnimateLight(const GameTimer& gt)
 {
-	/*float t = gt.TotalTime();
+	//float angle = gt.TotalTime() * 0.314f + XM_PIDIV4;
 
-	for (auto& l : _lights)
-	{
-		l.Data.Position = { sin(t) * 1.0f, 2.0f, cos(t) * 1.0f};
-		l.Data.Direction = { sin(t) * 1.0f, 1.0f, cos(t) * 1.0f };
+	//for (int i = 0; i < (int)_lights.size(); i++)
+	//{
+	//	if (_lights[i].Data.LightType != (int)LightType::Directional) { continue; }
 
-		l.NumFramesDirty = NUM_FRAME_RECOURCES;
-	}*/
+	//	XMVECTOR dir = XMVector3Normalize(XMVectorSet(cosf(angle), -sinf(angle), 0.0f, 0.0f));
+
+	//	XMStoreFloat3(&_lights[i].Data.Direction, dir);
+	//	_lights[i].NumFramesDirty = NUM_FRAME_RECOURCES;
+	//}
 }
 
 void D3DFramework::UpdateMaterialCBs(const GameTimer& gt)
@@ -431,9 +484,134 @@ void D3DFramework::UpdateLightSB(const GameTimer& gt)
 	currLightInfo->CopyData(0, lightInfo);
 }
 
+void D3DFramework::UpdateShadowCB(const GameTimer& gt)
+{
+	const float cascadeNears[] = { 1.0f,  50.0f,  200.0f };
+	const float cascadeFars[] = { 50.0f, 200.0f, 1000.0f };
+
+	XMMATRIX view = XMLoadFloat4x4(&_view);
+
+	XMMATRIX T(
+		0.5f, 0.0f, 0.0f, 0.0f,
+		0.0f, -0.5f, 0.0f, 0.0f,
+		0.0f, 0.0f, 1.0f, 0.0f,
+		0.5f, 0.5f, 0.0f, 1.0f
+	);
+
+	auto currShadowCB = _currFrameResource->ShadowCB.get();
+
+	for (int lightIdx = 0; lightIdx < (int)_lights.size(); lightIdx++)
+	{
+		if (_lights[lightIdx].Data.LightType != (int)LightType::Directional) { continue; }
+
+		XMVECTOR lightDir = XMVector3Normalize(XMLoadFloat3(&_lights[lightIdx].Data.Direction));
+
+		XMVECTOR up = XMVectorSet(0, 1, 0, 0);
+		if (fabsf(XMVectorGetY(lightDir)) > 0.99f) { up = XMVectorSet(1, 0, 0, 0); }
+
+		for (int cascade = 0; cascade < CASCADES_COUNT; cascade++)
+		{
+			float nearZ = cascadeNears[cascade];
+			float farZ = cascadeFars[cascade];
+
+			XMMATRIX cascadeProj = XMMatrixPerspectiveFovLH(0.25f * MathHelper::Pi, AspectRatio(), nearZ, farZ);
+
+			XMMATRIX invVP = XMMatrixInverse(nullptr, XMMatrixMultiply(view, cascadeProj));
+
+			XMVECTOR corners[8];
+			int idx = 0;
+			for (int x = 0; x < 2; x++)
+			{
+				for (int y = 0; y < 2; y++)
+				{
+					for (int z = 0; z < 2; z++)
+					{
+						XMVECTOR pt = XMVectorSet(2.0f * x - 1.0f, 2.0f * y - 1.0f, (float)z, 1.0f);
+						pt = XMVector4Transform(pt, invVP);
+						corners[idx++] = pt / XMVectorGetW(pt);
+					}
+				}
+			}
+
+			XMVECTOR center = XMVectorZero();
+			for (int i = 0; i < 8; i++) { center += corners[i]; }
+			center /= 8.0f;
+
+			XMMATRIX lightView = XMMatrixLookAtLH(center - lightDir * farZ, center, up);
+
+			float minX = FLT_MAX, maxX = -FLT_MAX;
+			float minY = FLT_MAX, maxY = -FLT_MAX;
+			float minZ = FLT_MAX, maxZ = -FLT_MAX;
+
+			for (int i = 0; i < 8; i++)
+			{
+				XMVECTOR v = XMVector3TransformCoord(corners[i], lightView);
+				float vx = XMVectorGetX(v), vy = XMVectorGetY(v), vz = XMVectorGetZ(v);
+				minX = std::min(minX, vx); maxX = std::max(maxX, vx);
+				minY = std::min(minY, vy); maxY = std::max(maxY, vy);
+				minZ = std::min(minZ, vz); maxZ = std::max(maxZ, vz);
+			}
+
+			float zMult = 10.0f;
+			minZ = (minZ < 0) ? minZ * zMult : minZ / zMult;
+			maxZ = (maxZ < 0) ? maxZ / zMult : maxZ * zMult;
+
+			float worldTexelSizeX = (maxX - minX) / SHADOW_MAP_TEXTURE_DEFAULT_SIZE;
+			float worldTexelSizeY = (maxY - minY) / SHADOW_MAP_TEXTURE_DEFAULT_SIZE;
+			minX = floorf(minX / worldTexelSizeX) * worldTexelSizeX;
+			maxX = floorf(maxX / worldTexelSizeX) * worldTexelSizeX;
+			minY = floorf(minY / worldTexelSizeY) * worldTexelSizeY;
+			maxY = floorf(maxY / worldTexelSizeY) * worldTexelSizeY;
+
+			XMMATRIX lightProj = XMMatrixOrthographicOffCenterLH(minX, maxX, minY, maxY, minZ, maxZ);
+
+			XMMATRIX lightViewProj = XMMatrixMultiply(lightView, lightProj);
+
+			XMVECTOR originNDC = XMVector3TransformCoord(XMVectorZero(), lightViewProj);
+			float texelSizeNDC = 2.0f / SHADOW_MAP_TEXTURE_DEFAULT_SIZE;
+			float snapX = floorf(XMVectorGetX(originNDC) / texelSizeNDC) * texelSizeNDC;
+			float snapY = floorf(XMVectorGetY(originNDC) / texelSizeNDC) * texelSizeNDC;
+			float dx = XMVectorGetX(originNDC) - snapX;
+			float dy = XMVectorGetY(originNDC) - snapY;
+			lightViewProj = XMMatrixMultiply(lightViewProj, XMMatrixTranslation(-dx, -dy, 0.0f));
+
+			ShadowConstant sc;
+			XMStoreFloat4x4(&sc.ViewProj, XMMatrixTranspose(lightViewProj));
+			XMStoreFloat4x4(&sc.ShadowTransform, XMMatrixTranspose(XMMatrixMultiply(lightViewProj, T)));
+			sc.Distances = { cascadeFars[0], cascadeFars[1], cascadeFars[2], 0.0f };
+
+			currShadowCB->CopyData(cascade, sc);
+		}
+
+		break;
+	}
+}
+
 void D3DFramework::UpdateInstanceData(const GameTimer& gt)
 {
 	_opaqueRitems.clear();
+	_shadowRitems.clear();
+
+	auto currInstanceBuffer = _currFrameResource->InstanceDataSB.get();
+
+	int shadowOffset = 0;
+
+	for (auto& riPtr : _allRitems)
+	{
+		RenderItem* ri = riPtr.get();
+		ri->ShadowInstanceOffset = (UINT)shadowOffset;
+		ri->ShadowInstanceCount = (UINT)ri->Instances.size();
+
+		for (const auto& inst : ri->Instances)
+		{
+			InstanceData data;
+			XMStoreFloat4x4(&data.World, XMMatrixTranspose(XMLoadFloat4x4(&inst.World)));
+			XMStoreFloat4x4(&data.TexTransform, XMMatrixTranspose(XMLoadFloat4x4(&inst.TexTransform)));
+			currInstanceBuffer->CopyData(shadowOffset++, data);
+		}
+
+		if (ri->ShadowInstanceCount > 0) { _shadowRitems.push_back(ri); }
+	}
 
 	std::vector<OctreeNode::InstanceRef> visibleInstances;
 	if (_octreeRoot)
@@ -441,23 +619,10 @@ void D3DFramework::UpdateInstanceData(const GameTimer& gt)
 		_octreeRoot->Query(_camFrustum, visibleInstances);
 	}
 
-	auto currInstanceBuffer = _currFrameResource->InstanceDataSB.get();
-	int globalOffset = 0;
-
-	for (std::unique_ptr<RenderItem>& ri : _allRitems)
+	for (auto& riPtr : _allRitems)
 	{
-		ri->VisibleInstanceCount = 0;
-		ri->InstanceOffset = globalOffset;
-	}
-
-	for (const OctreeNode::InstanceRef& ref : visibleInstances)
-	{
-		RenderItem* ri = ref.Item;
-		const InstanceData& inst = ri->Instances[ref.Index];
-
-		InstanceData gpuData;
-		XMStoreFloat4x4(&gpuData.World, XMMatrixTranspose(XMLoadFloat4x4(&inst.World)));
-		XMStoreFloat4x4(&gpuData.TexTransform, XMMatrixTranspose(XMLoadFloat4x4(&inst.TexTransform)));
+		riPtr->VisibleInstanceCount = 0;
+		riPtr->InstanceOffset = (UINT)shadowOffset;
 	}
 
 	std::unordered_map<RenderItem*, std::vector<uint32_t>> grouped;
@@ -466,11 +631,11 @@ void D3DFramework::UpdateInstanceData(const GameTimer& gt)
 		grouped[ref.Item].push_back(ref.Index);
 	}
 
-	globalOffset = 0;
+	int cameraOffset = shadowOffset;
 	for (auto& pair : grouped)
 	{
 		RenderItem* ri = pair.first;
-		ri->InstanceOffset = globalOffset;
+		ri->InstanceOffset = (UINT)cameraOffset;
 		ri->VisibleInstanceCount = (UINT)pair.second.size();
 
 		for (uint32_t idx : pair.second)
@@ -478,9 +643,9 @@ void D3DFramework::UpdateInstanceData(const GameTimer& gt)
 			InstanceData data;
 			XMStoreFloat4x4(&data.World, XMMatrixTranspose(XMLoadFloat4x4(&ri->Instances[idx].World)));
 			XMStoreFloat4x4(&data.TexTransform, XMMatrixTranspose(XMLoadFloat4x4(&ri->Instances[idx].TexTransform)));
-
-			currInstanceBuffer->CopyData(globalOffset++, data);
+			currInstanceBuffer->CopyData(cameraOffset++, data);
 		}
+
 		_opaqueRitems.push_back(ri);
 	}
 }
@@ -532,24 +697,28 @@ void D3DFramework::BuildRootSignatureGBuffer()
 
 void D3DFramework::BuildRootSignatureLightPass()
 {
-	CD3DX12_DESCRIPTOR_RANGE texTable;
-	texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 4, 0);
+	CD3DX12_DESCRIPTOR_RANGE albedoRange; albedoRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0); // t0
+	CD3DX12_DESCRIPTOR_RANGE normalRange; normalRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1); // t1
+	CD3DX12_DESCRIPTOR_RANGE depthRange;  depthRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 2);  // t2
+	CD3DX12_DESCRIPTOR_RANGE shadowRange; shadowRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 4); // t4
 
-	CD3DX12_ROOT_PARAMETER slotRootParameter[3];
-
-	slotRootParameter[0].InitAsDescriptorTable(1, &texTable, D3D12_SHADER_VISIBILITY_ALL);
-
-	slotRootParameter[1].InitAsConstantBufferView(0); //b0 cbPass
-	slotRootParameter[2].InitAsConstantBufferView(1); //b1 cbLight
+	CD3DX12_ROOT_PARAMETER slotRootParameter[8];
+	slotRootParameter[0].InitAsDescriptorTable(1, &albedoRange); // Albedo    t0
+	slotRootParameter[1].InitAsDescriptorTable(1, &normalRange); // Normal    t1
+	slotRootParameter[2].InitAsDescriptorTable(1, &depthRange);  // Depth     t2
+	slotRootParameter[3].InitAsShaderResourceView(3);            // LightSB   t3
+	slotRootParameter[4].InitAsConstantBufferView(0);            // PassCB    b0
+	slotRootParameter[5].InitAsConstantBufferView(1);            // LightInfo b1
+	slotRootParameter[6].InitAsConstantBufferView(2);            // ShadowCB  b2
+	slotRootParameter[7].InitAsDescriptorTable(1, &shadowRange); // ShadowMap t4
 
 	auto staticSamplers = GetStaticSamplers();
 
-	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(3, slotRootParameter, (UINT)staticSamplers.size(), staticSamplers.data(), D3D12_ROOT_SIGNATURE_FLAG_NONE);
+	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(8, slotRootParameter, (UINT)staticSamplers.size(), staticSamplers.data(), D3D12_ROOT_SIGNATURE_FLAG_NONE);
 
 	ComPtr<ID3DBlob> serializedRootSig = nullptr;
 	ComPtr<ID3DBlob> errorBlob = nullptr;
-	HRESULT hr = D3D12SerializeRootSignature(&rootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1,
-		serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
+	HRESULT hr = D3D12SerializeRootSignature(&rootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1, serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
 
 	if (errorBlob != nullptr)
 		OutputDebugStringA((char*)errorBlob->GetBufferPointer());
@@ -561,38 +730,56 @@ void D3DFramework::BuildRootSignatureLightPass()
 		IID_PPV_ARGS(&_rootSignatureLightPass)));
 }
 
+void D3DFramework::BuildRootSignatureShadowPass()
+{
+	CD3DX12_ROOT_PARAMETER slotRootParameter[2];
+	slotRootParameter[0].InitAsShaderResourceView(0, 1);
+	slotRootParameter[1].InitAsConstantBufferView(0);
+
+	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(2, slotRootParameter, 0, 0, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
+	ComPtr<ID3DBlob> serializedRootSig = nullptr;
+	ComPtr<ID3DBlob> errorBlob = nullptr;
+	HRESULT hr = D3D12SerializeRootSignature(&rootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1, serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
+
+	if (errorBlob != nullptr)
+	{
+		OutputDebugStringA((char*)errorBlob->GetBufferPointer());
+	}
+
+	ThrowIfFailed(hr);
+
+	ThrowIfFailed(_d3dDevice->CreateRootSignature(0,
+		serializedRootSig->GetBufferPointer(),
+		serializedRootSig->GetBufferSize(),
+		IID_PPV_ARGS(&_rootSignatureShadowPass)
+	));
+}
+
 void D3DFramework::BuildDescriptorHeaps()
 {
-	UINT numTextures = (UINT)_textures.size();
-	D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
-	srvHeapDesc.NumDescriptors = numTextures > 0 ? numTextures : 1;
-	srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-	srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-	ThrowIfFailed(_d3dDevice->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&_srvDescriptorHeap)));
-
-	CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(_srvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
-
 	std::vector<Texture*> orderList;
 	for (auto& kv : _textures) { orderList.push_back(kv.second.get()); }
-
 	std::sort(orderList.begin(), orderList.end(), [](Texture* a, Texture* b) { return a->SrvHeapIndex < b->SrvHeapIndex; });
+
+	CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(_srvHeap->GetCPUDescriptorHandleForHeapStart());
 
 	for (auto& tex : orderList)
 	{
 		ComPtr<ID3D12Resource> res = tex->Resource;
-
 		D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
 		srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
 		srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
 		srvDesc.Texture2D.MostDetailedMip = 0;
-		srvDesc.Texture2D.MipLevels = (res != nullptr) ? (UINT)res->GetDesc().MipLevels : 1;
-		srvDesc.Format = (res != nullptr) ? res->GetDesc().Format : DXGI_FORMAT_R8G8B8A8_UNORM;
+		srvDesc.Texture2D.MipLevels = res ? (UINT)res->GetDesc().MipLevels : 1;
+		srvDesc.Format = res ? res->GetDesc().Format : DXGI_FORMAT_R8G8B8A8_UNORM;
 		srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
 
 		_d3dDevice->CreateShaderResourceView(res.Get(), &srvDesc, hDescriptor);
-
-		hDescriptor.Offset(1, _cbvSrvDescriptorSize);
+		hDescriptor.Offset(1, _srvDescriptorSize);
 	}
+
+	_lastSlot = (UINT)orderList.size();
 }
 
 void D3DFramework::BuildLightSRV()
@@ -606,8 +793,9 @@ void D3DFramework::BuildLightSRV()
 	srvDesc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
 	srvDesc.Format = DXGI_FORMAT_UNKNOWN;
 
-	D3D12_CPU_DESCRIPTOR_HANDLE handle = _gBuffer->SRVHeap->GetCPUDescriptorHandleForHeapStart();
-	CD3DX12_CPU_DESCRIPTOR_HANDLE cpuHandle(handle, 3, _d3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV));
+	_lightSbSrvSlot = _lastSlot;
+	CD3DX12_CPU_DESCRIPTOR_HANDLE cpuHandle(_srvHeap->GetCPUDescriptorHandleForHeapStart(), _lightSbSrvSlot, _srvDescriptorSize);
+	_lastSlot += 1;
 
 	_d3dDevice->CreateShaderResourceView(_frameResources[0]->LightSB->Resource(), &srvDesc, cpuHandle);
 }
@@ -709,6 +897,38 @@ void D3DFramework::BuildLightPassPSO()
 	ThrowIfFailed(_d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&_psos["lightPass"])));
 }
 
+void D3DFramework::BuildShadowPassPSO()
+{
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
+	ZeroMemory(&psoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
+
+	psoDesc.InputLayout = { _inputLayout.data(), (UINT)_inputLayout.size() };
+	psoDesc.pRootSignature = _rootSignatureShadowPass.Get();
+	psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+
+	psoDesc.VS =
+	{
+		reinterpret_cast<BYTE*>(_shaders["shadowVS"]->GetBufferPointer()),
+		_shaders["shadowVS"]->GetBufferSize()
+	};
+
+	psoDesc.SampleMask = UINT_MAX;
+	psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+	psoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+	psoDesc.RasterizerState.DepthBias = 5000;
+	psoDesc.RasterizerState.SlopeScaledDepthBias = 1.5f;
+	psoDesc.RasterizerState.DepthBiasClamp = 0.0f;
+
+	psoDesc.NumRenderTargets = 0;
+	psoDesc.SampleDesc.Count = _4xMsaaState ? 4 : 1;
+	psoDesc.SampleDesc.Quality = _4xMsaaState ? (_4xMsaaQuality - 1) : 0;
+
+	psoDesc.RTVFormats[0] = DXGI_FORMAT_UNKNOWN;
+	psoDesc.DSVFormat = _depthStencilFormat;
+
+	ThrowIfFailed(_d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&_psos["shadowPass"])));
+}
+
 void D3DFramework::BuildShadersAndInputLayout()
 {
 	_shaders["gbufferVS"] = D3DUtil::CompileShader(L"C:/Users/Stepan/Desktop/CG/5/Shaders/GBuffer.hlsl", nullptr, "VS", "vs_5_1");
@@ -720,6 +940,8 @@ void D3DFramework::BuildShadersAndInputLayout()
 	_shaders["lightVS"] = D3DUtil::CompileShader(L"C:/Users/Stepan/Desktop/CG/5/Shaders/LightPass.hlsl", nullptr, "VS", "vs_5_1");
 	_shaders["lightPS"] = D3DUtil::CompileShader(L"C:/Users/Stepan/Desktop/CG/5/Shaders/LightPass.hlsl", nullptr, "PS", "ps_5_1");
 
+	_shaders["shadowVS"] = D3DUtil::CompileShader(L"C:/Users/Stepan/Desktop/CG/5/Shaders/Shadow.hlsl", nullptr, "VS", "vs_5_1");
+
 	_inputLayout =
 	{
 		{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT,    0, 0,  D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
@@ -729,9 +951,59 @@ void D3DFramework::BuildShadersAndInputLayout()
 	};
 }
 
+void D3DFramework::ComputeSceneBounds()
+{
+	XMFLOAT3 minPt = { FLT_MAX,  FLT_MAX,  FLT_MAX };
+	XMFLOAT3 maxPt = { -FLT_MAX, -FLT_MAX, -FLT_MAX };
+
+	for (auto& ri : _allRitems)
+	{
+		for (auto& inst : ri->Instances)
+		{
+			BoundingBox worldBounds;
+			XMMATRIX world = XMLoadFloat4x4(&inst.World);
+			ri->Bounds.Transform(worldBounds, world);
+
+			XMFLOAT3 bMin =
+			{
+				worldBounds.Center.x - worldBounds.Extents.x,
+				worldBounds.Center.y - worldBounds.Extents.y,
+				worldBounds.Center.z - worldBounds.Extents.z
+			};
+			XMFLOAT3 bMax =
+			{
+				worldBounds.Center.x + worldBounds.Extents.x,
+				worldBounds.Center.y + worldBounds.Extents.y,
+				worldBounds.Center.z + worldBounds.Extents.z
+			};
+
+			minPt.x = std::min(minPt.x, bMin.x);
+			minPt.y = std::min(minPt.y, bMin.y);
+			minPt.z = std::min(minPt.z, bMin.z);
+			maxPt.x = std::max(maxPt.x, bMax.x);
+			maxPt.y = std::max(maxPt.y, bMax.y);
+			maxPt.z = std::max(maxPt.z, bMax.z);
+		}
+	}
+
+	_sceneBounds.Center =
+	{
+		(minPt.x + maxPt.x) * 0.5f,
+		(minPt.y + maxPt.y) * 0.5f,
+		(minPt.z + maxPt.z) * 0.5f
+	};
+
+	_sceneBounds.Extents =
+	{
+		(maxPt.x - minPt.x) * 0.5f,
+		(maxPt.y - minPt.y) * 0.5f,
+		(maxPt.z - minPt.z) * 0.5f
+	};
+}
+
 void D3DFramework::CreateLight()
 {
-	constexpr int LIGHT_COUNT = 10;
+	constexpr int LIGHT_COUNT = 0;
 
 	auto RandomFloat = [&](float min, float max) -> float
 		{
@@ -743,9 +1015,9 @@ void D3DFramework::CreateLight()
 	{
 		Light dirLight = {};
 
-		dirLight.Data.Position = { 0.f, 0.f, 0.f };
+		dirLight.Data.Position = { 0.0f, 5.0f, 0.0f };
 
-		XMFLOAT3 dir = { -0.5f, -1.f, 0.3f };
+		XMFLOAT3 dir = { 1.0f, -1.0f, 0.0f };
 		XMStoreFloat3(&dir, XMVector3Normalize(XMLoadFloat3(&dir)));
 		dirLight.Data.Direction = dir;
 
@@ -873,9 +1145,18 @@ void D3DFramework::CreateSceneObjects()
 
 void D3DFramework::BuildFrameResources()
 {
+	int dirLightCount = 0;
+	for (int i = 0; i < _lights.size(); i++)
+	{
+		if (_lights[i].Data.LightType == (int)LightType::Directional)
+		{
+			dirLightCount++;
+		}
+	}
+
 	for (int i = 0; i < NUM_FRAME_RECOURCES; ++i)
 	{
-		_frameResources.push_back(std::make_unique<FrameResource>(_d3dDevice.Get(), (UINT)4, (UINT)_materials.size(), (UINT)_lights.size()));
+		_frameResources.push_back(std::make_unique<FrameResource>(_d3dDevice.Get(), (UINT)4, (UINT)_materials.size(), (UINT)_lights.size(), dirLightCount * CASCADES_COUNT));
 	}
 }
 
@@ -951,7 +1232,7 @@ void D3DFramework::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std
 
 	for (RenderItem* ri : ritems)
 	{
-		if (!ri || !ri->Mat || ri->VisibleInstanceCount == 0) continue;
+		if (!ri || !ri->Mat || ri->VisibleInstanceCount == 0) { continue; }
 
 		auto vertexBuffer = ri->Geo->VertexBufferView();
 		cmdList->IASetVertexBuffers(0, 1, &vertexBuffer);
@@ -967,14 +1248,9 @@ void D3DFramework::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std
 		if (normalIndex < 0) { normalIndex = 0; }
 		if (dispIndex < 0) { dispIndex = 0; }
 
-		CD3DX12_GPU_DESCRIPTOR_HANDLE diffuseHandle(_srvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
-		diffuseHandle.Offset(diffuseIndex, _cbvSrvDescriptorSize);
-
-		CD3DX12_GPU_DESCRIPTOR_HANDLE normalHandle(_srvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
-		normalHandle.Offset(normalIndex, _cbvSrvDescriptorSize);
-
-		CD3DX12_GPU_DESCRIPTOR_HANDLE dispHandle(_srvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
-		dispHandle.Offset(dispIndex, _cbvSrvDescriptorSize);
+		CD3DX12_GPU_DESCRIPTOR_HANDLE diffuseHandle(_srvHeap->GetGPUDescriptorHandleForHeapStart(), diffuseIndex, _srvDescriptorSize);
+		CD3DX12_GPU_DESCRIPTOR_HANDLE normalHandle (_srvHeap->GetGPUDescriptorHandleForHeapStart(), normalIndex,  _srvDescriptorSize);
+		CD3DX12_GPU_DESCRIPTOR_HANDLE dispHandle (_srvHeap->GetGPUDescriptorHandleForHeapStart(), dispIndex,    _srvDescriptorSize);
 
 		D3D12_GPU_VIRTUAL_ADDRESS matCBAddress = matCB->GetGPUVirtualAddress() + ri->Mat->MatCBIndex * matCBByteSize;
 		D3D12_GPU_VIRTUAL_ADDRESS instAddress = instanceBuffer->GetGPUVirtualAddress() + (ri->InstanceOffset * instanceByteSize);
@@ -990,7 +1266,29 @@ void D3DFramework::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std
 	}
 }
 
-std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> D3DFramework::GetStaticSamplers()
+void D3DFramework::DrawRenderItemsShadow(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
+{
+	auto instanceBuffer = _currFrameResource->InstanceDataSB->Resource();
+	UINT instanceByteSize = sizeof(InstanceData);
+
+	for (RenderItem* ri : ritems)
+	{
+		if (!ri || ri->ShadowInstanceCount == 0) { continue; }
+
+		auto vertexBuffer = ri->Geo->VertexBufferView();
+		cmdList->IASetVertexBuffers(0, 1, &vertexBuffer);
+
+		auto indexBuffer = ri->Geo->IndexBufferView();
+		cmdList->IASetIndexBuffer(&indexBuffer);
+
+		D3D12_GPU_VIRTUAL_ADDRESS instAddress = instanceBuffer->GetGPUVirtualAddress() + (ri->ShadowInstanceOffset * instanceByteSize);
+		cmdList->SetGraphicsRootShaderResourceView(0, instAddress);
+
+		cmdList->DrawIndexedInstanced(ri->IndexCount, ri->ShadowInstanceCount, ri->StartIndexLocation, ri->BaseVertexLocation, 0);
+	}
+}
+
+std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> D3DFramework::GetStaticSamplers()
 {
 	const CD3DX12_STATIC_SAMPLER_DESC pointWrap(
 		0, // shaderRegister
@@ -1038,10 +1336,21 @@ std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> D3DFramework::GetStaticSamplers
 		0.0f,                              // mipLODBias
 		8);                                // maxAnisotropy
 
+	const CD3DX12_STATIC_SAMPLER_DESC shadow(
+		6,
+		D3D12_FILTER_COMPARISON_MIN_MAG_LINEAR_MIP_POINT,
+		D3D12_TEXTURE_ADDRESS_MODE_BORDER,
+		D3D12_TEXTURE_ADDRESS_MODE_BORDER,
+		D3D12_TEXTURE_ADDRESS_MODE_BORDER,
+		0.0f,
+		16,
+		D3D12_COMPARISON_FUNC_LESS_EQUAL,
+		D3D12_STATIC_BORDER_COLOR_OPAQUE_BLACK);
+
 	return {
 		pointWrap, pointClamp,
 		linearWrap, linearClamp,
-		anisotropicWrap, anisotropicClamp };
+		anisotropicWrap, anisotropicClamp, shadow };
 }
 
 void D3DFramework::ParseMesh(const ModelParse::MeshInfo& meshData)
