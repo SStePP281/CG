@@ -15,6 +15,20 @@
 #include "WICTextureLoader.h"
 #include <ResourceUploadBatch.h>
 
+#define HOME 0
+
+#if HOME == 1
+
+const std::string LOCAL_PATH = "C:/Users/Stepan/Desktop/CG/5/";
+const std::wstring LOCAL_PATH_W = L"C:/Users/Stepan/Desktop/CG/5/";
+
+#else
+
+const std::string LOCAL_PATH = "C:/Users/HUAWEI/Desktop/CG/5/";
+const std::wstring LOCAL_PATH_W = L"C:/Users/HUAWEI/Desktop/CG/5/";
+
+#endif // HOME
+
 using namespace DirectX;
 
 D3DFramework::D3DFramework(HINSTANCE hInstance) : BaseD3DApp(hInstance) {}
@@ -26,7 +40,7 @@ bool D3DFramework::Initialize()
 	if (!BaseD3DApp::Initialize()) { return false; }
 	ThrowIfFailed(_cmdList->Reset(_directCmdListAlloc.Get(), nullptr));
 
-	LoadModel("C:/Users/Stepan/Desktop/CG/5/Models/Model.obj");
+	LoadModel(LOCAL_PATH + "Models/Model.obj");
 	//LoadModel("C:/Users/Stepan/Desktop/CG/5/Models/A_LOT_OF_POLYGONS.obj");
 	//LoadModel("C:/Users/HUAWEI/Desktop/CG/5/Models/DispTest.obj");
 
@@ -231,17 +245,11 @@ void D3DFramework::Draw(const GameTimer& gt)
 
 	if (_isDebugMode)
 	{
-		D3D12_RECT scissorRects[4] =
-		{
-			{ 0, 0, CLIENT_WIDTH / 2, CLIENT_HEIGHT / 2 },
-			{ CLIENT_WIDTH / 2, 0, CLIENT_WIDTH, CLIENT_HEIGHT / 2 },
-			{ 0, CLIENT_HEIGHT / 2, CLIENT_WIDTH / 2, CLIENT_HEIGHT },
-			{ CLIENT_WIDTH / 2, CLIENT_HEIGHT / 2, CLIENT_WIDTH, CLIENT_HEIGHT }
-		};
+		std::vector<D3D12_RECT> scissorRects = BuildScissorRects(MAX_DEBUG_LAYER_COUNT, CLIENT_WIDTH, CLIENT_HEIGHT);
 
 		UINT passElementSize = D3DUtil::CalcConstantBufferSize(sizeof(PassConstants));
 
-		for (int i = 0; i < 4; i++)
+		for (int i = 0; i < MAX_DEBUG_LAYER_COUNT; i++)
 		{
 			PassConstants debugCB = _mainPassCB;
 			debugCB.DebugMode = 1;
@@ -931,16 +939,16 @@ void D3DFramework::BuildShadowPassPSO()
 
 void D3DFramework::BuildShadersAndInputLayout()
 {
-	_shaders["gbufferVS"] = D3DUtil::CompileShader(L"C:/Users/Stepan/Desktop/CG/5/Shaders/GBuffer.hlsl", nullptr, "VS", "vs_5_1");
-	_shaders["gbufferPS"] = D3DUtil::CompileShader(L"C:/Users/Stepan/Desktop/CG/5/Shaders/GBuffer.hlsl", nullptr, "PS", "ps_5_1");
+	_shaders["gbufferVS"] = D3DUtil::CompileShader(LOCAL_PATH_W + L"Shaders/GBuffer.hlsl", nullptr, "VS", "vs_5_1");
+	_shaders["gbufferPS"] = D3DUtil::CompileShader(LOCAL_PATH_W + L"Shaders/GBuffer.hlsl", nullptr, "PS", "ps_5_1");
 
-	_shaders["gbufferHS"] = D3DUtil::CompileShader(L"C:/Users/Stepan/Desktop/CG/5/Shaders/GBufferHS.hlsl", nullptr, "HS", "hs_5_1");
-	_shaders["gbufferDS"] = D3DUtil::CompileShader(L"C:/Users/Stepan/Desktop/CG/5/Shaders/GBufferDS.hlsl", nullptr, "DS", "ds_5_1");
+	_shaders["gbufferHS"] = D3DUtil::CompileShader(LOCAL_PATH_W + L"Shaders/GBufferHS.hlsl", nullptr, "HS", "hs_5_1");
+	_shaders["gbufferDS"] = D3DUtil::CompileShader(LOCAL_PATH_W + L"Shaders/GBufferDS.hlsl", nullptr, "DS", "ds_5_1");
 
-	_shaders["lightVS"] = D3DUtil::CompileShader(L"C:/Users/Stepan/Desktop/CG/5/Shaders/LightPass.hlsl", nullptr, "VS", "vs_5_1");
-	_shaders["lightPS"] = D3DUtil::CompileShader(L"C:/Users/Stepan/Desktop/CG/5/Shaders/LightPass.hlsl", nullptr, "PS", "ps_5_1");
+	_shaders["lightVS"] = D3DUtil::CompileShader(LOCAL_PATH_W + L"Shaders/LightPass.hlsl", nullptr, "VS", "vs_5_1");
+	_shaders["lightPS"] = D3DUtil::CompileShader(LOCAL_PATH_W + L"Shaders/LightPass.hlsl", nullptr, "PS", "ps_5_1");
 
-	_shaders["shadowVS"] = D3DUtil::CompileShader(L"C:/Users/Stepan/Desktop/CG/5/Shaders/Shadow.hlsl", nullptr, "VS", "vs_5_1");
+	_shaders["shadowVS"] = D3DUtil::CompileShader(LOCAL_PATH_W + L"Shaders/Shadow.hlsl", nullptr, "VS", "vs_5_1");
 
 	_inputLayout =
 	{
@@ -1102,7 +1110,7 @@ void D3DFramework::CreateSceneObjects()
 
 	for (auto& model : _models)
 	{
-		if (model.second->Mesh->Name == "C:/Users/Stepan/Desktop/CG/5/Models/A_LOT_OF_POLYGONS.obj")
+		if (model.second->Mesh->Name == LOCAL_PATH + "Models / A_LOT_OF_POLYGONS.obj")
 		{
 			XMINT3 gridInstanceCount = XMINT3(10, 10, 10);
 			float spacing = 1.0f;
@@ -1156,7 +1164,7 @@ void D3DFramework::BuildFrameResources()
 
 	for (int i = 0; i < NUM_FRAME_RECOURCES; ++i)
 	{
-		_frameResources.push_back(std::make_unique<FrameResource>(_d3dDevice.Get(), (UINT)4, (UINT)_materials.size(), (UINT)_lights.size(), dirLightCount * CASCADES_COUNT));
+		_frameResources.push_back(std::make_unique<FrameResource>(_d3dDevice.Get(), (UINT)MAX_DEBUG_LAYER_COUNT, (UINT)_materials.size(), (UINT)_lights.size(), dirLightCount * CASCADES_COUNT));
 	}
 }
 
@@ -1432,7 +1440,7 @@ void D3DFramework::LoadTextures(const ModelParse::MeshInfo& meshData)
 		{
 			auto tex = std::make_unique<Texture>();
 			tex->Name = texName;
-			tex->Filename = L"C:/Users/Stepan/Desktop/CG/5/DefaultTextures/" + std::wstring(texName.begin(), texName.end());
+			tex->Filename = LOCAL_PATH_W + L"DefaultTextures/" + std::wstring(texName.begin(), texName.end());
 
 			ResourceUploadBatch resourceUpload(_d3dDevice.Get());
 			resourceUpload.Begin();
@@ -1469,7 +1477,7 @@ void D3DFramework::LoadTextures(const ModelParse::MeshInfo& meshData)
 
 			auto tex = std::make_unique<Texture>();
 			tex->Name = texName;
-			tex->Filename = L"C:/Users/Stepan/Desktop/CG/5/Textures/" + std::wstring(texName.begin(), texName.end());
+			tex->Filename = LOCAL_PATH_W + L"Textures/" + std::wstring(texName.begin(), texName.end());
 
 			ResourceUploadBatch resourceUpload(_d3dDevice.Get());
 			resourceUpload.Begin();

@@ -34,6 +34,7 @@ using namespace Microsoft::WRL;
 using namespace DirectX;
 
 constexpr int NUM_FRAME_RECOURCES = 3;
+constexpr int MAX_DEBUG_LAYER_COUNT = 5;
 
 struct RenderItem
 {
@@ -313,6 +314,34 @@ private:
 
 private:
     bool _isDebugMode = false;
+
+    std::vector<D3D12_RECT> BuildScissorRects(int K, int width, int height)
+    {
+        int cols = (int)ceilf(sqrtf((float)K));
+        int rows = (int)ceilf((float)K / cols);
+
+        int cellW = width / cols;
+        int cellH = height / rows;
+
+        std::vector<D3D12_RECT> rects;
+        rects.reserve(K);
+
+        for (int i = 0; i < K; i++)
+        {
+            int col = i % cols;
+            int row = i / cols;
+
+            D3D12_RECT r;
+            r.left = col * cellW;
+            r.top = row * cellH;
+            r.right = r.left + cellW;
+            r.bottom = r.top + cellH;
+
+            rects.push_back(r);
+        }
+
+        return rects;
+    }
 };
 
 #endif // !D3D_FRAMEWORK_HPP

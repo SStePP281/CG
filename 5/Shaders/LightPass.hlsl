@@ -1,5 +1,12 @@
 #include "LightingUtil.hlsl"
 
+static const float3 CASCADES_COLORS[CASCADES_COUNT] =
+{
+    { 1.0f, 0.0f, 0.0f },
+    { 0.0f, 1.0f, 0.0f },
+    { 0.0f, 0.0f, 1.0f }
+};
+
 Texture2D gAlbedo : register(t0);
 Texture2D gNormal : register(t1);
 Texture2D gDepth : register(t2);
@@ -75,22 +82,30 @@ float3 ReconstructPosition(float2 texCoord, float depth)
     return worldPos.xyz / worldPos.w;
 }
 
-float CalcShadow(float3 posW, float viewZ)
+uint GetCascadesLayer(float viewZ)
 {
     uint cascade = 0;
+    
     [unroll]
     for (uint j = 0; j < CASCADES_COUNT - 1; j++)
     {
         if (viewZ > gCascades[0].gDistances[j])
+        {
             cascade = j + 1;
+        }
     }
-    cascade = min(cascade, (uint) (CASCADES_COUNT - 1));
+    
+    return min(cascade, (uint) (CASCADES_COUNT - 1));
+}
+
+float CalcShadow(float3 posW, float viewZ)
+{
+    uint cascade = GetCascadesLayer(viewZ);
 
     float4 shadowPos = mul(float4(posW, 1.0f), gCascades[cascade].gShadowTransform);
     shadowPos.xyz /= shadowPos.w;
 
-    if (shadowPos.x < 0.0f || shadowPos.x > 1.0f ||
-        shadowPos.y < 0.0f || shadowPos.y > 1.0f)
+    if (shadowPos.x < 0.0f || shadowPos.x > 1.0f || shadowPos.y < 0.0f || shadowPos.y > 1.0f)
     {
         return 1.0f;
     }
@@ -115,6 +130,29 @@ float CalcShadow(float3 posW, float viewZ)
         }
     }
     return shadow / 9.0f;
+}
+
+float3 CalculateLightness(float3 normal, float3 toEye, float3 posW, Material mat, float shadowFactor)
+{
+    float3 lighting = 0;
+    for (uint i = 0; i < gLightCount; ++i)
+    {
+        Light L = gLights[i];
+        if (L.LightType == LIGHT_TYPE_DIRECTION)
+        {
+            lighting += ComputeDirectionalLight(L, mat, normal, toEye) * shadowFactor;
+        }
+        else if (L.LightType == LIGHT_TYPE_POINT)
+        {
+            lighting += ComputePointLight(L, mat, posW, normal, toEye);
+        }
+        else if (L.LightType == LIGHT_TYPE_SPOT)
+        {
+            lighting += ComputeSpotLight(L, mat, posW, normal, toEye);
+        }
+    }
+    
+    return lighting;
 }
 
 VSOut VS(uint vid : SV_VertexID)
@@ -143,6 +181,9 @@ float4 PS(VSOut pin) : SV_Target
     float4 posV = mul(float4(posW, 1.0f), gView);
     float viewZ = posV.z;
 
+    float3 r0 = { 0.5f, 0.5f, 0.5f };
+    Material mat = { albedo, r0, 0.5f };
+    
     if (DebugMode)
     {
         switch (DebugViewIndex)
@@ -155,33 +196,26 @@ float4 PS(VSOut pin) : SV_Target
                 return float4(normal * 0.5f + 0.5f, 1.0f);
             case 3:
                 return float4(depth.xxx, 1.0f);
+            case 4:
+                uint cascade = GetCascadesLayer(viewZ);
+                float3 cascadeColor = CASCADES_COLORS[cascade];
+                float shadowFactor = CalcShadow(posW, viewZ);
+
+                float3 lighting = CalculateLightness(normal, toEye, posW, mat, shadowFactor);
+
+                float3 resultColor = albedo.rgb * gAmbientLight.rgb + lighting.rgb;
+   
+                float shadowMask = 1.0f - shadowFactor;
+                resultColor += cascadeColor * shadowMask * 0.3f;
+
+                return float4(resultColor, 1.0f);
             default:
                 return float4(1.0f, 0.0f, 1.0f, 1.0f);
         }
     }
-
-    float3 r0 = { 0.5f, 0.5f, 0.5f };
-    Material mat = { albedo, r0, 0.5f };
-
+    
     float shadowFactor = CalcShadow(posW, viewZ);
-
-    float3 lighting = 0;
-    for (uint i = 0; i < gLightCount; ++i)
-    {
-        Light L = gLights[i];
-        if (L.LightType == LIGHT_TYPE_DIRECTION)
-        {
-            lighting += ComputeDirectionalLight(L, mat, normal, toEye) * shadowFactor;
-        }
-        else if (L.LightType == LIGHT_TYPE_POINT)
-        {
-            lighting += ComputePointLight(L, mat, posW, normal, toEye);
-        }
-        else if (L.LightType == LIGHT_TYPE_SPOT)
-        {
-            lighting += ComputeSpotLight(L, mat, posW, normal, toEye);
-        }
-    }
-
+    float3 lighting = CalculateLightness(normal, toEye, posW, mat, shadowFactor);
+    
     return float4(albedo.rgb * gAmbientLight.rgb + lighting.rgb, 1.0f);
 }
