@@ -29,6 +29,7 @@
 #include "ModelParse.h"
 #include "GBuffer.h"
 #include "ShadowMap.h"
+#include "PostProcess.h"
 
 using namespace Microsoft::WRL;
 using namespace DirectX;
@@ -228,10 +229,12 @@ private:
     void BuildRootSignatureGBuffer();
     void BuildRootSignatureLightPass();
     void BuildRootSignatureShadowPass();
+    void BuildRootSignatureToneMapping();
 
     void BuildGBufferPSO();
     void BuildLightPassPSO();
     void BuildShadowPassPSO();
+    void BuildToneMappingPSO();
 
     void BuildDescriptorHeaps();
     void BuildLightSRV();
@@ -263,6 +266,7 @@ private:
     ComPtr<ID3D12RootSignature> _rootSignatureGBuffer = nullptr;
     ComPtr<ID3D12RootSignature> _rootSignatureLightPass = nullptr;
     ComPtr<ID3D12RootSignature> _rootSignatureShadowPass = nullptr;
+    ComPtr<ID3D12RootSignature> _rootSignaturePPTonePass = nullptr;
 
     std::unordered_map<std::string, std::unique_ptr<MeshGeometry>> _geometries;
     std::unordered_map<std::string, std::unique_ptr<Material>> _materials;
@@ -285,11 +289,13 @@ private:
 
     std::unique_ptr<GBuffer> _gBuffer;
     std::unique_ptr<ShadowMap> _shadowMap;
+    std::unique_ptr<PostProcess> _postProcess;
 
     UINT _lastSlot = 0;
     UINT _gBufferSrvStart = 0;
     UINT _lightSbSrvSlot = 0;
     UINT _shadowSrvStart = 0;
+    UINT _hdrSrvSlot = 0;
 
     BoundingFrustum _camFrustum;
     std::unique_ptr<OctreeNode> _octreeRoot;

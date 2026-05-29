@@ -53,10 +53,13 @@ bool D3DFramework::Initialize()
 	_gBuffer = std::make_unique<GBuffer>(_d3dDevice.Get(), CLIENT_WIDTH, CLIENT_HEIGHT, gBufHandle, _srvDescriptorSize);
 	_lastSlot += (UINT)GBufferIndex::Count;
 
-	_shadowSrvStart = _lastSlot;
+	_shadowSrvStart = _lastSlot++;
 	CD3DX12_CPU_DESCRIPTOR_HANDLE shadowHandle(_srvHeap->GetCPUDescriptorHandleForHeapStart(), _shadowSrvStart, _srvDescriptorSize);
 	_shadowMap = std::make_unique<ShadowMap>(_d3dDevice.Get(), shadowHandle, _srvDescriptorSize);
-	_lastSlot += 1;
+
+	_hdrSrvSlot = _lastSlot++;
+	CD3DX12_CPU_DESCRIPTOR_HANDLE hdrSrvHandle(_srvHeap->GetCPUDescriptorHandleForHeapStart(), _hdrSrvSlot, _srvDescriptorSize);
+	_postProcess = std::make_unique<PostProcess>(_d3dDevice.Get(), CLIENT_WIDTH, CLIENT_HEIGHT, hdrSrvHandle, _srvDescriptorSize);
 
 	CreateSceneObjects();
 	BuildRenderItems();
@@ -68,12 +71,14 @@ bool D3DFramework::Initialize()
 	BuildRootSignatureGBuffer();
 	BuildRootSignatureLightPass();
 	BuildRootSignatureShadowPass();
+	BuildRootSignatureToneMapping();
 
 	BuildShadersAndInputLayout();
 
 	BuildGBufferPSO();
 	BuildLightPassPSO();
 	BuildShadowPassPSO();
+	BuildToneMappingPSO();
 
 	ThrowIfFailed(_cmdList->Close());
 	ID3D12CommandList* cmdsLists[] = { _cmdList.Get() };
@@ -101,6 +106,7 @@ void D3DFramework::OnResize()
 	XMStoreFloat4x4(&_proj, P);
 
 	if (_gBuffer.get() != nullptr) { _gBuffer->OnResize(_d3dDevice.Get(), CLIENT_WIDTH, CLIENT_HEIGHT); }
+	if (_postProcess.get() != nullptr) { _postProcess->OnResize(_d3dDevice.Get(), CLIENT_WIDTH, CLIENT_HEIGHT); }
 }
 
 void D3DFramework::Update(const GameTimer& gt)
@@ -207,12 +213,13 @@ void D3DFramework::Draw(const GameTimer& gt)
 
 	//LIGHTING PASS
 
-	auto barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
-	_cmdList->ResourceBarrier(1, &barrier1);
+	_postProcess->TransitToRenderTarget(_cmdList.Get());
 
-	auto backBuffer = CurrentBackBufferView();
-	_cmdList->OMSetRenderTargets(1, &backBuffer, FALSE, nullptr);
-	_cmdList->ClearRenderTargetView(backBuffer, Colors::Black, 0, nullptr);
+	float clearColor[4] = { 0, 0, 0, 1 };
+	_cmdList->ClearRenderTargetView(_postProcess->HDR_RTV, clearColor, 0, nullptr);
+
+	D3D12_CPU_DESCRIPTOR_HANDLE depth = _gBuffer->Textures[(UINT)GBufferIndex::Depth].DSV;
+	_cmdList->OMSetRenderTargets(1, &_postProcess->HDR_RTV, FALSE, &depth);
 
 	_cmdList->SetPipelineState(_psos["lightPass"].Get());
 	_cmdList->SetGraphicsRootSignature(_rootSignatureLightPass.Get());
@@ -276,6 +283,27 @@ void D3DFramework::Draw(const GameTimer& gt)
 
 		_cmdList->DrawInstanced(3, 1, 0, 0);
 	}
+
+	_postProcess->TransitToShaderResource(_cmdList.Get());
+
+	//POST_PROCESS
+	auto barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
+	_cmdList->ResourceBarrier(1, &barrier1);
+
+	_cmdList->SetPipelineState(_psos["pp_tone"].Get());
+	_cmdList->SetGraphicsRootSignature(_rootSignaturePPTonePass.Get());
+
+	CD3DX12_GPU_DESCRIPTOR_HANDLE hdrHandle(_srvHeap->GetGPUDescriptorHandleForHeapStart(), _hdrSrvSlot, _srvDescriptorSize);
+	_cmdList->SetGraphicsRootDescriptorTable(0, hdrHandle);
+
+	auto backBuffer = CurrentBackBufferView();
+	_cmdList->OMSetRenderTargets(1, &backBuffer, FALSE, nullptr);
+	_cmdList->ClearRenderTargetView(backBuffer, Colors::Black, 0, nullptr);
+
+	D3D12_RECT fullRect = { 0, 0, CLIENT_WIDTH, CLIENT_HEIGHT };
+	_cmdList->RSSetScissorRects(1, &fullRect);
+
+	_cmdList->DrawInstanced(3, 1, 0, 0);
 
 	auto barrier2 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
 	_cmdList->ResourceBarrier(1, &barrier2);
@@ -764,6 +792,36 @@ void D3DFramework::BuildRootSignatureShadowPass()
 	));
 }
 
+void D3DFramework::BuildRootSignatureToneMapping()
+{
+	CD3DX12_DESCRIPTOR_RANGE hdrTable;
+	hdrTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
+
+	CD3DX12_ROOT_PARAMETER slotRootParameter[1];
+	slotRootParameter[0].InitAsDescriptorTable(1, &hdrTable, D3D12_SHADER_VISIBILITY_ALL);
+
+	auto staticSamplers = GetStaticSamplers();
+
+	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(1, slotRootParameter, (UINT)staticSamplers.size(), staticSamplers.data(), D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
+	ComPtr<ID3DBlob> serializedRootSig = nullptr;
+	ComPtr<ID3DBlob> errorBlob = nullptr;
+	HRESULT hr = D3D12SerializeRootSignature(&rootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1, serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
+
+	if (errorBlob != nullptr)
+	{
+		OutputDebugStringA((char*)errorBlob->GetBufferPointer());
+	}
+
+	ThrowIfFailed(hr);
+
+	ThrowIfFailed(_d3dDevice->CreateRootSignature(0,
+		serializedRootSig->GetBufferPointer(),
+		serializedRootSig->GetBufferSize(),
+		IID_PPV_ARGS(&_rootSignaturePPTonePass)
+	));
+}
+
 void D3DFramework::BuildDescriptorHeaps()
 {
 	std::vector<Texture*> orderList;
@@ -899,7 +957,7 @@ void D3DFramework::BuildLightPassPSO()
 	psoDesc.SampleDesc.Count = _4xMsaaState ? 4 : 1;
 	psoDesc.SampleDesc.Quality = _4xMsaaState ? (_4xMsaaQuality - 1) : 0;
 
-	psoDesc.RTVFormats[0] = _backBufferFormat;
+	psoDesc.RTVFormats[0] = HDR_FORMAT;
 	psoDesc.DSVFormat = _depthStencilFormat;
 
 	ThrowIfFailed(_d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&_psos["lightPass"])));
@@ -937,6 +995,46 @@ void D3DFramework::BuildShadowPassPSO()
 	ThrowIfFailed(_d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&_psos["shadowPass"])));
 }
 
+void D3DFramework::BuildToneMappingPSO()
+{
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
+	ZeroMemory(&psoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
+
+	psoDesc.InputLayout = { nullptr, 0 };
+	psoDesc.pRootSignature = _rootSignaturePPTonePass.Get();
+
+	psoDesc.VS =
+	{
+		reinterpret_cast<BYTE*>(_shaders["pp_toneVS"]->GetBufferPointer()),
+		_shaders["pp_toneVS"]->GetBufferSize()
+	};
+	psoDesc.PS =
+	{
+		reinterpret_cast<BYTE*>(_shaders["pp_tonePS"]->GetBufferPointer()),
+		_shaders["pp_tonePS"]->GetBufferSize()
+	};
+
+	psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+	psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+
+	psoDesc.SampleMask = UINT_MAX;
+	psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+	
+	D3D12_DEPTH_STENCIL_DESC dsDesc = {};
+	dsDesc.DepthEnable = FALSE;
+	dsDesc.StencilEnable = FALSE;
+	psoDesc.DepthStencilState = dsDesc;
+	psoDesc.DSVFormat = DXGI_FORMAT_UNKNOWN;
+
+	psoDesc.NumRenderTargets = 1;
+	psoDesc.SampleDesc.Count = 1;
+	psoDesc.SampleDesc.Quality = 0;
+
+	psoDesc.RTVFormats[0] = _backBufferFormat;
+
+	ThrowIfFailed(_d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&_psos["pp_tone"])));
+}
+
 void D3DFramework::BuildShadersAndInputLayout()
 {
 	_shaders["gbufferVS"] = D3DUtil::CompileShader(LOCAL_PATH_W + L"Shaders/GBuffer.hlsl", nullptr, "VS", "vs_5_1");
@@ -949,6 +1047,9 @@ void D3DFramework::BuildShadersAndInputLayout()
 	_shaders["lightPS"] = D3DUtil::CompileShader(LOCAL_PATH_W + L"Shaders/LightPass.hlsl", nullptr, "PS", "ps_5_1");
 
 	_shaders["shadowVS"] = D3DUtil::CompileShader(LOCAL_PATH_W + L"Shaders/Shadow.hlsl", nullptr, "VS", "vs_5_1");
+
+	_shaders["pp_toneVS"] = D3DUtil::CompileShader(LOCAL_PATH_W + L"Shaders/ToneMapping.hlsl", nullptr, "VS", "vs_5_1");
+	_shaders["pp_tonePS"] = D3DUtil::CompileShader(LOCAL_PATH_W + L"Shaders/ToneMapping.hlsl", nullptr, "PS", "ps_5_1");
 
 	_inputLayout =
 	{
