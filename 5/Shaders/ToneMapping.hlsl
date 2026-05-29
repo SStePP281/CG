@@ -2,7 +2,7 @@ Texture2D<float4> gHDR : register(t0);
 
 SamplerState gsamPointClamp : register(s1);
 
-static const float EXPOSURE = 1.0f;
+static const float EXPOSURE = 0.8f;
 
 struct VSOut
 {
@@ -30,18 +30,11 @@ float3 ToneMapACES(float3 x)
     return saturate((x * (a * x + b)) / (x * (c * x + d) + e));
 }
 
-float3 LinearToSRGB(float3 color)
-{
-    return pow(abs(color), 1.0f / 2.2f);
-}
-
 float4 PS(VSOut pin) : SV_Target
 {
     float3 hdr = gHDR.Sample(gsamPointClamp, pin.TexC).rgb;
 
-    float3 ldr = ToneMapACES(hdr * EXPOSURE);
-
-    ldr = LinearToSRGB(ldr);
+    float3 ldr = ToneMapReinhard(hdr, EXPOSURE);
 
     return float4(ldr, 1.0f);
 }
