@@ -15,7 +15,7 @@
 #include "WICTextureLoader.h"
 #include <ResourceUploadBatch.h>
 
-#define HOME 0
+#define HOME 1
 
 #if HOME == 1
 
@@ -28,6 +28,9 @@ const std::string LOCAL_PATH = "C:/Users/HUAWEI/Desktop/CG/5/";
 const std::wstring LOCAL_PATH_W = L"C:/Users/HUAWEI/Desktop/CG/5/";
 
 #endif // HOME
+
+const std::string POST_PROCESS_FOLDER = "PostProcess/";
+const std::wstring POST_PROCESS_FOLDER_W = L"PostProcess/";
 
 using namespace DirectX;
 
@@ -1027,30 +1030,36 @@ void D3DFramework::ComputeSceneBounds()
 
 void D3DFramework::CreatePPS()
 {
+	// CELL SHADER
+	PassDesc cellDesc = {};
+	cellDesc.Name = "CellShader";
+	cellDesc.ShaderPath = LOCAL_PATH + "Shaders/" + POST_PROCESS_FOLDER + "CellShader.hlsl";
+	cellDesc.Stage = PostProcessStage::BeforeTonemapping;
+	cellDesc.Priority = 0;
+	cellDesc.OutputFormat = HDR_FORMAT;
+	cellDesc.Width = CLIENT_WIDTH;
+	cellDesc.Height = CLIENT_HEIGHT;
+
 	// OUTLINE
 	struct OutlineConstants
 	{
 		DirectX::XMFLOAT2 TexelSize;
-		float KernelSize = 3.0f;
-		float DepthThreshold = 0.0f;
-		float NormalThreshold = 0.0f;
-		float pad[3];
+		float KernelSize = 10.0f;
+		float pad0 = 0.0f;
+		DirectX::XMFLOAT2 DepthThreshold = { 2.0f, 10.0f };
+		DirectX::XMFLOAT2 NormalThreshold = { 0.15f, 0.2f };
 		DirectX::XMFLOAT3 OutlineColor = { 0.0f, 0.0f, 0.0f };
-		float pad2;
+		float pad1 = 0.0f;
 	};
 
 	OutlineConstants outlineCB = {};
 	outlineCB.TexelSize = { 1.0f / CLIENT_WIDTH, 1.0f / CLIENT_HEIGHT };
-	outlineCB.KernelSize = 3.0f;
-	outlineCB.DepthThreshold = 0.0001f;
-	outlineCB.NormalThreshold = 0.1f;
-	outlineCB.OutlineColor = { 0.0f, 0.0f, 0.0f };
 
 	PassDesc outlineDesc = {};
 	outlineDesc.Name = "Outline";
-	outlineDesc.ShaderPath = LOCAL_PATH + "Shaders/Outline.hlsl";
+	outlineDesc.ShaderPath = LOCAL_PATH + "Shaders/" + POST_PROCESS_FOLDER + "Outline.hlsl";
 	outlineDesc.Stage = PostProcessStage::BeforeTonemapping;
-	outlineDesc.Priority = 0;
+	outlineDesc.Priority = 1;
 	outlineDesc.OutputFormat = HDR_FORMAT;
 	outlineDesc.Width = CLIENT_WIDTH;
 	outlineDesc.Height = CLIENT_HEIGHT;
@@ -1058,10 +1067,10 @@ void D3DFramework::CreatePPS()
 	outlineDesc.ConstantBufferSize = sizeof(OutlineConstants);
 	outlineDesc.ConstantBufferData = &outlineCB;
 
-	// TONE_MAPPING
+	// TONE MAPPING
 	PassDesc toneDesc = {};
 	toneDesc.Name = "ToneMapping";
-	toneDesc.ShaderPath = LOCAL_PATH + "Shaders/ToneMapping.hlsl";
+	toneDesc.ShaderPath = LOCAL_PATH + "Shaders/" + POST_PROCESS_FOLDER + "ToneMapping.hlsl";
 	toneDesc.Stage = PostProcessStage::Tonemapping;
 	toneDesc.OutputFormat = _backBufferFormat;
 	toneDesc.Width = CLIENT_WIDTH;
@@ -1069,9 +1078,22 @@ void D3DFramework::CreatePPS()
 
 	UINT toneSlot = _ppChain->ReservePass(_d3dDevice.Get(), toneDesc, _srvHeap.Get(), _lastSlot, _srvDescriptorSize);
 	UINT outlineSlot = _ppChain->ReservePass(_d3dDevice.Get(), outlineDesc, _srvHeap.Get(), _lastSlot, _srvDescriptorSize);
+	UINT cellSlot = _ppChain->ReservePass(_d3dDevice.Get(), cellDesc, _srvHeap.Get(), _lastSlot, _srvDescriptorSize);
 
-	_ppChain->GetPass("Outline")->Desc.InputSrvSlots = { _gBufferSrvStart + 2, _gBufferSrvStart + 1, toneSlot };
+	// CellShader: t0=lastStep(toneSlot), t1=Albedo
+	_ppChain->GetPass("CellShader")->Desc.InputSrvSlots = {
+		toneSlot,             // t0: lastStep
+		_gBufferSrvStart + 0  // t1: Albedo
+	};
 
+	// Outline: t0=lastStep(cellSlot), t1=Depth, t2=Normal
+	_ppChain->GetPass("Outline")->Desc.InputSrvSlots = {
+		cellSlot,             // t0: lastStep
+		_gBufferSrvStart + 2, // t1: Depth
+		_gBufferSrvStart + 1  // t2: Normal
+	};
+
+	// ToneMapping: t0=lastStep(outlineSlot)
 	_ppChain->GetPass("ToneMapping")->Desc.InputSrvSlots = { outlineSlot };
 
 	_ppChain->CommitAll(_d3dDevice.Get(), _srvHeap.Get(), _srvDescriptorSize);
