@@ -55,14 +55,16 @@ cbuffer cbPass : register(b0)
 cbuffer cbMaterial : register(b1)
 {
     float4x4 gMatTransform;
-    
+
     float4 gDiffuseAlbedo;
-    float3 gFresnelR0;
     float gRoughness;
+    float gMetallic;
     float gNormalIntencity;
-    
+    float gMatPad0;
+
     float gMaxTessellationFactor;
     float g_MaxTessellationDistance;
+    float2 gMatPad1;
 };
 
 cbuffer cbTessellation : register(b2)

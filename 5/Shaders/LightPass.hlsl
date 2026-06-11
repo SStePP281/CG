@@ -9,11 +9,12 @@ static const float3 CASCADES_COLORS[CASCADES_COUNT] =
 
 Texture2D gAlbedo : register(t0);
 Texture2D gNormal : register(t1);
-Texture2D gDepth : register(t2);
+Texture2D gMatData : register(t2); // metallic, roughness, AO
+Texture2D gDepth : register(t3);
 
-StructuredBuffer<Light> gLights : register(t3);
+StructuredBuffer<Light> gLights : register(t4);
 
-Texture2DArray gShadowMap : register(t4);
+Texture2DArray gShadowMap : register(t5);
 
 SamplerState gsamPointWrap : register(s0);
 SamplerState gsamPointClamp : register(s1);
@@ -132,27 +133,29 @@ float CalcShadow(float3 posW, float viewZ)
     return shadow / 9.0f;
 }
 
-float3 CalculateLightness(float3 normal, float3 toEye, float3 posW, Material mat, float shadowFactor)
+float3 CalculatePBRLighting(float3 N, float3 V, float3 posW, Material mat, float shadowFactor)
 {
-    float3 lighting = 0;
+    float3 Lo = float3(0.0f, 0.0f, 0.0f);
+
     for (uint i = 0; i < gLightCount; ++i)
     {
         Light L = gLights[i];
+
         if (L.LightType == LIGHT_TYPE_DIRECTION)
         {
-            lighting += ComputeDirectionalLight(L, mat, normal, toEye) * shadowFactor;
+            Lo += ComputeDirectionalLight(L, mat, N, V) * shadowFactor;
         }
         else if (L.LightType == LIGHT_TYPE_POINT)
         {
-            lighting += ComputePointLight(L, mat, posW, normal, toEye);
+            Lo += ComputePointLight(L, mat, posW, N, V);
         }
         else if (L.LightType == LIGHT_TYPE_SPOT)
         {
-            lighting += ComputeSpotLight(L, mat, posW, normal, toEye);
+            Lo += ComputeSpotLight(L, mat, posW, N, V);
         }
     }
-    
-    return lighting;
+
+    return Lo;
 }
 
 VSOut VS(uint vid : SV_VertexID)
@@ -164,26 +167,41 @@ VSOut VS(uint vid : SV_VertexID)
 }
 
 float4 PS(VSOut pin) : SV_Target
-{   
+{
     float2 uv = pin.TexC;
 
     float depth = gDepth.Sample(gsamPointClamp, uv).r;
     if (depth >= 1.0f)
-    {
         discard;
-    }
 
     float3 posW = ReconstructPosition(uv, depth);
-    float4 albedo = gAlbedo.Sample(gsamPointClamp, uv);
-    float3 normal = normalize(gNormal.Sample(gsamPointClamp, uv).xyz);
-    float3 toEye = normalize(gEyePosW - posW);
-
     float4 posV = mul(float4(posW, 1.0f), gView);
     float viewZ = posV.z;
 
-    float3 r0 = { 0.5f, 0.5f, 0.5f };
-    Material mat = { albedo, r0, 0.5f };
-    
+    float3 albedo = gAlbedo.Sample(gsamPointClamp, uv).rgb;
+    float3 N = normalize(gNormal.Sample(gsamPointClamp, uv).xyz);
+    float4 matData = gMatData.Sample(gsamPointClamp, uv);
+
+    float metallic = matData.r;
+    float roughness = matData.g;
+    float ao = matData.b;
+
+    float3 V = normalize(gEyePosW - posW);
+
+    Material mat;
+    mat.Albedo = albedo;
+    mat.Roughness = roughness;
+    mat.Metallic = metallic;
+    mat.AO = ao;
+
+    float shadowFactor = CalcShadow(posW, viewZ);
+
+    float3 Lo = CalculatePBRLighting(N, V, posW, mat, shadowFactor);
+
+    float3 ambient = gAmbientLight.rgb * albedo * ao;
+
+    float3 color = ambient + Lo;
+
     if (DebugMode)
     {
         switch (DebugViewIndex)
@@ -191,31 +209,28 @@ float4 PS(VSOut pin) : SV_Target
             case 0:
                 break;
             case 1:
-                return albedo;
+                return float4(albedo, 1.0f);
             case 2:
-                return float4(normal * 0.5f + 0.5f, 1.0f);
+                return float4(N * 0.5f + 0.5f, 1.0f);
             case 3:
                 return float4(depth.xxx, 1.0f);
             case 4:
-                uint cascade = GetCascadesLayer(viewZ);
-                float3 cascadeColor = CASCADES_COLORS[cascade];
-                float shadowFactor = CalcShadow(posW, viewZ);
-
-                float3 lighting = CalculateLightness(normal, toEye, posW, mat, shadowFactor);
-
-                float3 resultColor = albedo.rgb * gAmbientLight.rgb + lighting.rgb;
-   
-                float shadowMask = 1.0f - shadowFactor;
-                resultColor += cascadeColor * shadowMask * 0.3f;
-
-                return float4(resultColor, 1.0f);
+                return float4(metallic.xxx, 1.0f);
+            case 5:
+                return float4(roughness.xxx, 1.0f);
+            case 6:
+                return float4(ao.xxx, 1.0f);
+            case 7:
+            {
+                    uint cascade = GetCascadesLayer(viewZ);
+                    float3 cascadeColor = CASCADES_COLORS[cascade];
+                    float shadowMask = 1.0f - shadowFactor;
+                    return float4(color + cascadeColor * shadowMask * 0.3f, 1.0f);
+                }
             default:
                 return float4(1.0f, 0.0f, 1.0f, 1.0f);
         }
     }
-    
-    float shadowFactor = CalcShadow(posW, viewZ);
-    float3 lighting = CalculateLightness(normal, toEye, posW, mat, shadowFactor);
-    
-    return float4(albedo.rgb * gAmbientLight.rgb + lighting.rgb, 1.0f);
+
+    return float4(color, 1.0f);
 }

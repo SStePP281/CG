@@ -35,10 +35,18 @@ public:
 	struct MaterialInfo
 	{
 		std::string Name;
+
 		std::string DiffuseTextureName;
 		std::string NormalTextureName;
+		std::string MetallicTextureName;
+		std::string RoughnessTextureName;
+		std::string AOTextureName;
 		std::string DisplacementTextureName;
-		XMFLOAT4 DiffuseColor = { 1,1,1,1 };
+
+		XMFLOAT4 DiffuseColor = { 1, 1, 1, 1 };
+		float Roughness = 0.5f;
+		float Metallic = 0.0f;
+
 		XMFLOAT4X4 MatTransform = MathHelper::Identity4x4();
 	};
 

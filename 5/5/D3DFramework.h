@@ -35,7 +35,7 @@ using namespace Microsoft::WRL;
 using namespace DirectX;
 
 constexpr int NUM_FRAME_RECOURCES = 3;
-constexpr int MAX_DEBUG_LAYER_COUNT = 5;
+constexpr int MAX_DEBUG_LAYER_COUNT = 8;
 
 struct RenderItem
 {
@@ -250,12 +250,13 @@ private:
     void DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawRenderItemsShadow(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
 
-    std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> GetStaticSamplers();
-
 private:
     void ParseMesh(const ModelParse::MeshInfo& meshData);
     void LoadTextures(const ModelParse::MeshInfo& meshData);
     void ParseMaterials(const ModelParse::MeshInfo& meshData);
+
+    ComPtr<ID3D12Resource> CreateDefault1x1Texture(DXGI_FORMAT format, const UINT8 rgba[4], ComPtr<ID3D12Resource>& uploadHeap);
+    std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> GetStaticSamplers();
 
 private:
 

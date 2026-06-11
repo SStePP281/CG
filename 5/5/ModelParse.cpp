@@ -14,7 +14,7 @@
 
 using namespace DirectX;
 
-namespace 
+namespace
 {
     static std::string ToLowerAscii(const std::string& s)
     {
@@ -37,6 +37,16 @@ namespace
         }
     }
 
+    static std::string TryGetTexture(const aiMaterial* mat, std::initializer_list<aiTextureType> types)
+    {
+        aiString texPath;
+        for (aiTextureType t : types)
+        {
+            if (mat->GetTexture(t, 0, &texPath) == AI_SUCCESS) { return ExtractTextureFilename(texPath); }
+        }
+        return "";
+    }
+
     static ModelParse::MaterialInfo ParseMaterial(const aiMaterial* mat, const std::string& defaultName)
     {
         ModelParse::MaterialInfo mi{};
@@ -47,46 +57,32 @@ namespace
 
         aiColor3D diffCol(1.0f, 1.0f, 1.0f);
         if (mat->Get(AI_MATKEY_COLOR_DIFFUSE, diffCol) == AI_SUCCESS) { mi.DiffuseColor = XMFLOAT4(diffCol.r, diffCol.g, diffCol.b, 1.0f); }
+        {
+            float shininess = 0.0f;
+            if (mat->Get(AI_MATKEY_SHININESS, shininess) == AI_SUCCESS && shininess > 0.0f)
+            {
+                float normalized = std::min(shininess / 1000.0f, 1.0f);
+                mi.Roughness = 1.0f - sqrtf(normalized);
+            }
 
-        aiString texPath;
-        if (mat->GetTexture(aiTextureType_DIFFUSE, 0, &texPath) == AI_SUCCESS)
-        {
-            mi.DiffuseTextureName = ExtractTextureFilename(texPath);
-        }
-        else if (mat->GetTexture(aiTextureType_BASE_COLOR, 0, &texPath) == AI_SUCCESS)
-        {
-            mi.DiffuseTextureName = ExtractTextureFilename(texPath);
-        }
-        else
-        {
-            mi.DiffuseTextureName = "";
-        }
-
-        if (mat->GetTexture(aiTextureType_NORMALS, 0, &texPath) == AI_SUCCESS)
-        {
-            mi.NormalTextureName = ExtractTextureFilename(texPath);
-        }
-        else if (mat->GetTexture(aiTextureType_HEIGHT, 0, &texPath) == AI_SUCCESS)
-        {
-             mi.NormalTextureName = ExtractTextureFilename(texPath);
-        }
-        else if (mat->GetTexture(aiTextureType_NORMAL_CAMERA, 0, &texPath) == AI_SUCCESS)
-        {
-            mi.NormalTextureName = ExtractTextureFilename(texPath);
-        }
-        else
-        {
-            mi.NormalTextureName = "";
+            float reflectivity = 0.0f;
+            if (mat->Get(AI_MATKEY_REFLECTIVITY, reflectivity) == AI_SUCCESS)
+            {
+                mi.Metallic = std::min(std::max(reflectivity, 0.0f), 1.0f);
+            }
         }
 
-        if (mat->GetTexture(aiTextureType_DISPLACEMENT, 0, &texPath) == AI_SUCCESS)
-        {
-            mi.DisplacementTextureName = ExtractTextureFilename(texPath);
-        }
-        else
-        {
-            mi.DisplacementTextureName = "";
-        }
+        mi.DiffuseTextureName = TryGetTexture(mat, { aiTextureType_BASE_COLOR, aiTextureType_DIFFUSE });
+
+        mi.NormalTextureName = TryGetTexture(mat, { aiTextureType_NORMALS, aiTextureType_NORMAL_CAMERA, aiTextureType_HEIGHT });
+
+        mi.MetallicTextureName = TryGetTexture(mat, { aiTextureType_METALNESS });
+
+        mi.RoughnessTextureName = TryGetTexture(mat, { aiTextureType_DIFFUSE_ROUGHNESS, aiTextureType_SHININESS });
+
+        mi.AOTextureName = TryGetTexture(mat, { aiTextureType_AMBIENT_OCCLUSION, aiTextureType_LIGHTMAP });
+
+        mi.DisplacementTextureName = TryGetTexture(mat, { aiTextureType_DISPLACEMENT });
 
         return mi;
     }
@@ -107,49 +103,14 @@ namespace
                 mesh->mVertices[v].z
             };
 
-            if (mesh->HasNormals())
-            {
-                vert.Normal =
-                {
-                    mesh->mNormals[v].x,
-                    mesh->mNormals[v].y,
-                    mesh->mNormals[v].z
-                };
-            }
-            else
-            {
-                vert.Normal = { 0,1,0 };
-            }
+            vert.Normal = mesh->HasNormals() ? XMFLOAT3{ mesh->mNormals[v].x, mesh->mNormals[v].y, mesh->mNormals[v].z } : XMFLOAT3{ 0, 1, 0 };
 
-            if (mesh->HasTextureCoords(0))
-            {
-                vert.TexC =
-                {
-                    mesh->mTextureCoords[0][v].x,
-                    1.0f - mesh->mTextureCoords[0][v].y
-                };
-            }
-            else
-            {
-                vert.TexC = { 0,0 };
-            }
+            vert.TexC = mesh->HasTextureCoords(0) ? XMFLOAT2{ mesh->mTextureCoords[0][v].x, 1.0f - mesh->mTextureCoords[0][v].y } : XMFLOAT2{ 0, 0 };
 
             if (mesh->HasTangentsAndBitangents())
             {
-                XMFLOAT3 T =
-                {
-                    mesh->mTangents[v].x,
-                    mesh->mTangents[v].y,
-                    mesh->mTangents[v].z
-                };
-
-                XMFLOAT3 B =
-                {
-                    mesh->mBitangents[v].x,
-                    mesh->mBitangents[v].y,
-                    mesh->mBitangents[v].z
-                };
-
+                XMFLOAT3 T{ mesh->mTangents[v].x,   mesh->mTangents[v].y,   mesh->mTangents[v].z };
+                XMFLOAT3 B{ mesh->mBitangents[v].x, mesh->mBitangents[v].y, mesh->mBitangents[v].z };
                 XMFLOAT3 N = vert.Normal;
 
                 XMVECTOR t = XMLoadFloat3(&T);
@@ -162,7 +123,7 @@ namespace
             }
             else
             {
-                vert.Tangent = { 1,0,0,1 };
+                vert.Tangent = { 1, 0, 0, 1 };
             }
 
             meshInfo.Vertices.push_back(vert);
@@ -172,26 +133,24 @@ namespace
         if (mesh->mNumVertices > 0)
         {
             const Vertex* firstVertex = &meshInfo.Vertices[vertexOffset];
-
-            BoundingBox::CreateFromPoints(submeshBounds, mesh->mNumVertices, &firstVertex->Pos, sizeof(Vertex));
+            BoundingBox::CreateFromPoints(submeshBounds, mesh->mNumVertices,
+                &firstVertex->Pos, sizeof(Vertex));
         }
 
         for (uint32_t f = 0; f < mesh->mNumFaces; f++)
         {
             aiFace& face = mesh->mFaces[f];
-
             meshInfo.Indices32.push_back(face.mIndices[0]);
             meshInfo.Indices32.push_back(face.mIndices[1]);
             meshInfo.Indices32.push_back(face.mIndices[2]);
         }
 
         std::string materialName = "default";
-        if (mesh->mMaterialIndex >= 0 && mesh->mMaterialIndex < scene->mNumMaterials)
+        if (mesh->mMaterialIndex < scene->mNumMaterials)
         {
             aiMaterial* mat = scene->mMaterials[mesh->mMaterialIndex];
 
             aiString name;
-
             if (mat->Get(AI_MATKEY_NAME, name) == AI_SUCCESS) { materialName = name.C_Str(); }
 
             if (meshInfo.Materials.count(materialName) == 0) { meshInfo.Materials[materialName] = ParseMaterial(mat, materialName); }
@@ -199,7 +158,6 @@ namespace
 
         ModelParse::SubmeshInfo sub;
         sub.Name = mesh->mName.length > 0 ? mesh->mName.C_Str() : "submesh_" + std::to_string(meshInfo.Submeshes.size());
-
         sub.MaterialName = materialName;
         sub.VertexOffset = vertexOffset;
         sub.IndexOffset = indexOffset;
@@ -216,7 +174,6 @@ namespace
             aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
             ParseMeshHelper(scene, mesh, meshInfo);
         }
-
         for (unsigned int i = 0; i < node->mNumChildren; ++i)
         {
             ParseNodeHelper(node->mChildren[i], scene, meshInfo);
