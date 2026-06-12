@@ -44,6 +44,7 @@ bool D3DFramework::Initialize()
 	ThrowIfFailed(_cmdList->Reset(_directCmdListAlloc.Get(), nullptr));
 
 	LoadModel(LOCAL_PATH + "Models/Model.obj");
+	LoadModel(LOCAL_PATH + "Models/IBL_TEST.obj");
 	//LoadModel("C:/Users/Stepan/Desktop/CG/5/Models/A_LOT_OF_POLYGONS.obj");
 	//LoadModel("C:/Users/HUAWEI/Desktop/CG/5/Models/DispTest.obj");
 
@@ -62,6 +63,8 @@ bool D3DFramework::Initialize()
 
 	_ppChain = std::make_unique<PostProcessChain>();
 	CreatePPS();
+
+	LoadIBLTextures();
 
 	CreateSceneObjects();
 	BuildRenderItems();
@@ -213,15 +216,15 @@ void D3DFramework::Draw(const GameTimer& gt)
 
 	//LIGHTING PASS
 
-	auto toRT = CD3DX12_RESOURCE_BARRIER::Transition(_ppChain->First()->OutputBuffer.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+	auto toRT = CD3DX12_RESOURCE_BARRIER::Transition(_ppChain->GetHDRBuffer(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
 	_cmdList->ResourceBarrier(1, &toRT);
 
 	float clearColor[4] = { 0, 0, 0, 1 };
-	auto lightTarget = _ppChain->GetPass("ToneMapping");
-	_cmdList->ClearRenderTargetView(lightTarget->OutputRTV, clearColor, 0, nullptr);
+	auto hdrRTV = _ppChain->GetLightPassRTV();
+	_cmdList->ClearRenderTargetView(hdrRTV, clearColor, 0, nullptr);
 
 	D3D12_CPU_DESCRIPTOR_HANDLE depth = _gBuffer->Textures[(UINT)GBufferIndex::Depth].DSV;
-	_cmdList->OMSetRenderTargets(1, &lightTarget->OutputRTV, FALSE, &depth);
+	_cmdList->OMSetRenderTargets(1, &hdrRTV, FALSE, &depth);
 
 	_cmdList->SetPipelineState(_psos["lightPass"].Get());
 	_cmdList->SetGraphicsRootSignature(_rootSignatureLightPass.Get());
@@ -230,11 +233,18 @@ void D3DFramework::Draw(const GameTimer& gt)
 	CD3DX12_GPU_DESCRIPTOR_HANDLE normalGpu(_srvHeap->GetGPUDescriptorHandleForHeapStart(), _gBufferSrvStart + (UINT)GBufferIndex::Normal, _srvDescriptorSize);
 	CD3DX12_GPU_DESCRIPTOR_HANDLE matDataGpu(_srvHeap->GetGPUDescriptorHandleForHeapStart(), _gBufferSrvStart + (UINT)GBufferIndex::MatData, _srvDescriptorSize);
 	CD3DX12_GPU_DESCRIPTOR_HANDLE depthGpu(_srvHeap->GetGPUDescriptorHandleForHeapStart(), _gBufferSrvStart + (UINT)GBufferIndex::Depth, _srvDescriptorSize);
+	CD3DX12_GPU_DESCRIPTOR_HANDLE irradianceGpu(_srvHeap->GetGPUDescriptorHandleForHeapStart(), _iblIrradianceSrvSlot, _srvDescriptorSize);
+	CD3DX12_GPU_DESCRIPTOR_HANDLE specularGpu(_srvHeap->GetGPUDescriptorHandleForHeapStart(), _iblSpecularSrvSlot, _srvDescriptorSize);
+	CD3DX12_GPU_DESCRIPTOR_HANDLE brdfGpu(_srvHeap->GetGPUDescriptorHandleForHeapStart(), _iblBrdfSrvSlot, _srvDescriptorSize);
 
 	_cmdList->SetGraphicsRootDescriptorTable(0, albedoGpu);   // t0 Albedo
 	_cmdList->SetGraphicsRootDescriptorTable(1, normalGpu);   // t1 Normal
 	_cmdList->SetGraphicsRootDescriptorTable(2, matDataGpu);  // t2 MatData
 	_cmdList->SetGraphicsRootDescriptorTable(3, depthGpu);    // t3 Depth
+
+	_cmdList->SetGraphicsRootDescriptorTable(9, irradianceGpu); // t6 DefHDRI
+	_cmdList->SetGraphicsRootDescriptorTable(10, specularGpu);   // t7 SpecHDRI
+	_cmdList->SetGraphicsRootDescriptorTable(11, brdfGpu);       // t8 TableHDRI
 
 	_cmdList->SetGraphicsRootShaderResourceView(4, _currFrameResource->LightSB->Resource()->GetGPUVirtualAddress());	  // t4 LightSB
 	_cmdList->SetGraphicsRootConstantBufferView(5, _currFrameResource->PassCB->Resource()->GetGPUVirtualAddress());		  // b0 PassCB
@@ -281,7 +291,7 @@ void D3DFramework::Draw(const GameTimer& gt)
 		_cmdList->DrawInstanced(3, 1, 0, 0);
 	}
 
-	auto toSRV = CD3DX12_RESOURCE_BARRIER::Transition(_ppChain->First()->OutputBuffer.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+	auto toSRV = CD3DX12_RESOURCE_BARRIER::Transition(_ppChain->GetHDRBuffer(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
 	_cmdList->ResourceBarrier(1, &toSRV);
 
 	//POST_PROCESS
@@ -746,20 +756,32 @@ void D3DFramework::BuildRootSignatureLightPass()
 	CD3DX12_DESCRIPTOR_RANGE shadowRange;
 	shadowRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 5);
 
-	CD3DX12_ROOT_PARAMETER slotRootParameter[9];
-	slotRootParameter[0].InitAsDescriptorTable(1, &albedoRange);  // t0 Albedo
-	slotRootParameter[1].InitAsDescriptorTable(1, &normalRange);  // t1 Normal
-	slotRootParameter[2].InitAsDescriptorTable(1, &matDataRange); // t2 MatData
-	slotRootParameter[3].InitAsDescriptorTable(1, &depthRange);   // t3 Depth
-	slotRootParameter[4].InitAsShaderResourceView(4);             // t4 LightSB
-	slotRootParameter[5].InitAsConstantBufferView(0);             // b0 PassCB
-	slotRootParameter[6].InitAsConstantBufferView(1);             // b1 LightInfoCB
-	slotRootParameter[7].InitAsConstantBufferView(2);             // b2 ShadowCB
-	slotRootParameter[8].InitAsDescriptorTable(1, &shadowRange);  // t5 ShadowMap
+	CD3DX12_DESCRIPTOR_RANGE irradianceRange;
+	irradianceRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 6);
+
+	CD3DX12_DESCRIPTOR_RANGE specularRange;
+	specularRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 7);
+
+	CD3DX12_DESCRIPTOR_RANGE brdfRange;
+	brdfRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 8);
+
+	CD3DX12_ROOT_PARAMETER slotRootParameter[12];
+	slotRootParameter[0].InitAsDescriptorTable(1, &albedoRange);	 // t0 Albedo
+	slotRootParameter[1].InitAsDescriptorTable(1, &normalRange);	 // t1 Normal
+	slotRootParameter[2].InitAsDescriptorTable(1, &matDataRange);	 // t2 MatData
+	slotRootParameter[3].InitAsDescriptorTable(1, &depthRange);		 // t3 Depth
+	slotRootParameter[4].InitAsShaderResourceView(4);				 // t4 LightSB
+	slotRootParameter[5].InitAsConstantBufferView(0);				 // b0 PassCB
+	slotRootParameter[6].InitAsConstantBufferView(1);				 // b1 LightInfoCB
+	slotRootParameter[7].InitAsConstantBufferView(2);				 // b2 ShadowCB
+	slotRootParameter[8].InitAsDescriptorTable(1, &shadowRange);	 // t5 ShadowMap
+	slotRootParameter[9].InitAsDescriptorTable(1, &irradianceRange); // t6 DiffuseHDR
+	slotRootParameter[10].InitAsDescriptorTable(1, &specularRange);  // t7 SpecularHDR
+	slotRootParameter[11].InitAsDescriptorTable(1, &brdfRange);      // t8 Brdf
 
 	auto staticSamplers = GetStaticSamplers();
 
-	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(9, slotRootParameter, (UINT)staticSamplers.size(), staticSamplers.data(), D3D12_ROOT_SIGNATURE_FLAG_NONE);
+	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(12, slotRootParameter, (UINT)staticSamplers.size(), staticSamplers.data(), D3D12_ROOT_SIGNATURE_FLAG_NONE);
 
 	ComPtr<ID3DBlob> serializedRootSig = nullptr;
 	ComPtr<ID3DBlob> errorBlob = nullptr;
@@ -1051,15 +1073,16 @@ void D3DFramework::CreatePPS()
 	toneDesc.Width = CLIENT_WIDTH;
 	toneDesc.Height = CLIENT_HEIGHT;
 
-	UINT toneSlot = _ppChain->ReservePass(_d3dDevice.Get(), toneDesc, _srvHeap.Get(), _lastSlot, _srvDescriptorSize);
-	_ppChain->GetPass("ToneMapping")->Desc.InputSrvSlots = { toneSlot };
+	_ppChain->ReservePass(_d3dDevice.Get(), toneDesc, _srvHeap.Get(), _lastSlot, _srvDescriptorSize);
+
+	_ppChain->InitHDRBuffer(_d3dDevice.Get(), _srvHeap.Get(), _lastSlot, _srvDescriptorSize, CLIENT_WIDTH, CLIENT_HEIGHT);
 
 	_ppChain->CommitAll(_d3dDevice.Get(), _srvHeap.Get(), _srvDescriptorSize);
 }
 
 //void D3DFramework::CreatePPS()
 //{
-//	// CELL SHADER
+//	 CELL SHADER
 //	PassDesc cellDesc = {};
 //	cellDesc.Name = "CellShader";
 //	cellDesc.ShaderPath = LOCAL_PATH + "Shaders/" + POST_PROCESS_FOLDER + "CellShader.hlsl";
@@ -1068,8 +1091,8 @@ void D3DFramework::CreatePPS()
 //	cellDesc.OutputFormat = HDR_FORMAT;
 //	cellDesc.Width = CLIENT_WIDTH;
 //	cellDesc.Height = CLIENT_HEIGHT;
+//	cellDesc.ExtraInputSrvSlots = { _gBufferSrvStart + (UINT)GBufferIndex::Albedo };
 //
-//	// OUTLINE
 //	struct OutlineConstants
 //	{
 //		DirectX::XMFLOAT2 TexelSize;
@@ -1095,8 +1118,12 @@ void D3DFramework::CreatePPS()
 //	outlineDesc.HasConstantBuffer = true;
 //	outlineDesc.ConstantBufferSize = sizeof(OutlineConstants);
 //	outlineDesc.ConstantBufferData = &outlineCB;
+//	outlineDesc.ExtraInputSrvSlots =
+//	{
+//		_gBufferSrvStart + (UINT)GBufferIndex::Depth,
+//		_gBufferSrvStart + (UINT)GBufferIndex::Normal
+//	};
 //
-//	// TONE MAPPING
 //	PassDesc toneDesc = {};
 //	toneDesc.Name = "ToneMapping";
 //	toneDesc.ShaderPath = LOCAL_PATH + "Shaders/" + POST_PROCESS_FOLDER + "ToneMapping.hlsl";
@@ -1105,25 +1132,11 @@ void D3DFramework::CreatePPS()
 //	toneDesc.Width = CLIENT_WIDTH;
 //	toneDesc.Height = CLIENT_HEIGHT;
 //
-//	UINT toneSlot = _ppChain->ReservePass(_d3dDevice.Get(), toneDesc, _srvHeap.Get(), _lastSlot, _srvDescriptorSize);
-//	UINT outlineSlot = _ppChain->ReservePass(_d3dDevice.Get(), outlineDesc, _srvHeap.Get(), _lastSlot, _srvDescriptorSize);
-//	UINT cellSlot = _ppChain->ReservePass(_d3dDevice.Get(), cellDesc, _srvHeap.Get(), _lastSlot, _srvDescriptorSize);
+//	_ppChain->ReservePass(_d3dDevice.Get(), cellDesc, _srvHeap.Get(), _lastSlot, _srvDescriptorSize);
+//	_ppChain->ReservePass(_d3dDevice.Get(), outlineDesc, _srvHeap.Get(), _lastSlot, _srvDescriptorSize);
+//	_ppChain->ReservePass(_d3dDevice.Get(), toneDesc, _srvHeap.Get(), _lastSlot, _srvDescriptorSize);
 //
-//	// CellShader: t0=lastStep(toneSlot), t1=Albedo
-//	_ppChain->GetPass("CellShader")->Desc.InputSrvSlots = {
-//		toneSlot,             // t0: lastStep
-//		_gBufferSrvStart + 0  // t1: Albedo
-//	};
-//
-//	// Outline: t0=lastStep(cellSlot), t1=Depth, t2=Normal
-//	_ppChain->GetPass("Outline")->Desc.InputSrvSlots = {
-//		cellSlot,             // t0: lastStep
-//		_gBufferSrvStart + 2, // t1: Depth
-//		_gBufferSrvStart + 1  // t2: Normal
-//	};
-//
-//	// ToneMapping: t0=lastStep(outlineSlot)
-//	_ppChain->GetPass("ToneMapping")->Desc.InputSrvSlots = { outlineSlot };
+//	_ppChain->InitHDRBuffer(_d3dDevice.Get(), _srvHeap.Get(), _lastSlot, _srvDescriptorSize, CLIENT_WIDTH, CLIENT_HEIGHT);
 //
 //	_ppChain->CommitAll(_d3dDevice.Get(), _srvHeap.Get(), _srvDescriptorSize);
 //}
@@ -1580,6 +1593,55 @@ void D3DFramework::LoadTextures(const ModelParse::MeshInfo& meshData)
 			_textures[texName] = std::move(tex);
 		}
 	}
+}
+
+void D3DFramework::LoadIBLTextures()
+{
+	std::vector<ComPtr<ID3D12Resource>> uploadHeaps;
+	uploadHeaps.resize(3);
+
+	auto LoadDDS = [&](const std::wstring& path, ComPtr<ID3D12Resource>& resource, UINT& srvSlot, bool isCubemap, int heapIdx)
+	{
+		ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(_d3dDevice.Get(), _cmdList.Get(), path.c_str(), resource, uploadHeaps[heapIdx]));
+
+		srvSlot = _lastSlot++;
+
+		CD3DX12_CPU_DESCRIPTOR_HANDLE handle(_srvHeap->GetCPUDescriptorHandleForHeapStart(), srvSlot, _srvDescriptorSize);
+
+		D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+		srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+		srvDesc.Format = resource->GetDesc().Format;
+
+		if (isCubemap)
+		{
+			srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBE;
+			srvDesc.TextureCube.MostDetailedMip = 0;
+			srvDesc.TextureCube.MipLevels = resource->GetDesc().MipLevels;
+			srvDesc.TextureCube.ResourceMinLODClamp = 0.0f;
+		}
+		else
+		{
+			srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+			srvDesc.Texture2D.MostDetailedMip = 0;
+			srvDesc.Texture2D.MipLevels = resource->GetDesc().MipLevels;
+			srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
+		}
+
+		_d3dDevice->CreateShaderResourceView(resource.Get(), &srvDesc, handle);
+	};
+
+	std::wstring hdriPath = LOCAL_PATH_W + L"HDRI/";
+
+	LoadDDS(hdriPath + L"DiffuseHDR.dds", _iblIrradiance, _iblIrradianceSrvSlot, true, 0);
+	LoadDDS(hdriPath + L"SpecularHDR.dds", _iblSpecular, _iblSpecularSrvSlot, true, 1);
+	LoadDDS(hdriPath + L"Brdf.dds", _iblBrdf, _iblBrdfSrvSlot, false, 2);
+
+	ThrowIfFailed(_cmdList->Close());
+	ID3D12CommandList* cmds[] = { _cmdList.Get() };
+	_cmdQueue->ExecuteCommandLists(1, cmds);
+	FlushCommandQueue();
+
+	ThrowIfFailed(_cmdList->Reset(_directCmdListAlloc.Get(), nullptr));
 }
 
 ComPtr<ID3D12Resource> D3DFramework::CreateDefault1x1Texture(DXGI_FORMAT format, const UINT8 rgba[4], ComPtr<ID3D12Resource>& uploadHeap)

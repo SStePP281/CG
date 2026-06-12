@@ -84,6 +84,12 @@ namespace
 
         mi.DisplacementTextureName = TryGetTexture(mat, { aiTextureType_DISPLACEMENT });
 
+        if (mi.Name == "Mettal")
+        {
+            mi.Metallic = 1.0f;
+            mi.Roughness = 0.05f;
+        }
+
         return mi;
     }
 

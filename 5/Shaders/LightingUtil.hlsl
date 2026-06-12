@@ -64,6 +64,12 @@ float3 FresnelSchlick(float cosTheta, float3 F0)
     return F0 + (1.0f - F0) * pow(clamp(1.0f - cosTheta, 0.0f, 1.0f), 5.0f);
 }
 
+float3 FresnelSchlickRoughness(float cosTheta, float3 F0, float roughness)
+{
+    float3 r = float3(1.0f - roughness, 1.0f - roughness, 1.0f - roughness);
+    return F0 + (max(r, F0) - F0) * pow(clamp(1.0f - cosTheta, 0.0f, 1.0f), 5.0f);
+}
+
 float3 CookTorrance(float3 N, float3 V, float3 L, float3 lightRadiance, Material mat)
 {
     float3 F0 = lerp(float3(0.04f, 0.04f, 0.04f), mat.Albedo, mat.Metallic);

@@ -255,11 +255,12 @@ private:
     void LoadTextures(const ModelParse::MeshInfo& meshData);
     void ParseMaterials(const ModelParse::MeshInfo& meshData);
 
+    void LoadIBLTextures();
+
     ComPtr<ID3D12Resource> CreateDefault1x1Texture(DXGI_FORMAT format, const UINT8 rgba[4], ComPtr<ID3D12Resource>& uploadHeap);
     std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> GetStaticSamplers();
 
 private:
-
     std::vector<std::unique_ptr<FrameResource>> _frameResources;
     FrameResource* _currFrameResource = nullptr;
     int _currFrameResourceIndex = 0;
@@ -295,6 +296,14 @@ private:
     UINT _gBufferSrvStart = 0;
     UINT _lightSbSrvSlot = 0;
     UINT _shadowSrvStart = 0;
+
+    UINT _iblIrradianceSrvSlot = 0;
+    UINT _iblSpecularSrvSlot = 0;
+    UINT _iblBrdfSrvSlot = 0;
+
+    ComPtr<ID3D12Resource> _iblIrradiance;
+    ComPtr<ID3D12Resource> _iblSpecular;
+    ComPtr<ID3D12Resource> _iblBrdf;
 
     BoundingFrustum _camFrustum;
     std::unique_ptr<OctreeNode> _octreeRoot;
