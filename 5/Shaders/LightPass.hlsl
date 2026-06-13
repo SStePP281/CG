@@ -226,7 +226,7 @@ float4 PS(VSOut pin) : SV_Target
     mat.Roughness = roughness;
     mat.Metallic = metallic;
     mat.AO = ao;
-    mat.UseBeckmann = DebugUseBeckmann ? 1 : 0;
+    mat.UseBeckmann = DebugUseBeckmann;
 
     float shadowFactor = CalcShadow(posW, viewZ);
 
