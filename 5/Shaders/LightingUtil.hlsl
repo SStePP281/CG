@@ -22,8 +22,11 @@ struct Material
 {
     float3 Albedo;
     float Roughness;
+    
     float Metallic;
     float AO;
+    int UseBeckmann;
+    
 };
 
 float DistributionGGX(float3 N, float3 H, float roughness)
@@ -38,6 +41,27 @@ float DistributionGGX(float3 N, float3 H, float roughness)
     denom = PI * denom * denom;
 
     return a2 / denom;
+}
+
+float DistributionBeckmann(float3 N, float3 H, float roughness)
+{
+    float a = roughness * roughness;
+    float a2 = a * a;
+    float NdotH = max(dot(N, H), 0.0f);
+    float NdotH2 = NdotH * NdotH;
+
+    float num = exp((NdotH2 - 1.0f) / (a2 * NdotH2));
+    float denom = PI * a2 * NdotH2 * NdotH2;
+
+    return num / (denom + 0.0001f);
+}
+
+float NDF(float3 N, float3 H, float roughness, int useBeckmann)
+{
+    if (useBeckmann)
+        return DistributionBeckmann(N, H, roughness);
+    else
+        return DistributionGGX(N, H, roughness);
 }
 
 float GeometrySchlickGGX(float NdotV, float roughness)
@@ -81,7 +105,7 @@ float3 CookTorrance(float3 N, float3 V, float3 L, float3 lightRadiance, Material
     if (NdotL <= 0.0f)
         return float3(0.0f, 0.0f, 0.0f);
 
-    float D = DistributionGGX(N, H, mat.Roughness);
+    float D = NDF(N, H, mat.Roughness, mat.UseBeckmann);
     float G = GeometrySmith(N, V, L, mat.Roughness);
     float3 F = FresnelSchlick(max(dot(H, V), 0.0f), F0);
 

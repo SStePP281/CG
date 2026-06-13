@@ -220,7 +220,7 @@ void D3DFramework::Draw(const GameTimer& gt)
 	_cmdList->ResourceBarrier(1, &toRT);
 
 	float clearColor[4] = { 0, 0, 0, 1 };
-	auto hdrRTV = _ppChain->GetLightPassRTV();
+	auto hdrRTV = _isDebugMode ? CurrentBackBufferView() : _ppChain->GetLightPassRTV();
 	_cmdList->ClearRenderTargetView(hdrRTV, clearColor, 0, nullptr);
 
 	D3D12_CPU_DESCRIPTOR_HANDLE depth = _gBuffer->Textures[(UINT)GBufferIndex::Depth].DSV;
@@ -296,13 +296,16 @@ void D3DFramework::Draw(const GameTimer& gt)
 
 	//POST_PROCESS
 	
-	auto barrierToPP = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
-	_cmdList->ResourceBarrier(1, &barrierToPP);
+	if (!_isDebugMode)
+	{
+		auto barrierToPP = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
+		_cmdList->ResourceBarrier(1, &barrierToPP);
 
-	_ppChain->ExecuteAll(_cmdList.Get(), _srvHeap.Get(), _srvDescriptorSize, CurrentBackBufferView());
+		_ppChain->ExecuteAll(_cmdList.Get(), _srvHeap.Get(), _srvDescriptorSize, CurrentBackBufferView());
 
-	auto barrierToPresent = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
-	_cmdList->ResourceBarrier(1, &barrierToPresent);
+		auto barrierToPresent = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
+		_cmdList->ResourceBarrier(1, &barrierToPresent);
+	}
 
 	//PRESENT
 
@@ -371,6 +374,13 @@ void D3DFramework::OnKeyboardInput(const GameTimer& gt)
 	if (GetAsyncKeyState(VK_F1) & 0x8000)
 	{
 		_isDebugMode = !_isDebugMode;
+
+		Sleep(200);
+	}
+
+	if (GetAsyncKeyState(VK_F2) & 0x8000)
+	{
+		_isUseBeckmann = !_isUseBeckmann;
 
 		Sleep(200);
 	}
@@ -472,6 +482,7 @@ void D3DFramework::UpdateMainPassCB(const GameTimer& gt)
 	_mainPassCB.TotalTime = gt.TotalTime();
 	_mainPassCB.DeltaTime = gt.DeltaTime();
 	_mainPassCB.DebugMode = _isDebugMode ? 1 : 0;
+	_mainPassCB.DebugUseBeckmann = _isUseBeckmann ? 1 : 0;
 
 	auto currPassCB = _currFrameResource->PassCB.get();
 	currPassCB->CopyData(0, _mainPassCB);
@@ -1082,7 +1093,6 @@ void D3DFramework::CreatePPS()
 
 //void D3DFramework::CreatePPS()
 //{
-//	 CELL SHADER
 //	PassDesc cellDesc = {};
 //	cellDesc.Name = "CellShader";
 //	cellDesc.ShaderPath = LOCAL_PATH + "Shaders/" + POST_PROCESS_FOLDER + "CellShader.hlsl";

@@ -328,6 +328,7 @@ private:
 
 private:
     bool _isDebugMode = false;
+    bool _isUseBeckmann = false;
 
     std::vector<D3D12_RECT> BuildScissorRects(int K, int width, int height)
     {

@@ -38,19 +38,22 @@ cbuffer cbPass : register(b0)
     float4x4 gInvProj;
     float4x4 gViewProj;
     float4x4 gInvViewProj;
+    
     float3 gEyePosW;
     float cbPerObjectPad1;
+    
     float2 gRenderTargetSize;
     float2 gInvRenderTargetSize;
+    
     float gNearZ;
     float gFarZ;
     float gTotalTime;
     float gDeltaTime;
-    float4 gAmbientLight;
 
     int DebugMode;
     int DebugViewIndex;
-    int2 Pad;
+    int DebugUseBeckmann;
+    int Pad;
 };
 
 cbuffer cbLightInfo : register(b1)
@@ -223,6 +226,7 @@ float4 PS(VSOut pin) : SV_Target
     mat.Roughness = roughness;
     mat.Metallic = metallic;
     mat.AO = ao;
+    mat.UseBeckmann = DebugUseBeckmann ? 1 : 0;
 
     float shadowFactor = CalcShadow(posW, viewZ);
 
