@@ -12,6 +12,7 @@
 #include "MathHelper.h"
 #include "D3DUtil.h"
 #include "ModelStruct.h"
+#include "Terrain.h"
 
 using namespace Microsoft::WRL;
 
@@ -38,7 +39,7 @@ struct PassConstants
     int DebugMode = 0;
     int DebugViewIndex = 0;
     int DebugUseBeckmann = 0;
-    int Pad = 0;
+    int TerrainDebug = 0;
 };
 
 struct TessellationConstant
@@ -83,6 +84,24 @@ struct ShadowConstant
     XMFLOAT4 Padding[7];
 };
 
+struct TerrainConstant
+{
+    XMFLOAT2 TileOrigin = { 0.0f, 0.0f };
+    float TileSize = TERRAIN_TILE_WORLD_SIZE;
+    float HeightScale = TERRAIN_HEIGHT_SCALE;
+
+    XMFLOAT2 WorldSize = { TERRAIN_WORLD_SIZE, TERRAIN_WORLD_SIZE };
+    XMFLOAT2 WorldOffset = { TERRAIN_WORLD_OFFSET, TERRAIN_WORLD_OFFSET };
+
+    float HeightOffset = TERRAIN_HEIGHT_OFFSET;
+    float MorphStart = 0.0f;
+    float MorphEnd = 1.0f;
+    float TileCells = (float)TERRAIN_TILE_CELLS;
+
+    int LodLevel = 0;
+    int Pad[3] = { 0, 0, 0 };
+};
+
 struct FrameResource
 {
 public:
@@ -105,6 +124,7 @@ public:
     std::unique_ptr<UploadBuffer<InstanceData>> InstanceDataSB = nullptr;
 
     std::unique_ptr<UploadBuffer<ShadowConstant>> ShadowCB = nullptr;
+    std::unique_ptr<UploadBuffer<TerrainConstant>> TerrainCB = nullptr;
 
     UINT64 Fence = 0;
 };

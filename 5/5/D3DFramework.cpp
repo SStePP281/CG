@@ -15,22 +15,7 @@
 #include "WICTextureLoader.h"
 #include <ResourceUploadBatch.h>
 
-#define HOME 1
-
-#if HOME == 1
-
-const std::string LOCAL_PATH = "C:/Users/Stepan/Desktop/CG/5/";
-const std::wstring LOCAL_PATH_W = L"C:/Users/Stepan/Desktop/CG/5/";
-
-#else
-
-const std::string LOCAL_PATH = "C:/Users/HUAWEI/Desktop/CG/5/";
-const std::wstring LOCAL_PATH_W = L"C:/Users/HUAWEI/Desktop/CG/5/";
-
-#endif // HOME
-
-const std::string POST_PROCESS_FOLDER = "PostProcess/";
-const std::wstring POST_PROCESS_FOLDER_W = L"PostProcess/";
+#include "PathManager.h"
 
 using namespace DirectX;
 
@@ -61,6 +46,11 @@ bool D3DFramework::Initialize()
 	CD3DX12_CPU_DESCRIPTOR_HANDLE shadowHandle(_srvHeap->GetCPUDescriptorHandleForHeapStart(), _shadowSrvStart, _srvDescriptorSize);
 	_shadowMap = std::make_unique<ShadowMap>(_d3dDevice.Get(), shadowHandle, _srvDescriptorSize);
 
+	_terrainSrvStart = _lastSlot;
+	CD3DX12_CPU_DESCRIPTOR_HANDLE terrainHandle(_srvHeap->GetCPUDescriptorHandleForHeapStart(), _terrainSrvStart, _srvDescriptorSize);
+	_terrain = std::make_unique<Terrain>(_d3dDevice.Get(), _cmdQueue.Get(), _cmdList.Get(), terrainHandle, _srvDescriptorSize);
+	_lastSlot += _terrain->GetSlotCount();
+
 	_ppChain = std::make_unique<PostProcessChain>();
 	CreatePPS();
 
@@ -76,12 +66,14 @@ bool D3DFramework::Initialize()
 	BuildRootSignatureGBuffer();
 	BuildRootSignatureLightPass();
 	BuildRootSignatureShadowPass();
+	BuildRootSignatureTerrainPass();
 	
 	BuildShadersAndInputLayout();
 
 	BuildGBufferPSO();
 	BuildLightPassPSO();
 	BuildShadowPassPSO();
+	BuildTerrainPassPSO();
 
 	ThrowIfFailed(_cmdList->Close());
 	ID3D12CommandList* cmdsLists[] = { _cmdList.Get() };
@@ -135,6 +127,7 @@ void D3DFramework::Update(const GameTimer& gt)
 	UpdateMainPassCB(gt);
 	UpdateLightSB(gt);
 	UpdateShadowCB(gt);
+	UpdateTerrainCB(gt);
 
 	UpdateInstanceData(gt);
 }
@@ -196,21 +189,9 @@ void D3DFramework::Draw(const GameTimer& gt)
 
 	auto dsv = _gBuffer->Textures[(UINT)GBufferIndex::Depth].DSV;
 	_cmdList->OMSetRenderTargets((UINT)rtvs.size(), rtvs.data(), TRUE, &dsv);
-
-	_cmdList->SetPipelineState(_psos["gbuffer"].Get());
-	_cmdList->SetGraphicsRootSignature(_rootSignatureGBuffer.Get());
-
-	auto passCB = _currFrameResource->PassCB->Resource();
-	auto tessCB = _currFrameResource->TessellationCB->Resource();
-	auto dispCB = _currFrameResource->DisplacementCB->Resource();
-	
-	_cmdList->SetGraphicsRootConstantBufferView(6, passCB->GetGPUVirtualAddress());  // b0
-	_cmdList->SetGraphicsRootConstantBufferView(8, tessCB->GetGPUVirtualAddress());  // b2
-	_cmdList->SetGraphicsRootConstantBufferView(9, dispCB->GetGPUVirtualAddress());  // b3
-
-	_cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST);
 	
 	DrawRenderItems(_cmdList.Get(), _opaqueRitems);
+	DrawTerrain(_cmdList.Get());
 
 	_gBuffer->TransitToLightRenderingState(_cmdList.Get());
 
@@ -350,6 +331,13 @@ void D3DFramework::OnMouseMove(WPARAM btnState, int x, int y)
 	_lastMousePos.y = y;
 }
 
+void D3DFramework::OnMouseWheel(int delta)
+{
+	float notches = delta / 120.0f;
+	_moveSpeed *= powf(1.15f, notches);
+	_moveSpeed = MathHelper::Clamp(_moveSpeed, 0.5f, 5000.0f);
+}
+
 void D3DFramework::OnKeyboardInput(const GameTimer& gt)
 {
 	float dt = gt.DeltaTime();
@@ -381,6 +369,13 @@ void D3DFramework::OnKeyboardInput(const GameTimer& gt)
 	if (GetAsyncKeyState(VK_F2) & 0x8000)
 	{
 		_isUseBeckmann = !_isUseBeckmann;
+
+		Sleep(200);
+	}
+
+	if (GetAsyncKeyState(VK_F3) & 0x8000)
+	{
+		_isTerrainDegub = !_isTerrainDegub;
 
 		Sleep(200);
 	}
@@ -483,6 +478,7 @@ void D3DFramework::UpdateMainPassCB(const GameTimer& gt)
 	_mainPassCB.DeltaTime = gt.DeltaTime();
 	_mainPassCB.DebugMode = _isDebugMode ? 1 : 0;
 	_mainPassCB.DebugUseBeckmann = _isUseBeckmann ? 1 : 0;
+	_mainPassCB.TerrainDebug = _isTerrainDegub ? 1 : 0;
 
 	auto currPassCB = _currFrameResource->PassCB.get();
 	currPassCB->CopyData(0, _mainPassCB);
@@ -627,6 +623,27 @@ void D3DFramework::UpdateShadowCB(const GameTimer& gt)
 		}
 
 		break;
+	}
+}
+
+void D3DFramework::UpdateTerrainCB(const GameTimer& gt)
+{
+	_terrain->UpdateLOD(_eyePos, 0.25f * MathHelper::Pi, (float)CLIENT_HEIGHT, _camFrustum);
+
+	assert(_terrain->GetVisibleTiles().size() <= MAX_TERRAIN_TILES);
+
+	UINT i = 0;
+	for (const auto& t : _terrain->GetVisibleTiles())
+	{
+		TerrainConstant terrain = TerrainConstant();
+		terrain.TileOrigin = t.Origin;
+		terrain.TileSize = t.Size;
+		terrain.MorphStart = t.MorphStart;
+		terrain.MorphEnd = t.MorphEnd;
+		terrain.LodLevel = t.Depth;
+
+		auto terraingCB = _currFrameResource->TerrainCB.get();
+		terraingCB->CopyData(i++, terrain);
 	}
 }
 
@@ -834,6 +851,38 @@ void D3DFramework::BuildRootSignatureShadowPass()
 	));
 }
 
+void D3DFramework::BuildRootSignatureTerrainPass()
+{
+	CD3DX12_DESCRIPTOR_RANGE texRange;
+	texRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 2, 0);   // 2 SRV, начиная с t0
+
+	CD3DX12_ROOT_PARAMETER slotRootParameter[3];
+	slotRootParameter[0].InitAsDescriptorTable(1, &texRange, D3D12_SHADER_VISIBILITY_ALL); // t0, t1
+	slotRootParameter[1].InitAsConstantBufferView(0);   // b0 cbPass
+	slotRootParameter[2].InitAsConstantBufferView(4);   // b4 cbTerrain
+
+	auto staticSamplers = GetStaticSamplers();
+
+	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(3, slotRootParameter, (UINT)staticSamplers.size(), staticSamplers.data(), D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
+	ComPtr<ID3DBlob> serializedRootSig = nullptr;
+	ComPtr<ID3DBlob> errorBlob = nullptr;
+	HRESULT hr = D3D12SerializeRootSignature(&rootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1, serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
+
+	if (errorBlob != nullptr)
+	{
+		OutputDebugStringA((char*)errorBlob->GetBufferPointer());
+	}
+
+	ThrowIfFailed(hr);
+
+	ThrowIfFailed(_d3dDevice->CreateRootSignature(0,
+		serializedRootSig->GetBufferPointer(),
+		serializedRootSig->GetBufferSize(),
+		IID_PPV_ARGS(&_rootSignatureTerrainPass)
+	));
+}
+
 void D3DFramework::BuildDescriptorHeaps()
 {
 	std::vector<Texture*> orderList;
@@ -1002,6 +1051,48 @@ void D3DFramework::BuildShadowPassPSO()
 	ThrowIfFailed(_d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&_psos["shadowPass"])));
 }
 
+void D3DFramework::BuildTerrainPassPSO()
+{
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
+	ZeroMemory(&psoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
+
+	psoDesc.InputLayout = { _inputLayout.data(), (UINT)_inputLayout.size() };
+	psoDesc.pRootSignature = _rootSignatureTerrainPass.Get();
+
+	psoDesc.VS =
+	{
+		reinterpret_cast<BYTE*>(_shaders["terrainVS"]->GetBufferPointer()),
+		_shaders["terrainVS"]->GetBufferSize()
+	};
+	psoDesc.PS =
+	{
+		reinterpret_cast<BYTE*>(_shaders["terrainPS"]->GetBufferPointer()),
+		_shaders["terrainPS"]->GetBufferSize()
+	};
+
+	psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+	psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+	psoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+
+	psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+
+	psoDesc.SampleMask = UINT_MAX;
+	psoDesc.SampleDesc.Count = _4xMsaaState ? 4 : 1;
+	psoDesc.SampleDesc.Quality = _4xMsaaState ? (_4xMsaaQuality - 1) : 0;
+
+	psoDesc.NumRenderTargets = 3;
+	psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;       // Albedo
+	psoDesc.RTVFormats[1] = DXGI_FORMAT_R32G32B32A32_FLOAT;   // Normal
+	psoDesc.RTVFormats[2] = DXGI_FORMAT_R8G8B8A8_UNORM;       // MatData
+
+	psoDesc.DSVFormat = _depthStencilFormat;
+
+	ThrowIfFailed(_d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&_psos["terrain"])));
+
+	psoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
+	ThrowIfFailed(_d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&_psos["terrainWire"])));
+}
+
 void D3DFramework::BuildShadersAndInputLayout()
 {
 	_shaders["gbufferVS"] = D3DUtil::CompileShader(LOCAL_PATH_W + L"Shaders/GBuffer.hlsl", nullptr, "VS", "vs_5_1");
@@ -1014,6 +1105,9 @@ void D3DFramework::BuildShadersAndInputLayout()
 	_shaders["lightPS"] = D3DUtil::CompileShader(LOCAL_PATH_W + L"Shaders/LightPass.hlsl", nullptr, "PS", "ps_5_1");
 
 	_shaders["shadowVS"] = D3DUtil::CompileShader(LOCAL_PATH_W + L"Shaders/Shadow.hlsl", nullptr, "VS", "vs_5_1");
+
+	_shaders["terrainVS"] = D3DUtil::CompileShader(LOCAL_PATH_W + L"Shaders/" + TERRAIN_FOLDER_W + L"Terrain.hlsl", nullptr, "VS", "vs_5_1");
+	_shaders["terrainPS"] = D3DUtil::CompileShader(LOCAL_PATH_W + L"Shaders/" + TERRAIN_FOLDER_W + L"Terrain.hlsl", nullptr, "PS", "ps_5_1");
 
 	_inputLayout =
 	{
@@ -1373,6 +1467,19 @@ void D3DFramework::BuildRenderItems()
 
 void D3DFramework::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
 {
+	cmdList->SetPipelineState(_psos["gbuffer"].Get());
+	cmdList->SetGraphicsRootSignature(_rootSignatureGBuffer.Get());
+
+	auto passCB = _currFrameResource->PassCB->Resource();
+	auto tessCB = _currFrameResource->TessellationCB->Resource();
+	auto dispCB = _currFrameResource->DisplacementCB->Resource();
+
+	cmdList->SetGraphicsRootConstantBufferView(6, passCB->GetGPUVirtualAddress());  // b0
+	cmdList->SetGraphicsRootConstantBufferView(8, tessCB->GetGPUVirtualAddress());  // b2
+	cmdList->SetGraphicsRootConstantBufferView(9, dispCB->GetGPUVirtualAddress());  // b3
+
+	cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST);
+
 	auto matCB = _currFrameResource->MaterialCB->Resource();
 	UINT matCBByteSize = D3DUtil::CalcConstantBufferSize(sizeof(MaterialConstants));
 
@@ -1436,6 +1543,36 @@ void D3DFramework::DrawRenderItemsShadow(ID3D12GraphicsCommandList* cmdList, con
 		cmdList->SetGraphicsRootShaderResourceView(0, instAddress);
 
 		cmdList->DrawIndexedInstanced(ri->IndexCount, ri->ShadowInstanceCount, ri->StartIndexLocation, ri->BaseVertexLocation, 0);
+	}
+}
+
+void D3DFramework::DrawTerrain(ID3D12GraphicsCommandList* cmdList)
+{
+	cmdList->SetPipelineState(_psos[_isTerrainDegub ? "terrainWire" : "terrain"].Get());
+	cmdList->SetGraphicsRootSignature(_rootSignatureTerrainPass.Get());
+	cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+	CD3DX12_GPU_DESCRIPTOR_HANDLE texHandle(_srvHeap->GetGPUDescriptorHandleForHeapStart(), _terrainSrvStart, _srvDescriptorSize);
+	cmdList->SetGraphicsRootDescriptorTable(0, texHandle);                       // t0 height, t1 color
+
+	auto passCB = _currFrameResource->PassCB->Resource();
+	cmdList->SetGraphicsRootConstantBufferView(1, passCB->GetGPUVirtualAddress()); // b0
+
+	UINT tileCbSize = D3DUtil::CalcConstantBufferSize(sizeof(TerrainConstant));
+	auto terrainCB = _currFrameResource->TerrainCB->Resource();
+
+	const MeshGeometry* mesh = _terrain->GetTileMesh();
+
+	auto vbv = mesh->VertexBufferView();
+	auto ibv = mesh->IndexBufferView();
+	cmdList->IASetVertexBuffers(0, 1, &vbv);
+	cmdList->IASetIndexBuffer(&ibv);
+
+	for (UINT tileIndex = 0; tileIndex < _terrain->GetVisibleTiles().size(); tileIndex++)
+	{
+		cmdList->SetGraphicsRootConstantBufferView(2, terrainCB->GetGPUVirtualAddress() + tileIndex * tileCbSize); // b4
+
+		cmdList->DrawIndexedInstanced(mesh->DrawArgs.at("tile").IndexCount, 1, 0, 0, 0);
 	}
 }
 

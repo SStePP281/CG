@@ -17,4 +17,6 @@ FrameResource::FrameResource(ID3D12Device* device, UINT passCount, UINT material
 	InstanceDataSB = std::make_unique<UploadBuffer<InstanceData>>(device, 10000, false);
 
 	ShadowCB = std::make_unique<UploadBuffer<ShadowConstant>>(device, shadowCascadeCount, true);
+
+	TerrainCB = std::make_unique<UploadBuffer<TerrainConstant>>(device, MAX_TERRAIN_TILES, true);
 }

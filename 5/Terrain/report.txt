@@ -1,0 +1,37 @@
+
+──────────────────────────────────────────────────────────────────────────────────────────  GAEA BUILD SWARM  2.3.1.0 ──
+
+                                                                            
+          Filename:  │ C:/Users/Stepan/Desktop/CG/5/Terrain/Canyon.terrain  
+    Build Location:  │ C:\Users\Stepan\Desktop\CG\5\Terrain                 
+        Build Type:  │ Standard                                             
+  Build Resolution:  │ 1024 × 1024                                          
+     Build Profile:  │ None / Last Saved Settings                           
+             Nodes:  │ 04 to build                                          
+                     │ 02 to export                                         
+                                                                            
+
+──────────────────────────────────────────────────────────────────────────────────────────  GAEA BUILD SWARM  2.3.1.0 ──
+
+                                                                            
+          Filename:  │ C:/Users/Stepan/Desktop/CG/5/Terrain/Canyon.terrain  
+    Build Location:  │ C:\Users\Stepan\Desktop\CG\5\Terrain                 
+        Build Type:  │ Standard                                             
+  Build Resolution:  │ 1024 × 1024                                          
+     Build Profile:  │ None / Last Saved Settings                           
+             Nodes:  │ 04 to build                                          
+                     │ 02 to export                                         
+                                                                            
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────── Build Report ──
+
+              Build Results                             Statistics              
+                                                                                
+          Result: │ Success                      Canyon │ 0:00:02.266           
+      Resolution: │ 1024                     SuperColor │ 0:00:01.814           
+      Node Count: │ 4                                   │                       
+      Start Time: │ 10/12/2026 16:48:54         Fastest │ Color @ 0:00:00.001   
+        End Time: │ 10/12/2026 16:48:59         Slowest │ Canyon @ 0:00:02.266  
+        Duration: │ 00:00:05.2446052                                            
+  Non-Build Time: │ 00:00:01.1616051           * nodes that took <100ms are     
+                                                         excluded.              

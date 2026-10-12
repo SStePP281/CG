@@ -53,7 +53,7 @@ cbuffer cbPass : register(b0)
     int DebugMode;
     int DebugViewIndex;
     int DebugUseBeckmann;
-    int Pad;
+    int TerrainDebug;
 };
 
 cbuffer cbLightInfo : register(b1)
