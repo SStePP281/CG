@@ -16,9 +16,10 @@ Terrain::Terrain(ID3D12Device* device, ID3D12CommandQueue* cmdQueue, ID3D12Graph
 	: _srvHandle(srvHandle), _srvDescriptorSize(srvDescriptorSize)
 {
 	LoadTextures(device, cmdQueue);
+	CreateTerrainPaintTexture(device, cmdList);
 	CreateSRV(device);
-	BuildTileMesh(device, cmdList);
 
+	BuildTileMesh(device, cmdList);
 	_root = BuildNode({ 0,0 }, TERRAIN_WORLD_SIZE, 0);
 }
 
@@ -43,20 +44,79 @@ ComPtr<ID3D12Resource> Terrain::LoadWic(ID3D12Device* device, ID3D12CommandQueue
 void Terrain::LoadTextures(ID3D12Device* device, ID3D12CommandQueue* cmdQueue)
 {
 	const std::wstring folder = LOCAL_PATH_W + TERRAIN_FOLDER_W;
+	const std::vector<std::wstring> colorTexureNames = { L"DefaultColor.png" };
 
 	_heightMap = LoadWic(device, cmdQueue, folder + L"Height.png", false);
-	_colorMap = LoadWic(device, cmdQueue, folder + L"Color.png", true);
 
 	const D3D12_RESOURCE_DESC desc = _heightMap->GetDesc();
 	_width = (UINT)desc.Width;
 	_height = desc.Height;
 
+	for (const auto& texName : colorTexureNames)
+	{
+		_colorMaps.push_back(LoadWic(device, cmdQueue, folder + texName, true));
+	}
+	
 	assert(desc.Format == DXGI_FORMAT_R16_UNORM);
+}
+
+void Terrain::CreateTerrainPaintTexture(ID3D12Device* device, ID3D12GraphicsCommandList* cmdList)
+{
+	_paintTexture = std::make_unique<Texture>();
+	_paintTexture->Name = "Terrain_Mask";
+	_paintTexture->Filename = L"None";
+
+	D3D12_RESOURCE_DESC texDesc = {};
+	texDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+	texDesc.Width = TERRAIN_PAINT_TEXTURE_SIZE;
+	texDesc.Height = TERRAIN_PAINT_TEXTURE_SIZE;
+	texDesc.DepthOrArraySize = 1;
+	texDesc.MipLevels = 1;
+	texDesc.Format = DXGI_FORMAT_R8_UINT;
+	texDesc.SampleDesc.Count = 1;
+	texDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+	texDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
+
+	CD3DX12_HEAP_PROPERTIES defaultHeap(D3D12_HEAP_TYPE_DEFAULT);
+	ThrowIfFailed(device->CreateCommittedResource(&defaultHeap, D3D12_HEAP_FLAG_NONE, &texDesc, D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&_paintTexture->Resource)));
+
+	UINT64 uploadSize = 0;
+	D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint;
+	device->GetCopyableFootprints(&texDesc, 0, 1, 0, &footprint, nullptr, nullptr, &uploadSize);
+
+	CD3DX12_HEAP_PROPERTIES uploadHeapProps(D3D12_HEAP_TYPE_UPLOAD);
+	CD3DX12_RESOURCE_DESC uploadBufDesc = CD3DX12_RESOURCE_DESC::Buffer(uploadSize);
+	ThrowIfFailed(device->CreateCommittedResource(&uploadHeapProps, D3D12_HEAP_FLAG_NONE, &uploadBufDesc, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&_paintTexture->UploadHeap)));
+
+	UINT8* mapped = nullptr;
+	_paintTexture->UploadHeap->Map(0, nullptr, reinterpret_cast<void**>(&mapped));
+
+	mapped[0] = 0;
+	mapped[1] = 0;
+	mapped[2] = 0;
+	mapped[3] = 0;
+	_paintTexture->UploadHeap->Unmap(0, nullptr);
+
+	D3D12_TEXTURE_COPY_LOCATION dst = {};
+	dst.pResource = _paintTexture->Resource.Get();
+	dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+	dst.SubresourceIndex = 0;
+
+	D3D12_TEXTURE_COPY_LOCATION src = {};
+	src.pResource = _paintTexture->UploadHeap.Get();
+	src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+	src.PlacedFootprint = footprint;
+
+	cmdList->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+
+	auto barrier = CD3DX12_RESOURCE_BARRIER::Transition(_paintTexture->Resource.Get(), D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+	cmdList->ResourceBarrier(1, &barrier);
 }
 
 void Terrain::CreateSRV(ID3D12Device* device)
 {
-	ID3D12Resource* resources[] = { _heightMap.Get(), _colorMap.Get() };
+	std::vector<ID3D12Resource*> resources = { _heightMap.Get(), _paintTexture->Resource.Get() };
+	for (const auto& colors : _colorMaps) { resources.push_back(colors.Get()); }
 
 	for (ID3D12Resource* res : resources)
 	{

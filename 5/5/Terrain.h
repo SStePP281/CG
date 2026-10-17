@@ -27,6 +27,8 @@ constexpr UINT TERRAIN_TILES_PER_SIDE = (UINT)(TERRAIN_WORLD_SIZE / TERRAIN_TILE
 constexpr UINT MAX_TERRAIN_TILES = 1024; 
 constexpr UINT TERRAIN_TILE_VERTS = TERRAIN_TILE_CELLS + 1;
 
+constexpr UINT TERRAIN_PAINT_TEXTURE_SIZE = 1024;
+
 static_assert(TERRAIN_TILES_PER_SIDE * TERRAIN_TILE_WORLD_SIZE == TERRAIN_WORLD_SIZE, "World size must be a multiple of tile size");
 
 struct TerrainTile
@@ -54,7 +56,7 @@ public:
 	Terrain(const Terrain& rhs) = delete;
 	Terrain& operator=(const Terrain& rhs) = delete;
 
-	UINT GetSlotCount() { return 2; }
+	UINT GetSlotCount() { return 2 + _colorMaps.size(); }
 
 	UINT GetWidth() const { return _width; }
 	UINT GetHeight() const { return _height; }
@@ -77,6 +79,9 @@ private:
 	BoundingBox NodeBounds(const QuadNode* node) const;
 
 private:
+	void CreateTerrainPaintTexture(ID3D12Device* device, ID3D12GraphicsCommandList* cmdList);
+
+private:
 	std::unique_ptr<MeshGeometry> _tileMesh;
 
 	std::unique_ptr<QuadNode> _root;
@@ -84,7 +89,8 @@ private:
 
 private:
 	ComPtr<ID3D12Resource> _heightMap;
-	ComPtr<ID3D12Resource> _colorMap;
+	std::unique_ptr<Texture> _paintTexture;
+	std::vector<ComPtr<ID3D12Resource>> _colorMaps;
 
 	CD3DX12_CPU_DESCRIPTOR_HANDLE _srvHandle;
 	UINT _srvDescriptorSize = 0;
