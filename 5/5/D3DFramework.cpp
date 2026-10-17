@@ -15,22 +15,7 @@
 #include "WICTextureLoader.h"
 #include <ResourceUploadBatch.h>
 
-#define HOME 0
-
-#if HOME == 1
-
-const std::string LOCAL_PATH = "C:/Users/Stepan/Desktop/CG/5/";
-const std::wstring LOCAL_PATH_W = L"C:/Users/Stepan/Desktop/CG/5/";
-
-#else
-
-const std::string LOCAL_PATH = "C:/Users/HUAWEI/Desktop/CG/5/";
-const std::wstring LOCAL_PATH_W = L"C:/Users/HUAWEI/Desktop/CG/5/";
-
-#endif // HOME
-
-const std::string POST_PROCESS_FOLDER = "PostProcess/";
-const std::wstring POST_PROCESS_FOLDER_W = L"PostProcess/";
+#include "PathManager.h"
 
 using namespace DirectX;
 
@@ -44,6 +29,7 @@ bool D3DFramework::Initialize()
 	ThrowIfFailed(_cmdList->Reset(_directCmdListAlloc.Get(), nullptr));
 
 	LoadModel(LOCAL_PATH + "Models/Model.obj");
+	LoadModel(LOCAL_PATH + "Models/IBL_TEST.obj");
 	//LoadModel("C:/Users/Stepan/Desktop/CG/5/Models/A_LOT_OF_POLYGONS.obj");
 	//LoadModel("C:/Users/HUAWEI/Desktop/CG/5/Models/DispTest.obj");
 
@@ -60,8 +46,15 @@ bool D3DFramework::Initialize()
 	CD3DX12_CPU_DESCRIPTOR_HANDLE shadowHandle(_srvHeap->GetCPUDescriptorHandleForHeapStart(), _shadowSrvStart, _srvDescriptorSize);
 	_shadowMap = std::make_unique<ShadowMap>(_d3dDevice.Get(), shadowHandle, _srvDescriptorSize);
 
+	_terrainSrvStart = _lastSlot;
+	CD3DX12_CPU_DESCRIPTOR_HANDLE terrainHandle(_srvHeap->GetCPUDescriptorHandleForHeapStart(), _terrainSrvStart, _srvDescriptorSize);
+	_terrain = std::make_unique<Terrain>(_d3dDevice.Get(), _cmdQueue.Get(), _cmdList.Get(), terrainHandle, _srvDescriptorSize);
+	_lastSlot += _terrain->GetSlotCount();
+
 	_ppChain = std::make_unique<PostProcessChain>();
 	CreatePPS();
+
+	LoadIBLTextures();
 
 	CreateSceneObjects();
 	BuildRenderItems();
@@ -73,12 +66,14 @@ bool D3DFramework::Initialize()
 	BuildRootSignatureGBuffer();
 	BuildRootSignatureLightPass();
 	BuildRootSignatureShadowPass();
+	BuildRootSignatureTerrainPass();
 	
 	BuildShadersAndInputLayout();
 
 	BuildGBufferPSO();
 	BuildLightPassPSO();
 	BuildShadowPassPSO();
+	BuildTerrainPassPSO();
 
 	ThrowIfFailed(_cmdList->Close());
 	ID3D12CommandList* cmdsLists[] = { _cmdList.Get() };
@@ -132,6 +127,7 @@ void D3DFramework::Update(const GameTimer& gt)
 	UpdateMainPassCB(gt);
 	UpdateLightSB(gt);
 	UpdateShadowCB(gt);
+	UpdateTerrainCB(gt);
 
 	UpdateInstanceData(gt);
 }
@@ -184,68 +180,60 @@ void D3DFramework::Draw(const GameTimer& gt)
 	_gBuffer->TransitToOpaqueRenderingState(_cmdList.Get());
 	_gBuffer->ClearView(_cmdList.Get());
 
-	std::array<D3D12_CPU_DESCRIPTOR_HANDLE, 2> rtvs =
+	std::array<D3D12_CPU_DESCRIPTOR_HANDLE, 3> rtvs =
 	{
-		_gBuffer->Textures[(UINT)GBufferIndex::Albedo].RTV,
-		_gBuffer->Textures[(UINT)GBufferIndex::Normal].RTV
+       _gBuffer->Textures[(UINT)GBufferIndex::Albedo].RTV,
+       _gBuffer->Textures[(UINT)GBufferIndex::Normal].RTV,
+       _gBuffer->Textures[(UINT)GBufferIndex::MatData].RTV,
 	};
 
 	auto dsv = _gBuffer->Textures[(UINT)GBufferIndex::Depth].DSV;
 	_cmdList->OMSetRenderTargets((UINT)rtvs.size(), rtvs.data(), TRUE, &dsv);
-
-	_cmdList->SetPipelineState(_psos["gbuffer"].Get());
-	_cmdList->SetGraphicsRootSignature(_rootSignatureGBuffer.Get());
-
-	auto passCB = _currFrameResource->PassCB->Resource();
-	_cmdList->SetGraphicsRootConstantBufferView(3, passCB->GetGPUVirtualAddress());
-
-	auto tessCB = _currFrameResource->TessellationCB->Resource();
-	_cmdList->SetGraphicsRootConstantBufferView(5, tessCB->GetGPUVirtualAddress());
-
-	auto dispCB = _currFrameResource->DisplacementCB->Resource();
-	_cmdList->SetGraphicsRootConstantBufferView(6, dispCB->GetGPUVirtualAddress());
-
-	_cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST);
 	
 	DrawRenderItems(_cmdList.Get(), _opaqueRitems);
+	DrawTerrain(_cmdList.Get());
 
 	_gBuffer->TransitToLightRenderingState(_cmdList.Get());
 
 	//LIGHTING PASS
 
-	auto toRT = CD3DX12_RESOURCE_BARRIER::Transition(_ppChain->First()->OutputBuffer.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+	auto toRT = CD3DX12_RESOURCE_BARRIER::Transition(_ppChain->GetHDRBuffer(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
 	_cmdList->ResourceBarrier(1, &toRT);
 
 	float clearColor[4] = { 0, 0, 0, 1 };
-	auto lightTarget = _ppChain->GetPass("ToneMapping");
-	_cmdList->ClearRenderTargetView(lightTarget->OutputRTV, clearColor, 0, nullptr);
+	auto hdrRTV = _isDebugMode ? CurrentBackBufferView() : _ppChain->GetLightPassRTV();
+	_cmdList->ClearRenderTargetView(hdrRTV, clearColor, 0, nullptr);
 
 	D3D12_CPU_DESCRIPTOR_HANDLE depth = _gBuffer->Textures[(UINT)GBufferIndex::Depth].DSV;
-	_cmdList->OMSetRenderTargets(1, &lightTarget->OutputRTV, FALSE, &depth);
+	_cmdList->OMSetRenderTargets(1, &hdrRTV, FALSE, &depth);
 
 	_cmdList->SetPipelineState(_psos["lightPass"].Get());
 	_cmdList->SetGraphicsRootSignature(_rootSignatureLightPass.Get());
 
-	CD3DX12_GPU_DESCRIPTOR_HANDLE albedoGpu(_srvHeap->GetGPUDescriptorHandleForHeapStart(), _gBufferSrvStart + 0, _srvDescriptorSize);
-	CD3DX12_GPU_DESCRIPTOR_HANDLE normalGpu(_srvHeap->GetGPUDescriptorHandleForHeapStart(), _gBufferSrvStart + 1, _srvDescriptorSize);
-	CD3DX12_GPU_DESCRIPTOR_HANDLE depthGpu (_srvHeap->GetGPUDescriptorHandleForHeapStart(), _gBufferSrvStart + 2, _srvDescriptorSize);
+	CD3DX12_GPU_DESCRIPTOR_HANDLE albedoGpu(_srvHeap->GetGPUDescriptorHandleForHeapStart(), _gBufferSrvStart + (UINT)GBufferIndex::Albedo, _srvDescriptorSize);
+	CD3DX12_GPU_DESCRIPTOR_HANDLE normalGpu(_srvHeap->GetGPUDescriptorHandleForHeapStart(), _gBufferSrvStart + (UINT)GBufferIndex::Normal, _srvDescriptorSize);
+	CD3DX12_GPU_DESCRIPTOR_HANDLE matDataGpu(_srvHeap->GetGPUDescriptorHandleForHeapStart(), _gBufferSrvStart + (UINT)GBufferIndex::MatData, _srvDescriptorSize);
+	CD3DX12_GPU_DESCRIPTOR_HANDLE depthGpu(_srvHeap->GetGPUDescriptorHandleForHeapStart(), _gBufferSrvStart + (UINT)GBufferIndex::Depth, _srvDescriptorSize);
+	CD3DX12_GPU_DESCRIPTOR_HANDLE irradianceGpu(_srvHeap->GetGPUDescriptorHandleForHeapStart(), _iblIrradianceSrvSlot, _srvDescriptorSize);
+	CD3DX12_GPU_DESCRIPTOR_HANDLE specularGpu(_srvHeap->GetGPUDescriptorHandleForHeapStart(), _iblSpecularSrvSlot, _srvDescriptorSize);
+	CD3DX12_GPU_DESCRIPTOR_HANDLE brdfGpu(_srvHeap->GetGPUDescriptorHandleForHeapStart(), _iblBrdfSrvSlot, _srvDescriptorSize);
 
-	_cmdList->SetGraphicsRootDescriptorTable(0, albedoGpu);
-	_cmdList->SetGraphicsRootDescriptorTable(1, normalGpu);
-	_cmdList->SetGraphicsRootDescriptorTable(2, depthGpu);
-	_cmdList->SetGraphicsRootShaderResourceView(3, _currFrameResource->LightSB->Resource()->GetGPUVirtualAddress());
+	_cmdList->SetGraphicsRootDescriptorTable(0, albedoGpu);   // t0 Albedo
+	_cmdList->SetGraphicsRootDescriptorTable(1, normalGpu);   // t1 Normal
+	_cmdList->SetGraphicsRootDescriptorTable(2, matDataGpu);  // t2 MatData
+	_cmdList->SetGraphicsRootDescriptorTable(3, depthGpu);    // t3 Depth
 
-	passCB = _currFrameResource->PassCB->Resource();
-	_cmdList->SetGraphicsRootConstantBufferView(4, passCB->GetGPUVirtualAddress());
+	_cmdList->SetGraphicsRootDescriptorTable(9, irradianceGpu); // t6 DefHDRI
+	_cmdList->SetGraphicsRootDescriptorTable(10, specularGpu);   // t7 SpecHDRI
+	_cmdList->SetGraphicsRootDescriptorTable(11, brdfGpu);       // t8 TableHDRI
 
-	auto lightInfoCB = _currFrameResource->LightInfoCB->Resource();
-	_cmdList->SetGraphicsRootConstantBufferView(5, lightInfoCB->GetGPUVirtualAddress());
-
-	auto shadowCBRes = _currFrameResource->ShadowCB->Resource();
-	_cmdList->SetGraphicsRootConstantBufferView(6, shadowCBRes->GetGPUVirtualAddress());
+	_cmdList->SetGraphicsRootShaderResourceView(4, _currFrameResource->LightSB->Resource()->GetGPUVirtualAddress());	  // t4 LightSB
+	_cmdList->SetGraphicsRootConstantBufferView(5, _currFrameResource->PassCB->Resource()->GetGPUVirtualAddress());		  // b0 PassCB
+	_cmdList->SetGraphicsRootConstantBufferView(6, _currFrameResource->LightInfoCB->Resource()->GetGPUVirtualAddress());  // b1 LightInfoCB
+	_cmdList->SetGraphicsRootConstantBufferView(7, _currFrameResource->ShadowCB->Resource()->GetGPUVirtualAddress());     // b2 ShadowCB
 
 	CD3DX12_GPU_DESCRIPTOR_HANDLE shadowGpu(_srvHeap->GetGPUDescriptorHandleForHeapStart(), _shadowSrvStart, _srvDescriptorSize);
-	_cmdList->SetGraphicsRootDescriptorTable(7, shadowGpu);
+	_cmdList->SetGraphicsRootDescriptorTable(8, shadowGpu);   // t5 ShadowMap
 
 	// Fullscreen quad
 	_cmdList->IASetVertexBuffers(0, 0, nullptr);
@@ -266,9 +254,7 @@ void D3DFramework::Draw(const GameTimer& gt)
 
 			_currFrameResource->PassCB->CopyData(i, debugCB);
 
-			D3D12_GPU_VIRTUAL_ADDRESS passAddr = _currFrameResource->PassCB->Resource()->GetGPUVirtualAddress() + i * passElementSize;
-
-			_cmdList->SetGraphicsRootConstantBufferView(4, passAddr);
+			_cmdList->SetGraphicsRootConstantBufferView(5, _currFrameResource->PassCB->Resource()->GetGPUVirtualAddress() + i * passElementSize);
 			_cmdList->RSSetScissorRects(1, &scissorRects[i]);
 			_cmdList->DrawInstanced(3, 1, 0, 0);
 		}
@@ -281,23 +267,26 @@ void D3DFramework::Draw(const GameTimer& gt)
 		_mainPassCB.DebugMode = 0;
 		_currFrameResource->PassCB->CopyData(0, _mainPassCB);
 
-		_cmdList->SetGraphicsRootConstantBufferView(4, _currFrameResource->PassCB->Resource()->GetGPUVirtualAddress());
+		_cmdList->SetGraphicsRootConstantBufferView(5, _currFrameResource->PassCB->Resource()->GetGPUVirtualAddress());
 
 		_cmdList->DrawInstanced(3, 1, 0, 0);
 	}
 
-	auto toSRV = CD3DX12_RESOURCE_BARRIER::Transition(_ppChain->First()->OutputBuffer.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+	auto toSRV = CD3DX12_RESOURCE_BARRIER::Transition(_ppChain->GetHDRBuffer(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
 	_cmdList->ResourceBarrier(1, &toSRV);
 
 	//POST_PROCESS
+	
+	if (!_isDebugMode)
+	{
+		auto barrierToPP = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
+		_cmdList->ResourceBarrier(1, &barrierToPP);
 
-	auto barrierToPP = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
-	_cmdList->ResourceBarrier(1, &barrierToPP);
+		_ppChain->ExecuteAll(_cmdList.Get(), _srvHeap.Get(), _srvDescriptorSize, CurrentBackBufferView());
 
-	_ppChain->ExecuteAll(_cmdList.Get(), _srvHeap.Get(), _srvDescriptorSize, CurrentBackBufferView());
-
-	auto barrierToPresent = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
-	_cmdList->ResourceBarrier(1, &barrierToPresent);
+		auto barrierToPresent = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
+		_cmdList->ResourceBarrier(1, &barrierToPresent);
+	}
 
 	//PRESENT
 
@@ -342,6 +331,13 @@ void D3DFramework::OnMouseMove(WPARAM btnState, int x, int y)
 	_lastMousePos.y = y;
 }
 
+void D3DFramework::OnMouseWheel(int delta)
+{
+	float notches = delta / 120.0f;
+	_moveSpeed *= powf(1.15f, notches);
+	_moveSpeed = MathHelper::Clamp(_moveSpeed, 0.5f, 5000.0f);
+}
+
 void D3DFramework::OnKeyboardInput(const GameTimer& gt)
 {
 	float dt = gt.DeltaTime();
@@ -366,6 +362,20 @@ void D3DFramework::OnKeyboardInput(const GameTimer& gt)
 	if (GetAsyncKeyState(VK_F1) & 0x8000)
 	{
 		_isDebugMode = !_isDebugMode;
+
+		Sleep(200);
+	}
+
+	if (GetAsyncKeyState(VK_F2) & 0x8000)
+	{
+		_isUseBeckmann = !_isUseBeckmann;
+
+		Sleep(200);
+	}
+
+	if (GetAsyncKeyState(VK_F3) & 0x8000)
+	{
+		_isTerrainDegub = !_isTerrainDegub;
 
 		Sleep(200);
 	}
@@ -467,6 +477,8 @@ void D3DFramework::UpdateMainPassCB(const GameTimer& gt)
 	_mainPassCB.TotalTime = gt.TotalTime();
 	_mainPassCB.DeltaTime = gt.DeltaTime();
 	_mainPassCB.DebugMode = _isDebugMode ? 1 : 0;
+	_mainPassCB.DebugUseBeckmann = _isUseBeckmann ? 1 : 0;
+	_mainPassCB.TerrainDebug = _isTerrainDegub ? 1 : 0;
 
 	auto currPassCB = _currFrameResource->PassCB.get();
 	currPassCB->CopyData(0, _mainPassCB);
@@ -614,6 +626,27 @@ void D3DFramework::UpdateShadowCB(const GameTimer& gt)
 	}
 }
 
+void D3DFramework::UpdateTerrainCB(const GameTimer& gt)
+{
+	_terrain->UpdateLOD(_eyePos, 0.25f * MathHelper::Pi, (float)CLIENT_HEIGHT, _camFrustum);
+
+	assert(_terrain->GetVisibleTiles().size() <= MAX_TERRAIN_TILES);
+
+	UINT i = 0;
+	for (const auto& t : _terrain->GetVisibleTiles())
+	{
+		TerrainConstant terrain = TerrainConstant();
+		terrain.TileOrigin = t.Origin;
+		terrain.TileSize = t.Size;
+		terrain.MorphStart = t.MorphStart;
+		terrain.MorphEnd = t.MorphEnd;
+		terrain.LodLevel = t.Depth;
+
+		auto terraingCB = _currFrameResource->TerrainCB.get();
+		terraingCB->CopyData(i++, terrain);
+	}
+}
+
 void D3DFramework::UpdateInstanceData(const GameTimer& gt)
 {
 	_opaqueRitems.clear();
@@ -679,30 +712,42 @@ void D3DFramework::UpdateInstanceData(const GameTimer& gt)
 
 void D3DFramework::BuildRootSignatureGBuffer()
 {
-	CD3DX12_DESCRIPTOR_RANGE defTable;
-	defTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0); //t0
+	CD3DX12_DESCRIPTOR_RANGE albedoRange; 
+	albedoRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
 
-	CD3DX12_DESCRIPTOR_RANGE normTable;
-	normTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1); //t1
+	CD3DX12_DESCRIPTOR_RANGE normalRange; 
+	normalRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1);
 
-	CD3DX12_DESCRIPTOR_RANGE dispTable;
-	dispTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 2); //t2
+	CD3DX12_DESCRIPTOR_RANGE metallicRange;
+	metallicRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 2);
 
-	CD3DX12_ROOT_PARAMETER slotRootParameter[8];
-	slotRootParameter[0].InitAsDescriptorTable(1, &defTable, D3D12_SHADER_VISIBILITY_ALL);
-	slotRootParameter[1].InitAsDescriptorTable(1, &normTable, D3D12_SHADER_VISIBILITY_ALL);
-	slotRootParameter[2].InitAsDescriptorTable(1, &dispTable, D3D12_SHADER_VISIBILITY_ALL);
+	CD3DX12_DESCRIPTOR_RANGE roughnessRange;
+	roughnessRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 3);
 
-	slotRootParameter[3].InitAsConstantBufferView(0); //b0 cbPass
-	slotRootParameter[4].InitAsConstantBufferView(1); //b1 cbMat
-	slotRootParameter[5].InitAsConstantBufferView(2); //b2 cbTess
-	slotRootParameter[6].InitAsConstantBufferView(3); //b3 cbDisp
+	CD3DX12_DESCRIPTOR_RANGE aoRange;
+	aoRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 4);
 
-	slotRootParameter[7].InitAsShaderResourceView(3, 1, D3D12_SHADER_VISIBILITY_ALL); //t3
+	CD3DX12_DESCRIPTOR_RANGE dispRange;
+	dispRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 5);
+
+	CD3DX12_ROOT_PARAMETER slotRootParameter[11];
+	slotRootParameter[0].InitAsDescriptorTable(1, &albedoRange, D3D12_SHADER_VISIBILITY_ALL);    // t0 albedo
+	slotRootParameter[1].InitAsDescriptorTable(1, &normalRange, D3D12_SHADER_VISIBILITY_ALL);    // t1 normal
+	slotRootParameter[2].InitAsDescriptorTable(1, &metallicRange, D3D12_SHADER_VISIBILITY_ALL);  // t2 metallic
+	slotRootParameter[3].InitAsDescriptorTable(1, &roughnessRange, D3D12_SHADER_VISIBILITY_ALL); // t3 roughness
+	slotRootParameter[4].InitAsDescriptorTable(1, &aoRange, D3D12_SHADER_VISIBILITY_ALL);        // t4 ao
+	slotRootParameter[5].InitAsDescriptorTable(1, &dispRange, D3D12_SHADER_VISIBILITY_ALL);      // t5 displacement
+
+	slotRootParameter[6].InitAsConstantBufferView(0);                                            // b0 cbPass
+	slotRootParameter[7].InitAsConstantBufferView(1);                                            // b1 cbMaterial
+	slotRootParameter[8].InitAsConstantBufferView(2);                                            // b2 cbTessellation
+	slotRootParameter[9].InitAsConstantBufferView(3);                                            // b3 cbDisplacement
+
+	slotRootParameter[10].InitAsShaderResourceView(3, 1, D3D12_SHADER_VISIBILITY_ALL);           // t3 space1 instances
 
 	auto staticSamplers = GetStaticSamplers();
 
-	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(8, slotRootParameter, (UINT)staticSamplers.size(), staticSamplers.data(), D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(11, slotRootParameter, (UINT)staticSamplers.size(), staticSamplers.data(), D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
 	ComPtr<ID3DBlob> serializedRootSig = nullptr;
 	ComPtr<ID3DBlob> errorBlob = nullptr;
@@ -724,24 +769,47 @@ void D3DFramework::BuildRootSignatureGBuffer()
 
 void D3DFramework::BuildRootSignatureLightPass()
 {
-	CD3DX12_DESCRIPTOR_RANGE albedoRange; albedoRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0); // t0
-	CD3DX12_DESCRIPTOR_RANGE normalRange; normalRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1); // t1
-	CD3DX12_DESCRIPTOR_RANGE depthRange;  depthRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 2);  // t2
-	CD3DX12_DESCRIPTOR_RANGE shadowRange; shadowRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 4); // t4
+	CD3DX12_DESCRIPTOR_RANGE albedoRange; 
+	albedoRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
 
-	CD3DX12_ROOT_PARAMETER slotRootParameter[8];
-	slotRootParameter[0].InitAsDescriptorTable(1, &albedoRange); // Albedo    t0
-	slotRootParameter[1].InitAsDescriptorTable(1, &normalRange); // Normal    t1
-	slotRootParameter[2].InitAsDescriptorTable(1, &depthRange);  // Depth     t2
-	slotRootParameter[3].InitAsShaderResourceView(3);            // LightSB   t3
-	slotRootParameter[4].InitAsConstantBufferView(0);            // PassCB    b0
-	slotRootParameter[5].InitAsConstantBufferView(1);            // LightInfo b1
-	slotRootParameter[6].InitAsConstantBufferView(2);            // ShadowCB  b2
-	slotRootParameter[7].InitAsDescriptorTable(1, &shadowRange); // ShadowMap t4
+	CD3DX12_DESCRIPTOR_RANGE normalRange;
+	normalRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1);
+
+	CD3DX12_DESCRIPTOR_RANGE matDataRange;
+	matDataRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 2);
+
+	CD3DX12_DESCRIPTOR_RANGE depthRange;
+	depthRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 3);
+
+	CD3DX12_DESCRIPTOR_RANGE shadowRange;
+	shadowRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 5);
+
+	CD3DX12_DESCRIPTOR_RANGE irradianceRange;
+	irradianceRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 6);
+
+	CD3DX12_DESCRIPTOR_RANGE specularRange;
+	specularRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 7);
+
+	CD3DX12_DESCRIPTOR_RANGE brdfRange;
+	brdfRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 8);
+
+	CD3DX12_ROOT_PARAMETER slotRootParameter[12];
+	slotRootParameter[0].InitAsDescriptorTable(1, &albedoRange);	 // t0 Albedo
+	slotRootParameter[1].InitAsDescriptorTable(1, &normalRange);	 // t1 Normal
+	slotRootParameter[2].InitAsDescriptorTable(1, &matDataRange);	 // t2 MatData
+	slotRootParameter[3].InitAsDescriptorTable(1, &depthRange);		 // t3 Depth
+	slotRootParameter[4].InitAsShaderResourceView(4);				 // t4 LightSB
+	slotRootParameter[5].InitAsConstantBufferView(0);				 // b0 PassCB
+	slotRootParameter[6].InitAsConstantBufferView(1);				 // b1 LightInfoCB
+	slotRootParameter[7].InitAsConstantBufferView(2);				 // b2 ShadowCB
+	slotRootParameter[8].InitAsDescriptorTable(1, &shadowRange);	 // t5 ShadowMap
+	slotRootParameter[9].InitAsDescriptorTable(1, &irradianceRange); // t6 DiffuseHDR
+	slotRootParameter[10].InitAsDescriptorTable(1, &specularRange);  // t7 SpecularHDR
+	slotRootParameter[11].InitAsDescriptorTable(1, &brdfRange);      // t8 Brdf
 
 	auto staticSamplers = GetStaticSamplers();
 
-	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(8, slotRootParameter, (UINT)staticSamplers.size(), staticSamplers.data(), D3D12_ROOT_SIGNATURE_FLAG_NONE);
+	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(12, slotRootParameter, (UINT)staticSamplers.size(), staticSamplers.data(), D3D12_ROOT_SIGNATURE_FLAG_NONE);
 
 	ComPtr<ID3DBlob> serializedRootSig = nullptr;
 	ComPtr<ID3DBlob> errorBlob = nullptr;
@@ -780,6 +848,38 @@ void D3DFramework::BuildRootSignatureShadowPass()
 		serializedRootSig->GetBufferPointer(),
 		serializedRootSig->GetBufferSize(),
 		IID_PPV_ARGS(&_rootSignatureShadowPass)
+	));
+}
+
+void D3DFramework::BuildRootSignatureTerrainPass()
+{
+	CD3DX12_DESCRIPTOR_RANGE texRange;
+	texRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 2, 0);   // 2 SRV, начиная с t0
+
+	CD3DX12_ROOT_PARAMETER slotRootParameter[3];
+	slotRootParameter[0].InitAsDescriptorTable(1, &texRange, D3D12_SHADER_VISIBILITY_ALL); // t0, t1
+	slotRootParameter[1].InitAsConstantBufferView(0);   // b0 cbPass
+	slotRootParameter[2].InitAsConstantBufferView(4);   // b4 cbTerrain
+
+	auto staticSamplers = GetStaticSamplers();
+
+	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(3, slotRootParameter, (UINT)staticSamplers.size(), staticSamplers.data(), D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
+	ComPtr<ID3DBlob> serializedRootSig = nullptr;
+	ComPtr<ID3DBlob> errorBlob = nullptr;
+	HRESULT hr = D3D12SerializeRootSignature(&rootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1, serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
+
+	if (errorBlob != nullptr)
+	{
+		OutputDebugStringA((char*)errorBlob->GetBufferPointer());
+	}
+
+	ThrowIfFailed(hr);
+
+	ThrowIfFailed(_d3dDevice->CreateRootSignature(0,
+		serializedRootSig->GetBufferPointer(),
+		serializedRootSig->GetBufferSize(),
+		IID_PPV_ARGS(&_rootSignatureTerrainPass)
 	));
 }
 
@@ -866,9 +966,10 @@ void D3DFramework::BuildGBufferPSO()
 	psoDesc.SampleDesc.Count = _4xMsaaState ? 4 : 1;
 	psoDesc.SampleDesc.Quality = _4xMsaaState ? (_4xMsaaQuality - 1) : 0;
 
-	psoDesc.NumRenderTargets = 2;
-	psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
-	psoDesc.RTVFormats[1] = DXGI_FORMAT_R32G32B32A32_FLOAT;
+	psoDesc.NumRenderTargets = 3;
+	psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;       // Albedo
+	psoDesc.RTVFormats[1] = DXGI_FORMAT_R32G32B32A32_FLOAT;   // Normal
+	psoDesc.RTVFormats[2] = DXGI_FORMAT_R8G8B8A8_UNORM;       // MatData
 
 	psoDesc.DSVFormat = _depthStencilFormat;
 
@@ -878,17 +979,11 @@ void D3DFramework::BuildGBufferPSO()
 void D3DFramework::BuildLightPassPSO()
 {
 	CD3DX12_BLEND_DESC blendDesc(D3D12_DEFAULT);
-	blendDesc.RenderTarget[0].BlendEnable = TRUE;
-	blendDesc.RenderTarget[0].SrcBlend = D3D12_BLEND_ONE;
-	blendDesc.RenderTarget[0].DestBlend = D3D12_BLEND_ONE;
-	blendDesc.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
-	blendDesc.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
-	blendDesc.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;
 
 	CD3DX12_DEPTH_STENCIL_DESC dsDesc(D3D12_DEFAULT);
-	dsDesc.DepthEnable = TRUE;
+	dsDesc.DepthEnable = FALSE;
 	dsDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
-	dsDesc.DepthFunc = D3D12_COMPARISON_FUNC_LESS;
+	dsDesc.DepthFunc = D3D12_COMPARISON_FUNC_ALWAYS;
 
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
 	ZeroMemory(&psoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
@@ -956,6 +1051,48 @@ void D3DFramework::BuildShadowPassPSO()
 	ThrowIfFailed(_d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&_psos["shadowPass"])));
 }
 
+void D3DFramework::BuildTerrainPassPSO()
+{
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
+	ZeroMemory(&psoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
+
+	psoDesc.InputLayout = { _inputLayout.data(), (UINT)_inputLayout.size() };
+	psoDesc.pRootSignature = _rootSignatureTerrainPass.Get();
+
+	psoDesc.VS =
+	{
+		reinterpret_cast<BYTE*>(_shaders["terrainVS"]->GetBufferPointer()),
+		_shaders["terrainVS"]->GetBufferSize()
+	};
+	psoDesc.PS =
+	{
+		reinterpret_cast<BYTE*>(_shaders["terrainPS"]->GetBufferPointer()),
+		_shaders["terrainPS"]->GetBufferSize()
+	};
+
+	psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+	psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+	psoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+
+	psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+
+	psoDesc.SampleMask = UINT_MAX;
+	psoDesc.SampleDesc.Count = _4xMsaaState ? 4 : 1;
+	psoDesc.SampleDesc.Quality = _4xMsaaState ? (_4xMsaaQuality - 1) : 0;
+
+	psoDesc.NumRenderTargets = 3;
+	psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;       // Albedo
+	psoDesc.RTVFormats[1] = DXGI_FORMAT_R32G32B32A32_FLOAT;   // Normal
+	psoDesc.RTVFormats[2] = DXGI_FORMAT_R8G8B8A8_UNORM;       // MatData
+
+	psoDesc.DSVFormat = _depthStencilFormat;
+
+	ThrowIfFailed(_d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&_psos["terrain"])));
+
+	psoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
+	ThrowIfFailed(_d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&_psos["terrainWire"])));
+}
+
 void D3DFramework::BuildShadersAndInputLayout()
 {
 	_shaders["gbufferVS"] = D3DUtil::CompileShader(LOCAL_PATH_W + L"Shaders/GBuffer.hlsl", nullptr, "VS", "vs_5_1");
@@ -968,6 +1105,9 @@ void D3DFramework::BuildShadersAndInputLayout()
 	_shaders["lightPS"] = D3DUtil::CompileShader(LOCAL_PATH_W + L"Shaders/LightPass.hlsl", nullptr, "PS", "ps_5_1");
 
 	_shaders["shadowVS"] = D3DUtil::CompileShader(LOCAL_PATH_W + L"Shaders/Shadow.hlsl", nullptr, "VS", "vs_5_1");
+
+	_shaders["terrainVS"] = D3DUtil::CompileShader(LOCAL_PATH_W + L"Shaders/" + TERRAIN_FOLDER_W + L"Terrain.hlsl", nullptr, "VS", "vs_5_1");
+	_shaders["terrainPS"] = D3DUtil::CompileShader(LOCAL_PATH_W + L"Shaders/" + TERRAIN_FOLDER_W + L"Terrain.hlsl", nullptr, "PS", "ps_5_1");
 
 	_inputLayout =
 	{
@@ -1030,44 +1170,6 @@ void D3DFramework::ComputeSceneBounds()
 
 void D3DFramework::CreatePPS()
 {
-	// CELL SHADER
-	PassDesc cellDesc = {};
-	cellDesc.Name = "CellShader";
-	cellDesc.ShaderPath = LOCAL_PATH + "Shaders/" + POST_PROCESS_FOLDER + "CellShader.hlsl";
-	cellDesc.Stage = PostProcessStage::BeforeTonemapping;
-	cellDesc.Priority = 0;
-	cellDesc.OutputFormat = HDR_FORMAT;
-	cellDesc.Width = CLIENT_WIDTH;
-	cellDesc.Height = CLIENT_HEIGHT;
-
-	// OUTLINE
-	struct OutlineConstants
-	{
-		DirectX::XMFLOAT2 TexelSize;
-		float KernelSize = 10.0f;
-		float pad0 = 0.0f;
-		DirectX::XMFLOAT2 DepthThreshold = { 2.0f, 10.0f };
-		DirectX::XMFLOAT2 NormalThreshold = { 0.15f, 0.2f };
-		DirectX::XMFLOAT3 OutlineColor = { 0.0f, 0.0f, 0.0f };
-		float pad1 = 0.0f;
-	};
-
-	OutlineConstants outlineCB = {};
-	outlineCB.TexelSize = { 1.0f / CLIENT_WIDTH, 1.0f / CLIENT_HEIGHT };
-
-	PassDesc outlineDesc = {};
-	outlineDesc.Name = "Outline";
-	outlineDesc.ShaderPath = LOCAL_PATH + "Shaders/" + POST_PROCESS_FOLDER + "Outline.hlsl";
-	outlineDesc.Stage = PostProcessStage::BeforeTonemapping;
-	outlineDesc.Priority = 1;
-	outlineDesc.OutputFormat = HDR_FORMAT;
-	outlineDesc.Width = CLIENT_WIDTH;
-	outlineDesc.Height = CLIENT_HEIGHT;
-	outlineDesc.HasConstantBuffer = true;
-	outlineDesc.ConstantBufferSize = sizeof(OutlineConstants);
-	outlineDesc.ConstantBufferData = &outlineCB;
-
-	// TONE MAPPING
 	PassDesc toneDesc = {};
 	toneDesc.Name = "ToneMapping";
 	toneDesc.ShaderPath = LOCAL_PATH + "Shaders/" + POST_PROCESS_FOLDER + "ToneMapping.hlsl";
@@ -1076,28 +1178,72 @@ void D3DFramework::CreatePPS()
 	toneDesc.Width = CLIENT_WIDTH;
 	toneDesc.Height = CLIENT_HEIGHT;
 
-	UINT toneSlot = _ppChain->ReservePass(_d3dDevice.Get(), toneDesc, _srvHeap.Get(), _lastSlot, _srvDescriptorSize);
-	UINT outlineSlot = _ppChain->ReservePass(_d3dDevice.Get(), outlineDesc, _srvHeap.Get(), _lastSlot, _srvDescriptorSize);
-	UINT cellSlot = _ppChain->ReservePass(_d3dDevice.Get(), cellDesc, _srvHeap.Get(), _lastSlot, _srvDescriptorSize);
+	_ppChain->ReservePass(_d3dDevice.Get(), toneDesc, _srvHeap.Get(), _lastSlot, _srvDescriptorSize);
 
-	// CellShader: t0=lastStep(toneSlot), t1=Albedo
-	_ppChain->GetPass("CellShader")->Desc.InputSrvSlots = {
-		toneSlot,             // t0: lastStep
-		_gBufferSrvStart + 0  // t1: Albedo
-	};
-
-	// Outline: t0=lastStep(cellSlot), t1=Depth, t2=Normal
-	_ppChain->GetPass("Outline")->Desc.InputSrvSlots = {
-		cellSlot,             // t0: lastStep
-		_gBufferSrvStart + 2, // t1: Depth
-		_gBufferSrvStart + 1  // t2: Normal
-	};
-
-	// ToneMapping: t0=lastStep(outlineSlot)
-	_ppChain->GetPass("ToneMapping")->Desc.InputSrvSlots = { outlineSlot };
+	_ppChain->InitHDRBuffer(_d3dDevice.Get(), _srvHeap.Get(), _lastSlot, _srvDescriptorSize, CLIENT_WIDTH, CLIENT_HEIGHT);
 
 	_ppChain->CommitAll(_d3dDevice.Get(), _srvHeap.Get(), _srvDescriptorSize);
 }
+
+//void D3DFramework::CreatePPS()
+//{
+//	PassDesc cellDesc = {};
+//	cellDesc.Name = "CellShader";
+//	cellDesc.ShaderPath = LOCAL_PATH + "Shaders/" + POST_PROCESS_FOLDER + "CellShader.hlsl";
+//	cellDesc.Stage = PostProcessStage::BeforeTonemapping;
+//	cellDesc.Priority = 0;
+//	cellDesc.OutputFormat = HDR_FORMAT;
+//	cellDesc.Width = CLIENT_WIDTH;
+//	cellDesc.Height = CLIENT_HEIGHT;
+//	cellDesc.ExtraInputSrvSlots = { _gBufferSrvStart + (UINT)GBufferIndex::Albedo };
+//
+//	struct OutlineConstants
+//	{
+//		DirectX::XMFLOAT2 TexelSize;
+//		float KernelSize = 10.0f;
+//		float pad0 = 0.0f;
+//		DirectX::XMFLOAT2 DepthThreshold = { 2.0f, 10.0f };
+//		DirectX::XMFLOAT2 NormalThreshold = { 0.15f, 0.2f };
+//		DirectX::XMFLOAT3 OutlineColor = { 0.0f, 0.0f, 0.0f };
+//		float pad1 = 0.0f;
+//	};
+//
+//	OutlineConstants outlineCB = {};
+//	outlineCB.TexelSize = { 1.0f / CLIENT_WIDTH, 1.0f / CLIENT_HEIGHT };
+//
+//	PassDesc outlineDesc = {};
+//	outlineDesc.Name = "Outline";
+//	outlineDesc.ShaderPath = LOCAL_PATH + "Shaders/" + POST_PROCESS_FOLDER + "Outline.hlsl";
+//	outlineDesc.Stage = PostProcessStage::BeforeTonemapping;
+//	outlineDesc.Priority = 1;
+//	outlineDesc.OutputFormat = HDR_FORMAT;
+//	outlineDesc.Width = CLIENT_WIDTH;
+//	outlineDesc.Height = CLIENT_HEIGHT;
+//	outlineDesc.HasConstantBuffer = true;
+//	outlineDesc.ConstantBufferSize = sizeof(OutlineConstants);
+//	outlineDesc.ConstantBufferData = &outlineCB;
+//	outlineDesc.ExtraInputSrvSlots =
+//	{
+//		_gBufferSrvStart + (UINT)GBufferIndex::Depth,
+//		_gBufferSrvStart + (UINT)GBufferIndex::Normal
+//	};
+//
+//	PassDesc toneDesc = {};
+//	toneDesc.Name = "ToneMapping";
+//	toneDesc.ShaderPath = LOCAL_PATH + "Shaders/" + POST_PROCESS_FOLDER + "ToneMapping.hlsl";
+//	toneDesc.Stage = PostProcessStage::Tonemapping;
+//	toneDesc.OutputFormat = _backBufferFormat;
+//	toneDesc.Width = CLIENT_WIDTH;
+//	toneDesc.Height = CLIENT_HEIGHT;
+//
+//	_ppChain->ReservePass(_d3dDevice.Get(), cellDesc, _srvHeap.Get(), _lastSlot, _srvDescriptorSize);
+//	_ppChain->ReservePass(_d3dDevice.Get(), outlineDesc, _srvHeap.Get(), _lastSlot, _srvDescriptorSize);
+//	_ppChain->ReservePass(_d3dDevice.Get(), toneDesc, _srvHeap.Get(), _lastSlot, _srvDescriptorSize);
+//
+//	_ppChain->InitHDRBuffer(_d3dDevice.Get(), _srvHeap.Get(), _lastSlot, _srvDescriptorSize, CLIENT_WIDTH, CLIENT_HEIGHT);
+//
+//	_ppChain->CommitAll(_d3dDevice.Get(), _srvHeap.Get(), _srvDescriptorSize);
+//}
 
 void D3DFramework::CreateLight()
 {
@@ -1321,9 +1467,21 @@ void D3DFramework::BuildRenderItems()
 
 void D3DFramework::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
 {
-	UINT matCBByteSize = D3DUtil::CalcConstantBufferSize(sizeof(MaterialConstants));
+	cmdList->SetPipelineState(_psos["gbuffer"].Get());
+	cmdList->SetGraphicsRootSignature(_rootSignatureGBuffer.Get());
+
+	auto passCB = _currFrameResource->PassCB->Resource();
+	auto tessCB = _currFrameResource->TessellationCB->Resource();
+	auto dispCB = _currFrameResource->DisplacementCB->Resource();
+
+	cmdList->SetGraphicsRootConstantBufferView(6, passCB->GetGPUVirtualAddress());  // b0
+	cmdList->SetGraphicsRootConstantBufferView(8, tessCB->GetGPUVirtualAddress());  // b2
+	cmdList->SetGraphicsRootConstantBufferView(9, dispCB->GetGPUVirtualAddress());  // b3
+
+	cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST);
 
 	auto matCB = _currFrameResource->MaterialCB->Resource();
+	UINT matCBByteSize = D3DUtil::CalcConstantBufferSize(sizeof(MaterialConstants));
 
 	auto instanceBuffer = _currFrameResource->InstanceDataSB->Resource();
 	UINT instanceByteSize = sizeof(InstanceData);
@@ -1338,27 +1496,29 @@ void D3DFramework::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std
 		auto indexBuffer = ri->Geo->IndexBufferView();
 		cmdList->IASetIndexBuffer(&indexBuffer);
 
-		int diffuseIndex = ri->Mat->DiffuseSrvHeapIndex;
-		int normalIndex = ri->Mat->NormalSrvHeapIndex;
-		int dispIndex = ri->Mat->DisplacementSrvHeapIndex;
+		auto safeIdx = [](int idx, int fallback) { return idx >= 0 ? idx : fallback; };
 
-		if (diffuseIndex < 0) { diffuseIndex = 0; }
-		if (normalIndex < 0) { normalIndex = 0; }
-		if (dispIndex < 0) { dispIndex = 0; }
+		int albedoIdx = safeIdx(ri->Mat->DiffuseSrvHeapIndex, 0);
+		int normalIdx = safeIdx(ri->Mat->NormalSrvHeapIndex, 1);
+		int metallicIdx = safeIdx(ri->Mat->MetallicSrvHeapIndex, 2);
+		int roughnessIdx = safeIdx(ri->Mat->RoughnessSrvHeapIndex, 3);
+		int aoIdx = safeIdx(ri->Mat->AOSrvHeapIndex, 4);
+		int dispIdx = safeIdx(ri->Mat->DisplacementSrvHeapIndex, 5);
 
-		CD3DX12_GPU_DESCRIPTOR_HANDLE diffuseHandle(_srvHeap->GetGPUDescriptorHandleForHeapStart(), diffuseIndex, _srvDescriptorSize);
-		CD3DX12_GPU_DESCRIPTOR_HANDLE normalHandle (_srvHeap->GetGPUDescriptorHandleForHeapStart(), normalIndex,  _srvDescriptorSize);
-		CD3DX12_GPU_DESCRIPTOR_HANDLE dispHandle (_srvHeap->GetGPUDescriptorHandleForHeapStart(), dispIndex,    _srvDescriptorSize);
+		auto H = [&](int idx) -> CD3DX12_GPU_DESCRIPTOR_HANDLE { return CD3DX12_GPU_DESCRIPTOR_HANDLE(_srvHeap->GetGPUDescriptorHandleForHeapStart(), idx, _srvDescriptorSize); };
 
-		D3D12_GPU_VIRTUAL_ADDRESS matCBAddress = matCB->GetGPUVirtualAddress() + ri->Mat->MatCBIndex * matCBByteSize;
-		D3D12_GPU_VIRTUAL_ADDRESS instAddress = instanceBuffer->GetGPUVirtualAddress() + (ri->InstanceOffset * instanceByteSize);
+		cmdList->SetGraphicsRootDescriptorTable(0, H(albedoIdx));    // t0 albedo
+		cmdList->SetGraphicsRootDescriptorTable(1, H(normalIdx));    // t1 normal
+		cmdList->SetGraphicsRootDescriptorTable(2, H(metallicIdx));  // t2 metallic
+		cmdList->SetGraphicsRootDescriptorTable(3, H(roughnessIdx)); // t3 roughness
+		cmdList->SetGraphicsRootDescriptorTable(4, H(aoIdx));        // t4 ao
+		cmdList->SetGraphicsRootDescriptorTable(5, H(dispIdx));      // t5 displacement
 
-		cmdList->SetGraphicsRootDescriptorTable(0, diffuseHandle);
-		cmdList->SetGraphicsRootDescriptorTable(1, normalHandle);
-		cmdList->SetGraphicsRootDescriptorTable(2, dispHandle);
+		D3D12_GPU_VIRTUAL_ADDRESS matCBAddr = matCB->GetGPUVirtualAddress() + ri->Mat->MatCBIndex * matCBByteSize;
+		cmdList->SetGraphicsRootConstantBufferView(7, matCBAddr);    // b1 cbMaterial
 
-		cmdList->SetGraphicsRootConstantBufferView(4, matCBAddress);
-		cmdList->SetGraphicsRootShaderResourceView(7, instAddress);
+		D3D12_GPU_VIRTUAL_ADDRESS instAddr = instanceBuffer->GetGPUVirtualAddress() + ri->InstanceOffset * instanceByteSize;
+		cmdList->SetGraphicsRootShaderResourceView(10, instAddr);    // t3 space1
 
 		cmdList->DrawIndexedInstanced(ri->IndexCount, ri->VisibleInstanceCount, ri->StartIndexLocation, ri->BaseVertexLocation, 0);
 	}
@@ -1386,69 +1546,34 @@ void D3DFramework::DrawRenderItemsShadow(ID3D12GraphicsCommandList* cmdList, con
 	}
 }
 
-std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> D3DFramework::GetStaticSamplers()
+void D3DFramework::DrawTerrain(ID3D12GraphicsCommandList* cmdList)
 {
-	const CD3DX12_STATIC_SAMPLER_DESC pointWrap(
-		0, // shaderRegister
-		D3D12_FILTER_MIN_MAG_MIP_POINT, // filter
-		D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressU
-		D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressV
-		D3D12_TEXTURE_ADDRESS_MODE_WRAP); // addressW
+	cmdList->SetPipelineState(_psos[_isTerrainDegub ? "terrainWire" : "terrain"].Get());
+	cmdList->SetGraphicsRootSignature(_rootSignatureTerrainPass.Get());
+	cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-	const CD3DX12_STATIC_SAMPLER_DESC pointClamp(
-		1, // shaderRegister
-		D3D12_FILTER_MIN_MAG_MIP_POINT, // filter
-		D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressU
-		D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressV
-		D3D12_TEXTURE_ADDRESS_MODE_CLAMP); // addressW
+	CD3DX12_GPU_DESCRIPTOR_HANDLE texHandle(_srvHeap->GetGPUDescriptorHandleForHeapStart(), _terrainSrvStart, _srvDescriptorSize);
+	cmdList->SetGraphicsRootDescriptorTable(0, texHandle);                       // t0 height, t1 color
 
-	const CD3DX12_STATIC_SAMPLER_DESC linearWrap(
-		2, // shaderRegister
-		D3D12_FILTER_MIN_MAG_MIP_LINEAR, // filter
-		D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressU
-		D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressV
-		D3D12_TEXTURE_ADDRESS_MODE_WRAP); // addressW
+	auto passCB = _currFrameResource->PassCB->Resource();
+	cmdList->SetGraphicsRootConstantBufferView(1, passCB->GetGPUVirtualAddress()); // b0
 
-	const CD3DX12_STATIC_SAMPLER_DESC linearClamp(
-		3, // shaderRegister
-		D3D12_FILTER_MIN_MAG_MIP_LINEAR, // filter
-		D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressU
-		D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressV
-		D3D12_TEXTURE_ADDRESS_MODE_CLAMP); // addressW
+	UINT tileCbSize = D3DUtil::CalcConstantBufferSize(sizeof(TerrainConstant));
+	auto terrainCB = _currFrameResource->TerrainCB->Resource();
 
-	const CD3DX12_STATIC_SAMPLER_DESC anisotropicWrap(
-		4, // shaderRegister
-		D3D12_FILTER_ANISOTROPIC, // filter
-		D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressU
-		D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressV
-		D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressW
-		0.0f,                             // mipLODBias
-		8);                               // maxAnisotropy
+	const MeshGeometry* mesh = _terrain->GetTileMesh();
 
-	const CD3DX12_STATIC_SAMPLER_DESC anisotropicClamp(
-		5, // shaderRegister
-		D3D12_FILTER_ANISOTROPIC, // filter
-		D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressU
-		D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressV
-		D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressW
-		0.0f,                              // mipLODBias
-		8);                                // maxAnisotropy
+	auto vbv = mesh->VertexBufferView();
+	auto ibv = mesh->IndexBufferView();
+	cmdList->IASetVertexBuffers(0, 1, &vbv);
+	cmdList->IASetIndexBuffer(&ibv);
 
-	const CD3DX12_STATIC_SAMPLER_DESC shadow(
-		6,
-		D3D12_FILTER_COMPARISON_MIN_MAG_LINEAR_MIP_POINT,
-		D3D12_TEXTURE_ADDRESS_MODE_BORDER,
-		D3D12_TEXTURE_ADDRESS_MODE_BORDER,
-		D3D12_TEXTURE_ADDRESS_MODE_BORDER,
-		0.0f,
-		16,
-		D3D12_COMPARISON_FUNC_LESS_EQUAL,
-		D3D12_STATIC_BORDER_COLOR_OPAQUE_BLACK);
+	for (UINT tileIndex = 0; tileIndex < _terrain->GetVisibleTiles().size(); tileIndex++)
+	{
+		cmdList->SetGraphicsRootConstantBufferView(2, terrainCB->GetGPUVirtualAddress() + tileIndex * tileCbSize); // b4
 
-	return {
-		pointWrap, pointClamp,
-		linearWrap, linearClamp,
-		anisotropicWrap, anisotropicClamp, shadow };
+		cmdList->DrawIndexedInstanced(mesh->DrawArgs.at("tile").IndexCount, 1, 0, 0, 0);
+	}
 }
 
 void D3DFramework::ParseMesh(const ModelParse::MeshInfo& meshData)
@@ -1515,34 +1640,69 @@ void D3DFramework::ParseMesh(const ModelParse::MeshInfo& meshData)
 	_models[meshData.MeshName] = std::move(model);
 }
 
+void D3DFramework::ParseMaterials(const ModelParse::MeshInfo& meshData)
+{
+	for (auto& kv : meshData.Materials)
+	{
+		std::string matName = kv.first;
+		auto& mi = kv.second;
+
+		if (_materials.count(matName)) { continue; }
+
+		auto mat = std::make_unique<Material>();
+		mat->Name = matName;
+		mat->MatCBIndex = (int)_materials.size();
+
+		auto GetIdx = [&](const std::string& name, int fallback) -> int
+		{
+			return _textures.count(name) ? _textures.at(name)->SrvHeapIndex : fallback;
+		};
+
+		mat->DiffuseSrvHeapIndex = GetIdx(mi.DiffuseTextureName, 0);
+		mat->NormalSrvHeapIndex = GetIdx(mi.NormalTextureName, 1);
+		mat->MetallicSrvHeapIndex = GetIdx(mi.MetallicTextureName, 2);
+		mat->RoughnessSrvHeapIndex = GetIdx(mi.RoughnessTextureName, 3);
+		mat->AOSrvHeapIndex = GetIdx(mi.AOTextureName, 4);
+		mat->DisplacementSrvHeapIndex = GetIdx(mi.DisplacementTextureName, 5);
+
+		MaterialConstants data;
+		data.DiffuseAlbedo = mi.DiffuseColor;
+		data.Roughness = mi.Roughness;
+		data.Metallic = mi.Metallic;
+		data.NormalIntencity = 1.0f;
+
+		mat->Data = std::move(data);
+		_materials[matName] = std::move(mat);
+	}
+}
+
 void D3DFramework::LoadTextures(const ModelParse::MeshInfo& meshData)
 {
-	const std::string DEFAULT_TEXTURE[3] =
+	if (_textures.empty())
 	{
-		"T_DEFAULT_COLOR.png",
-		"T_DEFAULT_NORMAL.png",
-		"T_DEFAULT_DISPLACEMENT.png"
-	};
+		struct DefaultTex { const char* name; UINT8 rgba[4]; };
+		DefaultTex defaults[] =
+		{
+			{ "T_DEFAULT_ALBEDO",       { 255, 255, 255, 255 } },
+			{ "T_DEFAULT_NORMAL",       { 128, 128, 255, 255 } },
+			{ "T_DEFAULT_METALLIC",     {   0,   0,   0, 255 } },
+			{ "T_DEFAULT_ROUGHNESS",    { 128,   0,   0, 255 } },
+			{ "T_DEFAULT_AO",           { 255,   0,   0, 255 } },
+			{ "T_DEFAULT_DISPLACEMENT", { 128,   0,   0, 255 } },
+		};
 
-	if (_textures.size() == 0)
-	{
-		for (auto& texName : DEFAULT_TEXTURE)
+		for (const DefaultTex& d : defaults)
 		{
 			auto tex = std::make_unique<Texture>();
-			tex->Name = texName;
-			tex->Filename = LOCAL_PATH_W + L"DefaultTextures/" + std::wstring(texName.begin(), texName.end());
-
-			ResourceUploadBatch resourceUpload(_d3dDevice.Get());
-			resourceUpload.Begin();
-
-			ThrowIfFailed(DirectX::CreateWICTextureFromFile(_d3dDevice.Get(), resourceUpload, tex->Filename.c_str(), tex->Resource.ReleaseAndGetAddressOf(), true));
-
-			auto uploadResourcesFinished = resourceUpload.End(_cmdQueue.Get());
-			uploadResourcesFinished.wait();
-
+			tex->Name = d.name;
 			tex->SrvHeapIndex = (int)_textures.size();
 
-			_textures[texName] = std::move(tex);
+			tex->Resource = CreateDefault1x1Texture(
+				DXGI_FORMAT_R8G8B8A8_UNORM,
+				d.rgba,
+				tex->UploadHeap);
+
+			_textures[d.name] = std::move(tex);
 		}
 	}
 
@@ -1550,20 +1710,20 @@ void D3DFramework::LoadTextures(const ModelParse::MeshInfo& meshData)
 	{
 		auto& mi = kv.second;
 
-		std::vector<std::string> texturesToLoad;
-
-		if (!mi.DiffuseTextureName.empty())
-			texturesToLoad.push_back(mi.DiffuseTextureName);
-
-		if (!mi.NormalTextureName.empty())
-			texturesToLoad.push_back(mi.NormalTextureName);
-
-		if (!mi.DisplacementTextureName.empty())
-			texturesToLoad.push_back(mi.DisplacementTextureName);
-
-		for (auto& texName : texturesToLoad)
+		std::vector<std::string> toLoad =
 		{
-			if (_textures.count(texName) != 0) { continue; }
+			mi.DiffuseTextureName,
+			mi.NormalTextureName,
+			mi.MetallicTextureName,
+			mi.RoughnessTextureName,
+			mi.AOTextureName,
+			mi.DisplacementTextureName,
+		};
+
+		for (const std::string& texName : toLoad)
+		{
+			if (texName.empty()) { continue; }
+			if (_textures.count(texName)) { continue; }
 
 			auto tex = std::make_unique<Texture>();
 			tex->Name = texName;
@@ -1574,75 +1734,176 @@ void D3DFramework::LoadTextures(const ModelParse::MeshInfo& meshData)
 
 			ThrowIfFailed(DirectX::CreateWICTextureFromFile(_d3dDevice.Get(), resourceUpload, tex->Filename.c_str(), tex->Resource.ReleaseAndGetAddressOf(), true));
 
-			auto uploadResourcesFinished = resourceUpload.End(_cmdQueue.Get());
-			uploadResourcesFinished.wait();
+			resourceUpload.End(_cmdQueue.Get()).wait();
 
 			tex->SrvHeapIndex = (int)_textures.size();
-
 			_textures[texName] = std::move(tex);
 		}
 	}
 }
 
-void D3DFramework::ParseMaterials(const ModelParse::MeshInfo& meshData)
+void D3DFramework::LoadIBLTextures()
 {
-	for (auto& kv : meshData.Materials)
+	std::vector<ComPtr<ID3D12Resource>> uploadHeaps;
+	uploadHeaps.resize(3);
+
+	auto LoadDDS = [&](const std::wstring& path, ComPtr<ID3D12Resource>& resource, UINT& srvSlot, bool isCubemap, int heapIdx)
 	{
-		std::string matName = kv.first;
-		auto& mi = kv.second;
+		ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(_d3dDevice.Get(), _cmdList.Get(), path.c_str(), resource, uploadHeaps[heapIdx]));
 
-		if (_materials.count(matName) != 0) { continue; }
+		srvSlot = _lastSlot++;
 
-		auto mat = std::make_unique<Material>();
-		mat->Name = matName;
-		mat->MatCBIndex = (int)_materials.size();
+		CD3DX12_CPU_DESCRIPTOR_HANDLE handle(_srvHeap->GetCPUDescriptorHandleForHeapStart(), srvSlot, _srvDescriptorSize);
 
-		MaterialConstants data;
+		D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+		srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+		srvDesc.Format = resource->GetDesc().Format;
 
-		data.DiffuseAlbedo = XMFLOAT4(mi.DiffuseColor.x, mi.DiffuseColor.y, mi.DiffuseColor.z, mi.DiffuseColor.w);
-
-		if (_textures.count(mi.DiffuseTextureName))
+		if (isCubemap)
 		{
-			mat->DiffuseSrvHeapIndex = _textures[mi.DiffuseTextureName]->SrvHeapIndex;
+			srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBE;
+			srvDesc.TextureCube.MostDetailedMip = 0;
+			srvDesc.TextureCube.MipLevels = resource->GetDesc().MipLevels;
+			srvDesc.TextureCube.ResourceMinLODClamp = 0.0f;
 		}
 		else
 		{
-			mat->DiffuseSrvHeapIndex = 0;
+			srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+			srvDesc.Texture2D.MostDetailedMip = 0;
+			srvDesc.Texture2D.MipLevels = resource->GetDesc().MipLevels;
+			srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
 		}
 
-		if (_textures.count(mi.NormalTextureName))
-		{
-			mat->NormalSrvHeapIndex = _textures[mi.NormalTextureName]->SrvHeapIndex;
-		}
-		else
-		{
-			mat->NormalSrvHeapIndex = 1;
-		}
+		_d3dDevice->CreateShaderResourceView(resource.Get(), &srvDesc, handle);
+	};
 
-		if (_textures.count(mi.DisplacementTextureName))
-		{
-			mat->DisplacementSrvHeapIndex = _textures[mi.DisplacementTextureName]->SrvHeapIndex;
-		}
-		else
-		{
-			mat->DisplacementSrvHeapIndex = 2;
-		}
+	std::wstring hdriPath = LOCAL_PATH_W + L"HDRI/";
 
-		data.FresnelR0 = { 0.01f, 0.01f, 0.01f };
-		data.Roughness = 0.3f;
+	LoadDDS(hdriPath + L"DiffuseHDR.dds", _iblIrradiance, _iblIrradianceSrvSlot, true, 0);
+	LoadDDS(hdriPath + L"SpecularHDR.dds", _iblSpecular, _iblSpecularSrvSlot, true, 1);
+	LoadDDS(hdriPath + L"Brdf.dds", _iblBrdf, _iblBrdfSrvSlot, false, 2);
 
-		if (mat->Name == "Mat")
-		{
-			data.MaxTessellationFactor = 4.0f;
-			data.MaxTessellationDistance = 15.0f;
-		}
-		else if (mat->Name == "Mat.1")
-		{
-			data.MaxTessellationFactor = 1.0f;
-			data.MaxTessellationDistance = 150.0f;
-		}
+	ThrowIfFailed(_cmdList->Close());
+	ID3D12CommandList* cmds[] = { _cmdList.Get() };
+	_cmdQueue->ExecuteCommandLists(1, cmds);
+	FlushCommandQueue();
 
-		mat->Data = std::move(data);
-		_materials[matName] = std::move(mat);
-	}
+	ThrowIfFailed(_cmdList->Reset(_directCmdListAlloc.Get(), nullptr));
+}
+
+ComPtr<ID3D12Resource> D3DFramework::CreateDefault1x1Texture(DXGI_FORMAT format, const UINT8 rgba[4], ComPtr<ID3D12Resource>& uploadHeap)
+{
+	D3D12_RESOURCE_DESC texDesc = {};
+	texDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+	texDesc.Width = 1;
+	texDesc.Height = 1;
+	texDesc.DepthOrArraySize = 1;
+	texDesc.MipLevels = 1;
+	texDesc.Format = format;
+	texDesc.SampleDesc.Count = 1;
+	texDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+	texDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
+
+	CD3DX12_HEAP_PROPERTIES defaultHeap(D3D12_HEAP_TYPE_DEFAULT);
+	ComPtr<ID3D12Resource> tex;
+	ThrowIfFailed(_d3dDevice->CreateCommittedResource(&defaultHeap, D3D12_HEAP_FLAG_NONE, &texDesc, D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&tex)));
+
+	UINT64 uploadSize = 0;
+	D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint;
+	_d3dDevice->GetCopyableFootprints(&texDesc, 0, 1, 0, &footprint, nullptr, nullptr, &uploadSize);
+
+	CD3DX12_HEAP_PROPERTIES uploadHeapProps(D3D12_HEAP_TYPE_UPLOAD);
+	CD3DX12_RESOURCE_DESC uploadBufDesc = CD3DX12_RESOURCE_DESC::Buffer(uploadSize);
+	ThrowIfFailed(_d3dDevice->CreateCommittedResource(&uploadHeapProps, D3D12_HEAP_FLAG_NONE, &uploadBufDesc, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&uploadHeap)));
+
+	UINT8* mapped = nullptr;
+	uploadHeap->Map(0, nullptr, reinterpret_cast<void**>(&mapped));
+
+	mapped[0] = rgba[0];
+	mapped[1] = rgba[1];
+	mapped[2] = rgba[2];
+	mapped[3] = rgba[3];
+	uploadHeap->Unmap(0, nullptr);
+
+	D3D12_TEXTURE_COPY_LOCATION dst = {};
+	dst.pResource = tex.Get();
+	dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+	dst.SubresourceIndex = 0;
+
+	D3D12_TEXTURE_COPY_LOCATION src = {};
+	src.pResource = uploadHeap.Get();
+	src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+	src.PlacedFootprint = footprint;
+
+	_cmdList->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+
+	auto barrier = CD3DX12_RESOURCE_BARRIER::Transition(tex.Get(), D3D12_RESOURCE_STATE_COPY_DEST,D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+	_cmdList->ResourceBarrier(1, &barrier);
+
+	return tex;
+}
+
+std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> D3DFramework::GetStaticSamplers()
+{
+	const CD3DX12_STATIC_SAMPLER_DESC pointWrap(
+		0, // shaderRegister
+		D3D12_FILTER_MIN_MAG_MIP_POINT, // filter
+		D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressU
+		D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressV
+		D3D12_TEXTURE_ADDRESS_MODE_WRAP); // addressW
+
+	const CD3DX12_STATIC_SAMPLER_DESC pointClamp(
+		1, // shaderRegister
+		D3D12_FILTER_MIN_MAG_MIP_POINT, // filter
+		D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressU
+		D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressV
+		D3D12_TEXTURE_ADDRESS_MODE_CLAMP); // addressW
+
+	const CD3DX12_STATIC_SAMPLER_DESC linearWrap(
+		2, // shaderRegister
+		D3D12_FILTER_MIN_MAG_MIP_LINEAR, // filter
+		D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressU
+		D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressV
+		D3D12_TEXTURE_ADDRESS_MODE_WRAP); // addressW
+
+	const CD3DX12_STATIC_SAMPLER_DESC linearClamp(
+		3, // shaderRegister
+		D3D12_FILTER_MIN_MAG_MIP_LINEAR, // filter
+		D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressU
+		D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressV
+		D3D12_TEXTURE_ADDRESS_MODE_CLAMP); // addressW
+
+	const CD3DX12_STATIC_SAMPLER_DESC anisotropicWrap(
+		4, // shaderRegister
+		D3D12_FILTER_ANISOTROPIC, // filter
+		D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressU
+		D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressV
+		D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressW
+		0.0f,                             // mipLODBias
+		8);                               // maxAnisotropy
+
+	const CD3DX12_STATIC_SAMPLER_DESC anisotropicClamp(
+		5, // shaderRegister
+		D3D12_FILTER_ANISOTROPIC, // filter
+		D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressU
+		D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressV
+		D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressW
+		0.0f,                              // mipLODBias
+		8);                                // maxAnisotropy
+
+	const CD3DX12_STATIC_SAMPLER_DESC shadow(
+		6,
+		D3D12_FILTER_COMPARISON_MIN_MAG_LINEAR_MIP_POINT,
+		D3D12_TEXTURE_ADDRESS_MODE_BORDER,
+		D3D12_TEXTURE_ADDRESS_MODE_BORDER,
+		D3D12_TEXTURE_ADDRESS_MODE_BORDER,
+		0.0f,
+		16,
+		D3D12_COMPARISON_FUNC_LESS_EQUAL,
+		D3D12_STATIC_BORDER_COLOR_OPAQUE_BLACK);
+
+	return {
+		pointWrap, pointClamp,
+		linearWrap, linearClamp,
+		anisotropicWrap, anisotropicClamp, shadow };
 }

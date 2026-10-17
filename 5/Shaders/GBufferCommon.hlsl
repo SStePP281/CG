@@ -38,31 +38,37 @@ cbuffer cbPass : register(b0)
     float4x4 gInvProj;
     float4x4 gViewProj;
     float4x4 gInvViewProj;
+    
     float3 gEyePosW;
     float cbPerObjectPad1;
+    
     float2 gRenderTargetSize;
     float2 gInvRenderTargetSize;
+    
     float gNearZ;
     float gFarZ;
     float gTotalTime;
     float gDeltaTime;
-    float4 gAmbientLight;
+
     int DebugMode;
     int DebugViewIndex;
-    int2 Pad;
+    int DebugUseBeckmann;
+    int TerrainDebug;
 };
 
 cbuffer cbMaterial : register(b1)
 {
     float4x4 gMatTransform;
-    
+
     float4 gDiffuseAlbedo;
-    float3 gFresnelR0;
     float gRoughness;
+    float gMetallic;
     float gNormalIntencity;
-    
+    float gMatPad0;
+
     float gMaxTessellationFactor;
     float g_MaxTessellationDistance;
+    float2 gMatPad1;
 };
 
 cbuffer cbTessellation : register(b2)

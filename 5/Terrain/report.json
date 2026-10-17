@@ -1,0 +1,40 @@
+{
+  "$id": "1",
+  "Resolution": 1024,
+  "NodeCount": 4,
+  "Result": "Success",
+  "StartTime": "2026-10-12T16:48:54.4972517+03:00",
+  "EndTime": "2026-10-12T16:48:59.7418569+03:00",
+  "Duration": "00:00:05.2446052",
+  "SecondsTaken": {
+    "$id": "2",
+    "$values": [
+      {
+        "$id": "3",
+        "Item1": "Hieght",
+        "Item2": "00:00:00.0020000"
+      },
+      {
+        "$id": "4",
+        "Item1": "Canyon",
+        "Item2": "00:00:02.2660000"
+      },
+      {
+        "$id": "5",
+        "Item1": "SuperColor",
+        "Item2": "00:00:01.8140000"
+      },
+      {
+        "$id": "6",
+        "Item1": "Color",
+        "Item2": "00:00:00.0010000"
+      }
+    ]
+  },
+  "FastestNode": {
+    "$ref": "6"
+  },
+  "SlowestNode": {
+    "$ref": "4"
+  }
+}

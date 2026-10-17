@@ -110,12 +110,15 @@ struct MaterialConstants
 	XMFLOAT4X4 MatTransform = MathHelper::Identity4x4();
 
 	XMFLOAT4 DiffuseAlbedo = { 1.0f, 1.0f, 1.0f, 1.0f };
-	XMFLOAT3 FresnelR0 = { 0.01f, 0.01f, 0.01f };
-	float Roughness = 0.25f;
-	float NormalIntencity = 2.0f;
+
+	float Roughness = 0.5f;
+	float Metallic = 0.0f;
+	float NormalIntencity = 1.0f;
+	float Pad0 = 0.0f;
 
 	float MaxTessellationFactor = 1.0f;
 	float MaxTessellationDistance = 0.0f;
+	float Pad1[2] = { 0.0f, 0.0f };
 };
 
 struct Material
@@ -124,11 +127,14 @@ struct Material
 
 	int MatCBIndex = -1;
 
-	int DiffuseSrvHeapIndex = -1;
-	int NormalSrvHeapIndex = -1;
-	int DisplacementSrvHeapIndex = -1;
+	int DiffuseSrvHeapIndex = 0;
+	int NormalSrvHeapIndex = 1;
+	int MetallicSrvHeapIndex = 2;
+	int RoughnessSrvHeapIndex = 3;
+	int AOSrvHeapIndex = 4;
+	int DisplacementSrvHeapIndex = 5;
 
-	int NumFramesDirty = 3; //NUM_FRAME_RECOURCES
+	int NumFramesDirty = 3;
 
 	MaterialConstants Data;
 };

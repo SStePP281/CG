@@ -30,12 +30,13 @@
 #include "GBuffer.h"
 #include "ShadowMap.h"
 #include "PostProcess.h"
+#include "Terrain.h"
 
 using namespace Microsoft::WRL;
 using namespace DirectX;
 
 constexpr int NUM_FRAME_RECOURCES = 3;
-constexpr int MAX_DEBUG_LAYER_COUNT = 5;
+constexpr int MAX_DEBUG_LAYER_COUNT = 8;
 
 struct RenderItem
 {
@@ -212,6 +213,7 @@ private:
     virtual void OnMouseDown(WPARAM btnState, int x, int y) override;
     virtual void OnMouseUp(WPARAM btnState, int x, int y) override;
     virtual void OnMouseMove(WPARAM btnState, int x, int y) override;
+    virtual void OnMouseWheel(int delta) override;
 
     void OnKeyboardInput(const GameTimer& gt);
     void UpdateCamera(const GameTimer& gt);
@@ -226,15 +228,18 @@ private:
     void UpdateMainPassCB(const GameTimer& gt);
     void UpdateLightSB(const GameTimer& gt);
     void UpdateShadowCB(const GameTimer& gt);
+    void UpdateTerrainCB(const GameTimer& gt);
     void UpdateInstanceData(const GameTimer& gt);
 
     void BuildRootSignatureGBuffer();
     void BuildRootSignatureLightPass();
     void BuildRootSignatureShadowPass();
+    void BuildRootSignatureTerrainPass();
 
     void BuildGBufferPSO();
     void BuildLightPassPSO();
     void BuildShadowPassPSO();
+    void BuildTerrainPassPSO();
 
     void BuildDescriptorHeaps();
     void BuildLightSRV();
@@ -249,16 +254,19 @@ private:
 
     void DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawRenderItemsShadow(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
-
-    std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> GetStaticSamplers();
+    void DrawTerrain(ID3D12GraphicsCommandList* cmdList);
 
 private:
     void ParseMesh(const ModelParse::MeshInfo& meshData);
     void LoadTextures(const ModelParse::MeshInfo& meshData);
     void ParseMaterials(const ModelParse::MeshInfo& meshData);
 
-private:
+    void LoadIBLTextures();
 
+    ComPtr<ID3D12Resource> CreateDefault1x1Texture(DXGI_FORMAT format, const UINT8 rgba[4], ComPtr<ID3D12Resource>& uploadHeap);
+    std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> GetStaticSamplers();
+
+private:
     std::vector<std::unique_ptr<FrameResource>> _frameResources;
     FrameResource* _currFrameResource = nullptr;
     int _currFrameResourceIndex = 0;
@@ -266,6 +274,7 @@ private:
     ComPtr<ID3D12RootSignature> _rootSignatureGBuffer = nullptr;
     ComPtr<ID3D12RootSignature> _rootSignatureLightPass = nullptr;
     ComPtr<ID3D12RootSignature> _rootSignatureShadowPass = nullptr;
+    ComPtr<ID3D12RootSignature> _rootSignatureTerrainPass = nullptr;
 
     std::unordered_map<std::string, std::unique_ptr<MeshGeometry>> _geometries;
     std::unordered_map<std::string, std::unique_ptr<Material>> _materials;
@@ -288,12 +297,22 @@ private:
 
     std::unique_ptr<GBuffer> _gBuffer;
     std::unique_ptr<ShadowMap> _shadowMap;
+    std::unique_ptr<Terrain> _terrain;
     std::unique_ptr<PostProcessChain> _ppChain;
 
     UINT _lastSlot = 0;
     UINT _gBufferSrvStart = 0;
     UINT _lightSbSrvSlot = 0;
     UINT _shadowSrvStart = 0;
+    UINT _terrainSrvStart = 0;
+
+    UINT _iblIrradianceSrvSlot = 0;
+    UINT _iblSpecularSrvSlot = 0;
+    UINT _iblBrdfSrvSlot = 0;
+
+    ComPtr<ID3D12Resource> _iblIrradiance;
+    ComPtr<ID3D12Resource> _iblSpecular;
+    ComPtr<ID3D12Resource> _iblBrdf;
 
     BoundingFrustum _camFrustum;
     std::unique_ptr<OctreeNode> _octreeRoot;
@@ -318,6 +337,8 @@ private:
 
 private:
     bool _isDebugMode = false;
+    bool _isTerrainDegub = false;
+    bool _isUseBeckmann = false;
 
     std::vector<D3D12_RECT> BuildScissorRects(int K, int width, int height)
     {

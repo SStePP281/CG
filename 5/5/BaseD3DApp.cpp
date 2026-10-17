@@ -378,6 +378,15 @@ LRESULT BaseD3DApp::MsgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             return 0;
         }
 
+        case WM_MOUSEWHEEL:
+        {
+            if (app)
+            {
+                app->OnMouseWheel(GET_WHEEL_DELTA_WPARAM(wParam));
+            }
+            return 0;
+        }
+
         case WM_PAINT:
         {
             PAINTSTRUCT ps;

@@ -4,6 +4,9 @@
 Texture2D gDiffuseMap : register(t0);
 Texture2D gNormalMap : register(t1);
 Texture2D gDispMap : register(t2);
+Texture2D gMetallicMap : register(t3);
+Texture2D gRoughnessMap : register(t4);
+Texture2D gAOMap : register(t5);
 
 SamplerState gsamPointWrap : register(s0);
 SamplerState gsamPointClamp : register(s1);
@@ -32,6 +35,7 @@ struct GBufferOutput
 {
     float4 Albedo : SV_Target0;
     float4 Normal : SV_Target1;
+    float4 MatData : SV_Target2; // R=metallic, G=roughness, B=AO
 };
 
 VertexOut VS(VertexIn vin, uint instanceID : SV_InstanceID)
@@ -59,14 +63,11 @@ GBufferOutput PS(DS_OUTPUT pin)
     GBufferOutput res;
 
     float4 albedoTex = gDiffuseMap.Sample(gsamAnisotropicWrap, pin.TexC);
-
     clip(albedoTex.a - 0.1f);
-
     res.Albedo = gDiffuseAlbedo * albedoTex;
 
     float3 normalSample = gNormalMap.Sample(gsamAnisotropicWrap, pin.TexC).xyz;
     float3 normalT = normalSample * 2.0f - 1.0f;
-
     normalT.xy *= gNormalIntencity;
 
     float3 N = normalize(pin.NormalW);
@@ -75,8 +76,20 @@ GBufferOutput PS(DS_OUTPUT pin)
 
     float3x3 TBN = float3x3(T, B, N);
     float3 normalW = normalize(mul(normalT, TBN));
-
     res.Normal = float4(normalW, 1.0f);
+
+    float metallic = gMetallicMap.Sample(gsamAnisotropicWrap, pin.TexC).r;
+    float roughness = gRoughnessMap.Sample(gsamAnisotropicWrap, pin.TexC).r;
+    float ao = gAOMap.Sample(gsamAnisotropicWrap, pin.TexC).r;
+
+    metallic *= gMetallic;
+    roughness *= gRoughness;
+
+    roughness = clamp(roughness, 0.04f, 1.0f);
+    metallic = saturate(metallic);
+    ao = saturate(ao);
+
+    res.MatData = float4(metallic, roughness, ao, 1.0f);
 
     return res;
 }

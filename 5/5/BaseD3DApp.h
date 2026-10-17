@@ -15,8 +15,8 @@
 
 using namespace Microsoft::WRL;
 
-constexpr UINT CLIENT_WIDTH = 800;
-constexpr UINT CLIENT_HEIGHT = 600;
+constexpr UINT CLIENT_WIDTH = 1920;
+constexpr UINT CLIENT_HEIGHT = 1080;
 
 constexpr int SWAP_CHAIN_BUFFER_COUNT = 2;
 
@@ -49,6 +49,7 @@ protected:
 	virtual void OnMouseDown(WPARAM btnState, int x, int y) {}
 	virtual void OnMouseUp(WPARAM btnState, int x, int y) {}
 	virtual void OnMouseMove(WPARAM btnState, int x, int y) {}
+	virtual void OnMouseWheel(int delta) {}
 protected:
 	bool InitMainWindow();
 	bool InitDirect3D();

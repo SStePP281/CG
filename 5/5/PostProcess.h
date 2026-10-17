@@ -47,6 +47,8 @@ struct PassDesc
     int Priority = 0;
 
     std::vector<UINT> InputSrvSlots;
+
+    std::vector<UINT> ExtraInputSrvSlots;
 };
 
 class PostProcessPass
@@ -82,13 +84,17 @@ private:
 class PostProcessChain
 {
 public:
+    void InitHDRBuffer(ID3D12Device* device, ID3D12DescriptorHeap* srvHeap, UINT& lastSlot, UINT srvDescSize, int width, int height);
+
     UINT ReservePass(ID3D12Device* device, const PassDesc& desc, ID3D12DescriptorHeap* srvHeap, UINT& lastSlot, UINT srvDescSize);
     void CommitAll(ID3D12Device* device, ID3D12DescriptorHeap* srvHeap, UINT srvDescSize);
+    void ExecuteAll(ID3D12GraphicsCommandList* cmdList, ID3D12DescriptorHeap* srvHeap, UINT srvDescSize, D3D12_CPU_DESCRIPTOR_HANDLE backBufferRTV);
 
     PostProcessPass* GetPass(const std::string& name);
     PostProcessPass* First() { return _passes[0].get(); }
 
-    void ExecuteAll(ID3D12GraphicsCommandList* cmdList, ID3D12DescriptorHeap* srvHeap, UINT srvDescSize, D3D12_CPU_DESCRIPTOR_HANDLE backBufferRTV);
+    D3D12_CPU_DESCRIPTOR_HANDLE GetLightPassRTV() const { return _hdrRTV; }
+    ID3D12Resource* GetHDRBuffer() const { return _hdrBuffer.Get(); }
 
     void OnResize(ID3D12Device* device, ID3D12DescriptorHeap* srvHeap, UINT srvDescSize, int width, int height);
 
@@ -96,6 +102,11 @@ private:
     void Sort();
 
     std::vector<std::unique_ptr<PostProcessPass>> _passes;
+
+    ComPtr<ID3D12Resource> _hdrBuffer;
+    ComPtr<ID3D12DescriptorHeap> _hdrRTVHeap;
+    D3D12_CPU_DESCRIPTOR_HANDLE _hdrRTV = {};
+    UINT _hdrSrvSlot = 0;
 };
 
 #endif // !POST_PROCESS_HPP

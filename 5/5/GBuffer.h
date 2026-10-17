@@ -20,8 +20,9 @@ enum class GBufferIndex : UINT
 {
     Albedo = 0,
     Normal = 1,
-    Depth = 2,
-    Count = 3
+    MatData = 2,   //metallic, roughness, AO
+    Depth = 3,
+    Count = 4
 };
 
 struct GBufferTexture
@@ -38,16 +39,18 @@ class GBuffer
 private:
     static constexpr DXGI_FORMAT INFO_FORMATS[(int)GBufferIndex::Count] =
     {
-        DXGI_FORMAT_R8G8B8A8_UNORM,
-        DXGI_FORMAT_R32G32B32A32_FLOAT,
-        DXGI_FORMAT_R24_UNORM_X8_TYPELESS
+        DXGI_FORMAT_R8G8B8A8_UNORM,         // Albedo
+        DXGI_FORMAT_R32G32B32A32_FLOAT,     // Normal
+        DXGI_FORMAT_R8G8B8A8_UNORM,         // MatData (metallic, roughness, AO)
+        DXGI_FORMAT_R24_UNORM_X8_TYPELESS   // Depth (SRV формат)
     };
 
 public:
-    GBuffer(ID3D12Device* device, int width, int height, CD3DX12_CPU_DESCRIPTOR_HANDLE srvHandle, UINT srvDescriptorSize);
+    GBuffer(ID3D12Device* device, int width, int height,
+        CD3DX12_CPU_DESCRIPTOR_HANDLE srvHandle, UINT srvDescriptorSize);
 
-	void TransitToOpaqueRenderingState(ID3D12GraphicsCommandList* cmdList);
-	void TransitToLightRenderingState(ID3D12GraphicsCommandList* cmdList);
+    void TransitToOpaqueRenderingState(ID3D12GraphicsCommandList* cmdList);
+    void TransitToLightRenderingState(ID3D12GraphicsCommandList* cmdList);
 
     void ClearView(ID3D12GraphicsCommandList* cmdList);
 

@@ -7,8 +7,8 @@ Texture2D gDepth : register(t3);
 cbuffer cbWaterSpot : register(b0)
 {
     float4x4 gInvViewProj;
-    float3 gEyePos;
     float gNoiseScale;
+    float3 pad;
 };
 
 float3 ReconstructPosition(float2 texCoord, float depth)
