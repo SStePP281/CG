@@ -15,7 +15,7 @@
 #include "WICTextureLoader.h"
 #include <ResourceUploadBatch.h>
 
-#define HOME 1
+#define HOME 0
 
 #if HOME == 1
 
