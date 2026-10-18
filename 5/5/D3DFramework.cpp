@@ -2,6 +2,7 @@
 
 #include "D3DFramework.h"
 
+#include <cmath>
 #include <iostream>
 #include <fstream> 
 #include <d3dcompiler.h>
@@ -93,6 +94,25 @@ bool D3DFramework::Initialize()
 	return true;
 }
 
+std::wstring D3DFramework::GetWindowTitile()
+{
+	std::wstring title = BaseD3DApp::GetWindowTitile();
+
+	if (_isTerrainDegub)
+	{
+		title += L"   Tile Count = " + std::to_wstring(_terrain->GetVisibleTiles().size());
+	}
+	else if (_paintMode)
+	{
+		title += L"   Layer: " + std::to_wstring(_brushLayer + 1) +
+			(_brushMode == BrushMode::Draw ? L"  Draw" : L"  Erase") +
+			L"  R: " + std::to_wstring((int)_brushRadius) + L" m" +
+			L"  S: " + std::to_wstring((int)(_brushStrength * 100) / 100.0f).substr(0, 4);
+	}
+
+	return title;
+}
+
 void D3DFramework::OnResize()
 {
 	BaseD3DApp::OnResize();
@@ -138,6 +158,28 @@ void D3DFramework::Draw(const GameTimer& gt)
 	ThrowIfFailed(cmdListAlloc->Reset());
 	ThrowIfFailed(_cmdList->Reset(cmdListAlloc.Get(), nullptr));
 
+	ID3D12DescriptorHeap* heaps[] = { _srvHeap.Get() };
+	_cmdList->SetDescriptorHeaps(1, heaps);
+
+	//TERRAIN DRAW MODE
+
+	_terrain->TransitHitToWrite(_cmdList.Get());
+	if (_paintMode)
+	{
+		float mouseX = 2.0f * _lastMousePos.x / CLIENT_WIDTH - 1.0f;
+		float mouseY = 1.0f - 2.0f * _lastMousePos.y / CLIENT_HEIGHT;
+
+		CD3DX12_GPU_DESCRIPTOR_HANDLE h(_srvHeap->GetGPUDescriptorHandleForHeapStart(), _terrainSrvStart, _srvDescriptorSize);
+		_terrain->DoPick(_cmdList.Get(), _currFrameResource->PassCB->Resource()->GetGPUVirtualAddress(), h, mouseX, mouseY, 1000.0f);
+
+		if (GetAsyncKeyState(VK_LBUTTON) & 0x8000)
+		{
+			CD3DX12_GPU_DESCRIPTOR_HANDLE h(_srvHeap->GetGPUDescriptorHandleForHeapStart(), _terrainSrvStart, _srvDescriptorSize);
+			_terrain->DoBrush(_cmdList.Get(), h, _brushLayer, _brushMode == BrushMode::Erase, _brushRadius, _brushStrength * gt.DeltaTime());
+		}
+	}
+	_terrain->TransitHitToRead(_cmdList.Get());
+
 	//SHADOW PASS
 
 	D3D12_VIEWPORT shadowViewport = { 0, 0, SHADOW_MAP_TEXTURE_DEFAULT_SIZE, SHADOW_MAP_TEXTURE_DEFAULT_SIZE, 0.0f, 1.0f };
@@ -151,9 +193,6 @@ void D3DFramework::Draw(const GameTimer& gt)
 
 	_cmdList->SetPipelineState(_psos["shadowPass"].Get());
 	_cmdList->SetGraphicsRootSignature(_rootSignatureShadowPass.Get());
-
-	ID3D12DescriptorHeap* heaps[] = { _srvHeap.Get() };
-	_cmdList->SetDescriptorHeaps(1, heaps);
 
 	_cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
@@ -316,7 +355,7 @@ void D3DFramework::OnMouseUp(WPARAM btnState, int x, int y)
 
 void D3DFramework::OnMouseMove(WPARAM btnState, int x, int y)
 {
-	if ((btnState & MK_LBUTTON) != 0)
+	if (!_paintMode && (btnState & MK_LBUTTON) != 0)
 	{
 		float dx = XMConvertToRadians(_rotateSpeed * (x - _lastMousePos.x));
 		float dy = XMConvertToRadians(_rotateSpeed * (y - _lastMousePos.y));
@@ -334,8 +373,27 @@ void D3DFramework::OnMouseMove(WPARAM btnState, int x, int y)
 void D3DFramework::OnMouseWheel(int delta)
 {
 	float notches = delta / 120.0f;
-	_moveSpeed *= powf(1.15f, notches);
-	_moveSpeed = MathHelper::Clamp(_moveSpeed, 0.5f, 5000.0f);
+	bool ctrl = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+	bool shift = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
+
+	if (_paintMode)
+	{
+		if (ctrl)
+		{
+			_brushRadius *= powf(1.15f, notches);
+			_brushRadius = MathHelper::Clamp(_brushRadius, (float)BRUSH_RADIUS_MIN, (float)BRUSH_RADIUS_MAX);
+		}
+		else if (shift)
+		{
+			_brushStrength *= powf(1.15f, notches);
+			_brushStrength = MathHelper::Clamp(_brushStrength, BRUSH_STRENGTH_MIN, BRUSH_STRENGTH_MAX);
+		}
+	}
+	else
+	{
+		_moveSpeed *= powf(1.15f, notches);
+		_moveSpeed = MathHelper::Clamp(_moveSpeed, 0.5f, 5000.0f);
+	}
 }
 
 void D3DFramework::OnKeyboardInput(const GameTimer& gt)
@@ -379,6 +437,27 @@ void D3DFramework::OnKeyboardInput(const GameTimer& gt)
 
 		Sleep(200);
 	}
+
+	if (GetAsyncKeyState(VK_F4) & 0x8000)
+	{
+		_paintMode = !_paintMode;
+
+		Sleep(200);
+	}
+
+	for (int vk = '1'; vk <= '9'; vk++)
+	{
+		if (KeyPressed(vk))
+		{
+			UINT layer = vk - '1';
+			if (layer < _terrain->GetLayerCount()) { _brushLayer = layer; }
+		}
+	}
+
+	bool ctrl = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+
+	if (KeyPressed(VK_OEM_PLUS) && ctrl) { _brushMode = BrushMode::Draw; }
+	if (KeyPressed(VK_OEM_MINUS) && ctrl) { _brushMode = BrushMode::Erase; }
 
 	XMStoreFloat3(&_eyePos, pos);
 }
@@ -632,15 +711,26 @@ void D3DFramework::UpdateTerrainCB(const GameTimer& gt)
 
 	assert(_terrain->GetVisibleTiles().size() <= MAX_TERRAIN_TILES);
 
+	TerrainConstant terrainBase = TerrainConstant();
+	terrainBase.MaskCount = _terrain->GetMaskCount();
+	terrainBase.LayerCount = _terrain->GetLayerCount();
+
+	const auto& layerTileSizes = _terrain->GetLayerTileSizes();
+	float* layerTileDst = &terrainBase.LayerTile[0].x;
+	for (size_t k = 0; k < layerTileSizes.size(); k++) { layerTileDst[k] = layerTileSizes[k]; }
+
 	UINT i = 0;
 	for (const auto& t : _terrain->GetVisibleTiles())
 	{
-		TerrainConstant terrain = TerrainConstant();
+		TerrainConstant terrain = terrainBase;
 		terrain.TileOrigin = t.Origin;
 		terrain.TileSize = t.Size;
 		terrain.MorphStart = t.MorphStart;
 		terrain.MorphEnd = t.MorphEnd;
 		terrain.LodLevel = t.Depth;
+		terrain.BrushRadius = _paintMode ? _brushRadius : 0.0f;
+		terrainBase.BrushMode = (_brushMode == BrushMode::Erase) ? 1.0f : 0.0f;
+		terrainBase.BrushStrength = logf(_brushStrength / BRUSH_STRENGTH_MIN) / logf(BRUSH_STRENGTH_MAX / BRUSH_STRENGTH_MIN);
 
 		auto terraingCB = _currFrameResource->TerrainCB.get();
 		terraingCB->CopyData(i++, terrain);
@@ -854,16 +944,20 @@ void D3DFramework::BuildRootSignatureShadowPass()
 void D3DFramework::BuildRootSignatureTerrainPass()
 {
 	CD3DX12_DESCRIPTOR_RANGE texRange;
-	texRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 2, 0);   // 2 SRV, начиная с t0
+	texRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 3, 0);   // 3 SRV
 
-	CD3DX12_ROOT_PARAMETER slotRootParameter[3];
-	slotRootParameter[0].InitAsDescriptorTable(1, &texRange, D3D12_SHADER_VISIBILITY_ALL); // t0, t1
+	CD3DX12_DESCRIPTOR_RANGE hitRange;
+	hitRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 3);
+
+	CD3DX12_ROOT_PARAMETER slotRootParameter[4];
+	slotRootParameter[0].InitAsDescriptorTable(1, &texRange, D3D12_SHADER_VISIBILITY_ALL); // t0, t1, t3
 	slotRootParameter[1].InitAsConstantBufferView(0);   // b0 cbPass
 	slotRootParameter[2].InitAsConstantBufferView(4);   // b4 cbTerrain
+	slotRootParameter[3].InitAsDescriptorTable(1, &hitRange, D3D12_SHADER_VISIBILITY_PIXEL); //hit
 
 	auto staticSamplers = GetStaticSamplers();
 
-	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(3, slotRootParameter, (UINT)staticSamplers.size(), staticSamplers.data(), D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(4, slotRootParameter, (UINT)staticSamplers.size(), staticSamplers.data(), D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
 	ComPtr<ID3DBlob> serializedRootSig = nullptr;
 	ComPtr<ID3DBlob> errorBlob = nullptr;
@@ -1553,7 +1647,10 @@ void D3DFramework::DrawTerrain(ID3D12GraphicsCommandList* cmdList)
 	cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
 	CD3DX12_GPU_DESCRIPTOR_HANDLE texHandle(_srvHeap->GetGPUDescriptorHandleForHeapStart(), _terrainSrvStart, _srvDescriptorSize);
-	cmdList->SetGraphicsRootDescriptorTable(0, texHandle);                       // t0 height, t1 color
+	cmdList->SetGraphicsRootDescriptorTable(0, texHandle);                       // t0.....
+
+	CD3DX12_GPU_DESCRIPTOR_HANDLE hitHandle(_srvHeap->GetGPUDescriptorHandleForHeapStart(), _terrainSrvStart + 5, _srvDescriptorSize);
+	cmdList->SetGraphicsRootDescriptorTable(3, hitHandle); //hit
 
 	auto passCB = _currFrameResource->PassCB->Resource();
 	cmdList->SetGraphicsRootConstantBufferView(1, passCB->GetGPUVirtualAddress()); // b0

@@ -62,6 +62,8 @@ protected:
 	D3D12_CPU_DESCRIPTOR_HANDLE DepthStencilView() const { return _dsvHeap->GetCPUDescriptorHandleForHeapStart(); }
 	
 	void CalculateFrameStats();
+	virtual std::wstring GetWindowTitile() { return L""; }
+
 protected:
 	static BaseD3DApp* _app;
 	HINSTANCE _hInstance = nullptr;

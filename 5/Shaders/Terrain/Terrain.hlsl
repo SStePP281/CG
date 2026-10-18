@@ -1,7 +1,18 @@
 Texture2D gHeightMap : register(t0);
-Texture2D gColorMap : register(t1);
+Texture2DArray gColorMaps : register(t1);
+Texture2DArray gMaskMaps : register(t2);
+
+struct Hit
+{
+    float3 PosW;
+    uint Valid;
+    float2 MapUV;
+    float2 Pad;
+};
+StructuredBuffer<Hit> gHit : register(t3);
 
 SamplerState gsamLinearClamp : register(s3);
+SamplerState gsamAnisotropicWrap : register(s4);
 
 cbuffer cbPass : register(b0)
 {
@@ -44,7 +55,15 @@ cbuffer cbTerrain : register(b4)
     float gTileCells;
     
     int gLodLevel;
-    int3 gPad;
+    int gMaskCount;
+    int gLayerCount;
+    float gBrushRadius;
+
+    float gBrushMode;
+    float gBrushStrength;
+    float2 gPad2;
+    
+    float4 gLayerTile[4];
 };
 
 static const float3 LOD_COLORS[6] =
@@ -126,15 +145,49 @@ GBufferOutput PS(VertexOut pin)
     
     float3 N = normalize(float3(hL - hR, 2.0 * step, hD - hU));
     
-    res.Albedo = gColorMap.Sample(gsamLinearClamp, pin.TexC);
+    float2 mapMeters = pin.TexC * gWorldSize;
+    float3 albedo = 0;
+
+    for (int m = 0; m < gMaskCount; m++)
+    {
+        float4 weights = gMaskMaps.Sample(gsamLinearClamp, float3(pin.TexC, m));
+
+        for (int k = 0; k < 4; k++)
+        {
+            int layer = m * 4 + k;
+            if (layer < gLayerCount)
+            {
+                float tile = gLayerTile[layer / 4][layer % 4];
+                float2 tuv = mapMeters / tile;
+                albedo += weights[k] * gColorMaps.Sample(gsamAnisotropicWrap, float3(tuv, layer)).rgb;
+            }
+        }
+    }
+    
+    res.Albedo = float4(albedo, 1);
     res.Normal = float4(N, 1);
     res.MatData = float4(0, 0.9, 1, 1);
-    
+
     if (TerrainDebug == 1)
     {
         uint lod = min((uint) pin.Lod, 5u);
         res.Albedo.rgb = lerp(res.Albedo.rgb, LOD_COLORS[lod], 0.6f);
     }
-    
+
+    if (gBrushRadius > 0.0f)
+    {
+        Hit hit = gHit[0];
+        if (hit.Valid != 0)
+        {
+            float d = distance(pin.PosW.xz, hit.PosW.xz);
+            float3 brushColor = (gBrushMode > 0.5f) ? float3(1.0f, 0.25f, 0.25f) : float3(0.25f, 1.0f, 0.35f);
+
+            float ring = 1.0f - smoothstep(0.0f, fwidth(d) * 1.5f, abs(d - gBrushRadius));
+            float disc = (d < gBrushRadius) ? lerp(0.05f, 0.4f, gBrushStrength) : 0.0f;
+
+            res.Albedo.rgb = lerp(res.Albedo.rgb, brushColor, saturate(ring + disc));
+        }
+    }
+
     return res;
 }

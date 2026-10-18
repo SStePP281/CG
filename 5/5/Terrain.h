@@ -20,14 +20,36 @@ constexpr float TERRAIN_WORLD_OFFSET = -TERRAIN_WORLD_SIZE * 0.5f;
 
 constexpr float TERRAIN_TILE_WORLD_SIZE = 128.0f;
 constexpr UINT TERRAIN_TILE_CELLS = 64;
+
 constexpr UINT TERRAIN_MAX_DEPTH = 5;
 constexpr float TERRAIN_MAX_SCREEN_ERROR = 6.0f;
+
+constexpr UINT TERRAIN_MASK_SIZE = 2048;
+constexpr UINT TERRAIN_MAX_LAYERS = 16;
+
+constexpr UINT BRUSH_RADIUS_MIN = 1, BRUSH_RADIUS_MAX = 200;
+constexpr float BRUSH_STRENGTH_MIN = 0.05f, BRUSH_STRENGTH_MAX = 10.0f;
 
 constexpr UINT TERRAIN_TILES_PER_SIDE = (UINT)(TERRAIN_WORLD_SIZE / TERRAIN_TILE_WORLD_SIZE);
 constexpr UINT MAX_TERRAIN_TILES = 1024; 
 constexpr UINT TERRAIN_TILE_VERTS = TERRAIN_TILE_CELLS + 1;
 
 static_assert(TERRAIN_TILES_PER_SIDE * TERRAIN_TILE_WORLD_SIZE == TERRAIN_WORLD_SIZE, "World size must be a multiple of tile size");
+
+struct TerrainHit
+{
+	XMFLOAT3 PosW;
+	UINT Valid;
+
+	XMFLOAT2 MapUV;
+	XMFLOAT2 Pad;
+};
+
+struct LayerInfo
+{
+	std::wstring File;
+	float TileSize;
+};
 
 struct TerrainTile
 { 
@@ -54,10 +76,20 @@ public:
 	Terrain(const Terrain& rhs) = delete;
 	Terrain& operator=(const Terrain& rhs) = delete;
 
-	UINT GetSlotCount() { return 2; }
+	void DoPick(ID3D12GraphicsCommandList* cmdList, D3D12_GPU_VIRTUAL_ADDRESS passCB, CD3DX12_GPU_DESCRIPTOR_HANDLE firstSlot, float mouseNdcX, float mouseNdcY, float maxDist);
+	void TransitHitToWrite(ID3D12GraphicsCommandList* cmdList);
+	void TransitHitToRead(ID3D12GraphicsCommandList* cmdList);
+
+	void DoBrush(ID3D12GraphicsCommandList* cmdList, CD3DX12_GPU_DESCRIPTOR_HANDLE firstSlot, UINT layer, bool erase, float radiusMeters, float strengthDt);
+
+	UINT GetSlotCount() { return 6; }
 
 	UINT GetWidth() const { return _width; }
 	UINT GetHeight() const { return _height; }
+
+	UINT GetMaskCount() const { return _maskCount; }
+	UINT GetLayerCount() const { return _layerCount; }
+	const std::vector<float>& GetLayerTileSizes() const { return _layerTileSizes; }
 
 	const MeshGeometry* GetTileMesh() const { return _tileMesh.get(); }
 
@@ -65,8 +97,16 @@ public:
 	const std::vector<TerrainTile>& GetVisibleTiles() const { return _visibleTiles; }
 
 private:
+	void CreateHitBuffer(ID3D12Device* device);
+
+private:
 	void LoadTextures(ID3D12Device* device, ID3D12CommandQueue* cmdQueue);
-	void CreateSRV(ID3D12Device* device);
+
+	void CreateLayerArray(ID3D12Device* device, ID3D12GraphicsCommandList* cmdList);
+	void CreateMaskTexture(ID3D12Device* device, ID3D12CommandQueue* cmdQueue);
+
+	void CreateSRVAndUAV(ID3D12Device* device);
+
 	void BuildTileMesh(ID3D12Device* device, ID3D12GraphicsCommandList* cmdList);
 
 	std::unique_ptr<QuadNode> BuildNode(XMFLOAT2 origin, float size, UINT depth);
@@ -84,13 +124,32 @@ private:
 
 private:
 	ComPtr<ID3D12Resource> _heightMap;
-	ComPtr<ID3D12Resource> _colorMap;
+
+	ComPtr<ID3D12Resource> _layerArray;
+	std::vector<ComPtr<ID3D12Resource>> _layerSources;
+	UINT _layerCount = 0;
+	std::vector<float> _layerTileSizes;
+
+	ComPtr<ID3D12Resource> _maskArray;
+	UINT _maskCount = 0;
 
 	CD3DX12_CPU_DESCRIPTOR_HANDLE _srvHandle;
 	UINT _srvDescriptorSize = 0;
 
 	UINT _width = 0;
 	UINT _height = 0;
+
+private:
+	ComPtr<ID3D12RootSignature> _rootSignatureTerrainPick = nullptr;
+	ComPtr<ID3D12PipelineState> _terrainPickPSO = nullptr;
+
+	ComPtr<ID3D12RootSignature> _rootSignatureTerrainBrush = nullptr;
+	ComPtr<ID3D12PipelineState> _terrainBrushPSO = nullptr;
+
+	ComPtr<ID3D12Resource> _hitBuffer;
+
+	void BuildPickPipeline(ID3D12Device* device);
+	void BuildBrushPipeline(ID3D12Device* device);
 };
 
 #endif // !TERRAIN_HPP

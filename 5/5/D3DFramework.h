@@ -203,7 +203,8 @@ public:
     D3DFramework& operator=(const D3DFramework& rhs) = delete;
     ~D3DFramework();
 
-    virtual bool Initialize()override;
+    virtual bool Initialize() override;
+    virtual std::wstring GetWindowTitile() override;
 
 private:
     virtual void OnResize() override;
@@ -216,6 +217,13 @@ private:
     virtual void OnMouseWheel(int delta) override;
 
     void OnKeyboardInput(const GameTimer& gt);
+    bool KeyPressed(int vk)
+    {
+        bool down = (GetAsyncKeyState(vk) & 0x8000) != 0;
+        bool pressed = down && !_prevKeys[vk];
+        _prevKeys[vk] = down;
+        return pressed;
+    }
     void UpdateCamera(const GameTimer& gt);
 
     void ComputeSceneBounds();
@@ -339,6 +347,16 @@ private:
     bool _isDebugMode = false;
     bool _isTerrainDegub = false;
     bool _isUseBeckmann = false;
+
+    bool _prevKeys[256] = {};
+
+    enum class BrushMode { Draw, Erase };
+
+    bool _paintMode = false;
+    BrushMode _brushMode = BrushMode::Draw;
+    UINT _brushLayer = 0;
+    float _brushRadius = 20.0f;
+    float _brushStrength = 1.0f;
 
     std::vector<D3D12_RECT> BuildScissorRects(int K, int width, int height)
     {

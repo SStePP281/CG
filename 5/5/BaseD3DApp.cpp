@@ -325,7 +325,8 @@ void BaseD3DApp::CalculateFrameStats()
 
         std::wstring windowText = _mainWndCaption +
             L"    FPS: " + std::to_wstring((int)fps) +
-            L"    MS per Frame: " + std::to_wstring(mspf);
+            L"    MS per Frame: " + std::to_wstring(mspf) +
+            GetWindowTitile();
 
         SetWindowTextW(_hMainWnd, windowText.c_str());
 

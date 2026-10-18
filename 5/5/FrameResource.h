@@ -99,7 +99,15 @@ struct TerrainConstant
     float TileCells = (float)TERRAIN_TILE_CELLS;
 
     int LodLevel = 0;
-    int Pad[3] = { 0, 0, 0 };
+    int MaskCount = 0;
+    int LayerCount = 0;
+    float BrushRadius = 0.0f;
+
+    float BrushMode = 0.0f;
+    float BrushStrength = 0.0f;
+    XMFLOAT2 Pad2 = { 0.0f, 0.0f };
+
+    XMFLOAT4 LayerTile[TERRAIN_MAX_LAYERS / 4] = {};
 };
 
 struct FrameResource
