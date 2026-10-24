@@ -3,7 +3,7 @@
 
 #include <iostream>
 
-#define HOME 0
+#define HOME 1
 
 #if HOME == 1
 

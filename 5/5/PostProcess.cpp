@@ -310,13 +310,13 @@ PostProcessPass* PostProcessChain::GetPass(const std::string& name)
 	return nullptr;
 }
 
-void PostProcessChain::ExecuteAll(ID3D12GraphicsCommandList* cmdList, ID3D12DescriptorHeap* srvHeap, UINT srvDescSize, D3D12_CPU_DESCRIPTOR_HANDLE backBufferRTV)
+void PostProcessChain::ExecuteAll(ID3D12GraphicsCommandList* cmdList, ID3D12DescriptorHeap* srvHeap, UINT srvDescSize, UINT firstInputSlot, D3D12_CPU_DESCRIPTOR_HANDLE backBufferRTV)
 {
 	if (_passes.empty()) { return; }
 
 	for (int i = 0; i < (int)_passes.size(); i++)
 	{
-		UINT inputSlot = (i == 0) ? _hdrSrvSlot : _passes[i - 1]->OutputSrvSlot;
+		UINT inputSlot = (i == 0) ? firstInputSlot : _passes[i - 1]->OutputSrvSlot;
 		_passes[i]->Desc.InputSrvSlots = { inputSlot };
 
 		bool isLast = (i == (int)_passes.size() - 1);

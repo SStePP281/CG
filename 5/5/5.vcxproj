@@ -139,6 +139,8 @@
     <ClCompile Include="MathHelper.cpp" />
     <ClCompile Include="PostProcess.cpp" />
     <ClCompile Include="ShadowMap.cpp" />
+    <ClCompile Include="TAA.cpp" />
+    <ClCompile Include="TAA.h" />
     <ClCompile Include="Terrain.cpp" />
     <ClCompile Include="WindowMain.cpp" />
   </ItemGroup>
@@ -162,6 +164,55 @@
     <ClInclude Include="Terrain.h" />
     <ClInclude Include="UploadBuffer.h" />
     <ClInclude Include="ThrowIfFaild.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\Shaders\GBuffer.hlsl">
+      <FileType>Document</FileType>
+    </None>
+    <None Include="..\Shaders\GBufferCommon.hlsl">
+      <FileType>Document</FileType>
+    </None>
+    <None Include="..\Shaders\GBufferDS.hlsl">
+      <FileType>Document</FileType>
+    </None>
+    <None Include="..\Shaders\GBufferHS.hlsl">
+      <FileType>Document</FileType>
+    </None>
+    <None Include="..\Shaders\LightingUtil.hlsl">
+      <FileType>Document</FileType>
+    </None>
+    <None Include="..\Shaders\LightPass.hlsl">
+      <FileType>Document</FileType>
+    </None>
+    <None Include="..\Shaders\PostProcess\Outline.hlsl">
+      <FileType>Document</FileType>
+    </None>
+    <None Include="..\Shaders\PostProcess\PPSUtil.hlsl">
+      <FileType>Document</FileType>
+    </None>
+    <None Include="..\Shaders\PostProcess\TextureOverlay.hlsl">
+      <FileType>Document</FileType>
+    </None>
+    <None Include="..\Shaders\PostProcess\ToneMapping.hlsl">
+      <FileType>Document</FileType>
+    </None>
+    <None Include="..\Shaders\Shadow.hlsl">
+      <FileType>Document</FileType>
+    </None>
+    <None Include="..\Shaders\Terrain\Terrain.hlsl">
+      <FileType>Document</FileType>
+    </None>
+    <None Include="..\Shaders\Terrain\TerrainBrush.hlsl">
+      <FileType>Document</FileType>
+    </None>
+    <None Include="..\Shaders\Terrain\TerrainPick.hlsl">
+      <FileType>Document</FileType>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="TAA.hlsl">
+      <FileType>Document</FileType>
+    </None>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

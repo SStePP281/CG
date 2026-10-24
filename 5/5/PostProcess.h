@@ -88,13 +88,15 @@ public:
 
     UINT ReservePass(ID3D12Device* device, const PassDesc& desc, ID3D12DescriptorHeap* srvHeap, UINT& lastSlot, UINT srvDescSize);
     void CommitAll(ID3D12Device* device, ID3D12DescriptorHeap* srvHeap, UINT srvDescSize);
-    void ExecuteAll(ID3D12GraphicsCommandList* cmdList, ID3D12DescriptorHeap* srvHeap, UINT srvDescSize, D3D12_CPU_DESCRIPTOR_HANDLE backBufferRTV);
+    void ExecuteAll(ID3D12GraphicsCommandList* cmdList, ID3D12DescriptorHeap* srvHeap, UINT srvDescSize, UINT firstInputSlot, D3D12_CPU_DESCRIPTOR_HANDLE backBufferRTV);
 
     PostProcessPass* GetPass(const std::string& name);
     PostProcessPass* First() { return _passes[0].get(); }
 
     D3D12_CPU_DESCRIPTOR_HANDLE GetLightPassRTV() const { return _hdrRTV; }
     ID3D12Resource* GetHDRBuffer() const { return _hdrBuffer.Get(); }
+
+    UINT GetHDRSrvSlot() const { return _hdrSrvSlot; }
 
     void OnResize(ID3D12Device* device, ID3D12DescriptorHeap* srvHeap, UINT srvDescSize, int width, int height);
 

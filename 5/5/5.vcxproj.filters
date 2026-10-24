@@ -53,9 +53,62 @@
     <ClCompile Include="Terrain.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="TAA.h">
+      <Filter>Header Files</Filter>
+    </ClCompile>
+    <ClCompile Include="TAA.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <None Include="packages.config" />
+    <None Include="TAA.hlsl">
+      <Filter>Shaders</Filter>
+    </None>
+    <None Include="..\Shaders\GBuffer.hlsl">
+      <Filter>Shaders</Filter>
+    </None>
+    <None Include="..\Shaders\GBufferCommon.hlsl">
+      <Filter>Shaders</Filter>
+    </None>
+    <None Include="..\Shaders\GBufferDS.hlsl">
+      <Filter>Shaders</Filter>
+    </None>
+    <None Include="..\Shaders\GBufferHS.hlsl">
+      <Filter>Shaders</Filter>
+    </None>
+    <None Include="..\Shaders\LightingUtil.hlsl">
+      <Filter>Shaders</Filter>
+    </None>
+    <None Include="..\Shaders\LightPass.hlsl">
+      <Filter>Shaders</Filter>
+    </None>
+    <None Include="..\Shaders\PostProcess\Outline.hlsl">
+      <Filter>Shaders</Filter>
+    </None>
+    <None Include="packages.config">
+      <Filter>Shaders</Filter>
+    </None>
+    <None Include="..\Shaders\PostProcess\PPSUtil.hlsl">
+      <Filter>Shaders</Filter>
+    </None>
+    <None Include="..\Shaders\Shadow.hlsl">
+      <Filter>Shaders</Filter>
+    </None>
+    <None Include="..\Shaders\Terrain\Terrain.hlsl">
+      <Filter>Shaders</Filter>
+    </None>
+    <None Include="..\Shaders\Terrain\TerrainBrush.hlsl">
+      <Filter>Shaders</Filter>
+    </None>
+    <None Include="..\Shaders\Terrain\TerrainPick.hlsl">
+      <Filter>Shaders</Filter>
+    </None>
+    <None Include="..\Shaders\PostProcess\TextureOverlay.hlsl">
+      <Filter>Shaders</Filter>
+    </None>
+    <None Include="..\Shaders\PostProcess\ToneMapping.hlsl">
+      <Filter>Shaders</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="GameTimer.h">

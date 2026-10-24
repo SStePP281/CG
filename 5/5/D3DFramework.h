@@ -31,6 +31,7 @@
 #include "ShadowMap.h"
 #include "PostProcess.h"
 #include "Terrain.h"
+#include "TAA.h"
 
 using namespace Microsoft::WRL;
 using namespace DirectX;
@@ -243,11 +244,13 @@ private:
     void BuildRootSignatureLightPass();
     void BuildRootSignatureShadowPass();
     void BuildRootSignatureTerrainPass();
+    void BuildRootSignatureTAAPass();
 
     void BuildGBufferPSO();
     void BuildLightPassPSO();
     void BuildShadowPassPSO();
     void BuildTerrainPassPSO();
+    void BuildTAAPassPSO();
 
     void BuildDescriptorHeaps();
     void BuildLightSRV();
@@ -283,6 +286,7 @@ private:
     ComPtr<ID3D12RootSignature> _rootSignatureLightPass = nullptr;
     ComPtr<ID3D12RootSignature> _rootSignatureShadowPass = nullptr;
     ComPtr<ID3D12RootSignature> _rootSignatureTerrainPass = nullptr;
+    ComPtr<ID3D12RootSignature> _rootSignatureTaaPass = nullptr;
 
     std::unordered_map<std::string, std::unique_ptr<MeshGeometry>> _geometries;
     std::unordered_map<std::string, std::unique_ptr<Material>> _materials;
@@ -306,6 +310,7 @@ private:
     std::unique_ptr<GBuffer> _gBuffer;
     std::unique_ptr<ShadowMap> _shadowMap;
     std::unique_ptr<Terrain> _terrain;
+    std::unique_ptr<TAA> _taa;
     std::unique_ptr<PostProcessChain> _ppChain;
 
     UINT _lastSlot = 0;
@@ -313,6 +318,7 @@ private:
     UINT _lightSbSrvSlot = 0;
     UINT _shadowSrvStart = 0;
     UINT _terrainSrvStart = 0;
+    UINT _taaSrvStart = 0;
 
     UINT _iblIrradianceSrvSlot = 0;
     UINT _iblSpecularSrvSlot = 0;
