@@ -18,6 +18,7 @@ SamplerState gsamAnisotropicClamp : register(s5);
 struct InstanceData
 {
     float4x4 World;
+    float4x4 PrevWorld;
     float4x4 TexTransform;
 };
 
@@ -36,7 +37,15 @@ struct GBufferOutput
     float4 Albedo : SV_Target0;
     float4 Normal : SV_Target1;
     float4 MatData : SV_Target2; // R=metallic, G=roughness, B=AO
+    float2 Velocity : SV_Target3;
 };
+
+float2 CalcVelocity(float4 currPosH, float4 prevPosH)
+{
+    float2 curr = currPosH.xy / currPosH.w;
+    float2 prev = prevPosH.xy / prevPosH.w;
+    return (prev - curr) * float2(0.5f, -0.5f);
+}
 
 VertexOut VS(VertexIn vin, uint instanceID : SV_InstanceID)
 {
@@ -50,10 +59,12 @@ VertexOut VS(VertexIn vin, uint instanceID : SV_InstanceID)
     vout.NormalW = normalize(mul(vin.NormalL, (float3x3) instData.World));
     vout.TangentW = float4(normalize(mul(vin.TangentL.xyz, (float3x3) instData.World)), vin.TangentL.w);
 
-    vout.PosH = mul(posW, gViewProj);
+    vout.PosH = mul(posW, gJitteredViewProj);
     
     float4 texC = mul(float4(vin.TexC, 0.0f, 1.0f), instData.TexTransform);
     vout.TexC = mul(texC, gMatTransform).xy;
+    
+    vout.PrevPosW = mul(float4(vin.PosL, 1), instData.PrevWorld).xyz;
     
     return vout;
 }
@@ -91,5 +102,7 @@ GBufferOutput PS(DS_OUTPUT pin)
 
     res.MatData = float4(metallic, roughness, ao, 1.0f);
 
+    res.Velocity = CalcVelocity(pin.CurrPosH, pin.PrevPosH);
+    
     return res;
 }

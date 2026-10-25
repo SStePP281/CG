@@ -14,13 +14,14 @@ Texture2D gNormal : register(t1);
 Texture2D gMatData : register(t2); // metallic, roughness, AO
 Texture2D gDepth : register(t3);
 
+StructuredBuffer<Light> gLights : register(t4);
+Texture2DArray gShadowMap : register(t5);
+
 TextureCube gIrradianceMap : register(t6);
 TextureCube gPrefilteredEnv : register(t7);
 Texture2D gBrdfLut : register(t8);
 
-StructuredBuffer<Light> gLights : register(t4);
-
-Texture2DArray gShadowMap : register(t5);
+Texture2D gVelocity : register(t9);
 
 SamplerState gsamPointWrap : register(s0);
 SamplerState gsamPointClamp : register(s1);
@@ -34,10 +35,14 @@ cbuffer cbPass : register(b0)
 {
     float4x4 gView;
     float4x4 gInvView;
+    
     float4x4 gProj;
     float4x4 gInvProj;
+    
     float4x4 gViewProj;
+    float4x4 gJitteredViewProj;
     float4x4 gInvViewProj;
+    float4x4 gPrevViewProj;
     
     float3 gEyePosW;
     float cbPerObjectPad1;
@@ -261,6 +266,9 @@ float4 PS(VSOut pin) : SV_Target
                     float shadowMask = 1.0f - shadowFactor;
                     return float4(color + cascadeColor * shadowMask * 0.3f, 1.0f);
                 }
+            case 8:
+                float2 v = gVelocity.Sample(gsamPointClamp, pin.TexC).xy;
+                return float4(abs(v) * 100.0f, 0.0f, 1.0f);
             default:
                 return float4(1.0f, 0.0f, 1.0f, 1.0f);
         }

@@ -148,6 +148,7 @@ void D3DFramework::Update(const GameTimer& gt)
 		CloseHandle(eventHandle);
 	}
 
+	AnimateObjects(gt);
 	AnimateMaterials(gt);
 	AnimateLight(gt);
 
@@ -227,20 +228,26 @@ void D3DFramework::Draw(const GameTimer& gt)
 	_gBuffer->TransitToOpaqueRenderingState(_cmdList.Get());
 	_gBuffer->ClearView(_cmdList.Get());
 
-	std::array<D3D12_CPU_DESCRIPTOR_HANDLE, 3> rtvs =
+	_taa->TransitCurrentVelocityToWrite(_cmdList.Get());
+	_taa->ClearCurrentVelocity(_cmdList.Get());
+
+	std::array<D3D12_CPU_DESCRIPTOR_HANDLE, 4> rtvs =
 	{
        _gBuffer->Textures[(UINT)GBufferIndex::Albedo].RTV,
        _gBuffer->Textures[(UINT)GBufferIndex::Normal].RTV,
        _gBuffer->Textures[(UINT)GBufferIndex::MatData].RTV,
+	   _taa->GetCurrentVelocityRTV()
 	};
 
 	auto dsv = _gBuffer->Textures[(UINT)GBufferIndex::Depth].DSV;
-	_cmdList->OMSetRenderTargets((UINT)rtvs.size(), rtvs.data(), TRUE, &dsv);
+	_cmdList->OMSetRenderTargets((UINT)rtvs.size(), rtvs.data(), FALSE, &dsv);
 	
 	DrawRenderItems(_cmdList.Get(), _opaqueRitems);
 	DrawTerrain(_cmdList.Get());
 
 	_gBuffer->TransitToLightRenderingState(_cmdList.Get());
+
+	_taa->TransitCurrentVelocityToRead(_cmdList.Get());
 
 	//LIGHTING PASS
 
@@ -264,15 +271,17 @@ void D3DFramework::Draw(const GameTimer& gt)
 	CD3DX12_GPU_DESCRIPTOR_HANDLE irradianceGpu(_srvHeap->GetGPUDescriptorHandleForHeapStart(), _iblIrradianceSrvSlot, _srvDescriptorSize);
 	CD3DX12_GPU_DESCRIPTOR_HANDLE specularGpu(_srvHeap->GetGPUDescriptorHandleForHeapStart(), _iblSpecularSrvSlot, _srvDescriptorSize);
 	CD3DX12_GPU_DESCRIPTOR_HANDLE brdfGpu(_srvHeap->GetGPUDescriptorHandleForHeapStart(), _iblBrdfSrvSlot, _srvDescriptorSize);
+	CD3DX12_GPU_DESCRIPTOR_HANDLE velocityForLightGpu(_srvHeap->GetGPUDescriptorHandleForHeapStart(), _taaSrvStart + _taa->GetCurrentVelocitySRVOfsset(), _srvDescriptorSize);
 
-	_cmdList->SetGraphicsRootDescriptorTable(0, albedoGpu);   // t0 Albedo
-	_cmdList->SetGraphicsRootDescriptorTable(1, normalGpu);   // t1 Normal
-	_cmdList->SetGraphicsRootDescriptorTable(2, matDataGpu);  // t2 MatData
-	_cmdList->SetGraphicsRootDescriptorTable(3, depthGpu);    // t3 Depth
+	_cmdList->SetGraphicsRootDescriptorTable(0, albedoGpu);			   // t0 Albedo
+	_cmdList->SetGraphicsRootDescriptorTable(1, normalGpu);			   // t1 Normal
+	_cmdList->SetGraphicsRootDescriptorTable(2, matDataGpu);		   // t2 MatData
+	_cmdList->SetGraphicsRootDescriptorTable(3, depthGpu);			   // t3 Depth
 
-	_cmdList->SetGraphicsRootDescriptorTable(9, irradianceGpu); // t6 DefHDRI
-	_cmdList->SetGraphicsRootDescriptorTable(10, specularGpu);   // t7 SpecHDRI
-	_cmdList->SetGraphicsRootDescriptorTable(11, brdfGpu);       // t8 TableHDRI
+	_cmdList->SetGraphicsRootDescriptorTable(9, irradianceGpu);		   // t6 DefHDRI
+	_cmdList->SetGraphicsRootDescriptorTable(10, specularGpu);		   // t7 SpecHDRI
+	_cmdList->SetGraphicsRootDescriptorTable(11, brdfGpu);             // t8 TableHDRI
+	_cmdList->SetGraphicsRootDescriptorTable(12, velocityForLightGpu); // t9 Velocity
 
 	_cmdList->SetGraphicsRootShaderResourceView(4, _currFrameResource->LightSB->Resource()->GetGPUVirtualAddress());	  // t4 LightSB
 	_cmdList->SetGraphicsRootConstantBufferView(5, _currFrameResource->PassCB->Resource()->GetGPUVirtualAddress());		  // b0 PassCB
@@ -324,7 +333,7 @@ void D3DFramework::Draw(const GameTimer& gt)
 
 	// TAA PASS
 	
-	_taa->TransitCurrentToWrite(_cmdList.Get());
+	_taa->TransitCurrentColorToWrite(_cmdList.Get());
 
 	_cmdList->IASetVertexBuffers(0, 0, nullptr);
 	_cmdList->IASetIndexBuffer(nullptr);
@@ -336,18 +345,23 @@ void D3DFramework::Draw(const GameTimer& gt)
 	auto taaBufferRTV = _taa->GetCurrentColorRTV();
 	_cmdList->OMSetRenderTargets(1, &taaBufferRTV, FALSE, nullptr);
 
-	CD3DX12_GPU_DESCRIPTOR_HANDLE prevGpu(_srvHeap->GetGPUDescriptorHandleForHeapStart(), _taaSrvStart + _taa->GetPrevColorSRVOffset(), _srvDescriptorSize);
-	CD3DX12_GPU_DESCRIPTOR_HANDLE curGpu(_srvHeap->GetGPUDescriptorHandleForHeapStart(), _ppChain->GetHDRSrvSlot(), _srvDescriptorSize);
+	CD3DX12_GPU_DESCRIPTOR_HANDLE prevColorGpu(_srvHeap->GetGPUDescriptorHandleForHeapStart(), _taaSrvStart + _taa->GetPrevColorSRVOffset(), _srvDescriptorSize);
+	CD3DX12_GPU_DESCRIPTOR_HANDLE curColorGpu(_srvHeap->GetGPUDescriptorHandleForHeapStart(), _ppChain->GetHDRSrvSlot(), _srvDescriptorSize);
+	CD3DX12_GPU_DESCRIPTOR_HANDLE prevVelocityGpu(_srvHeap->GetGPUDescriptorHandleForHeapStart(), _taaSrvStart + _taa->GetPrevVelocitySRVOffset(), _srvDescriptorSize);
+	CD3DX12_GPU_DESCRIPTOR_HANDLE curVelocityGpu(_srvHeap->GetGPUDescriptorHandleForHeapStart(), _taaSrvStart + _taa->GetCurrentVelocitySRVOfsset(), _srvDescriptorSize);
 
-	_cmdList->SetGraphicsRootDescriptorTable(0, prevGpu);   // t0 
-	_cmdList->SetGraphicsRootDescriptorTable(1, curGpu);   // t1 
+	_cmdList->SetGraphicsRootDescriptorTable(0, prevColorGpu);		// t0 
+	_cmdList->SetGraphicsRootDescriptorTable(1, curColorGpu);		// t1 
+	_cmdList->SetGraphicsRootDescriptorTable(2, prevVelocityGpu);   // t2 
+	_cmdList->SetGraphicsRootDescriptorTable(3, curVelocityGpu);	// t3 
+	_cmdList->SetGraphicsRootDescriptorTable(4, depthGpu);	        // t4
 
 	D3D12_RECT fullRect = { 0, 0, CLIENT_WIDTH, CLIENT_HEIGHT };
 	_cmdList->RSSetScissorRects(1, &fullRect);
 
 	_cmdList->DrawInstanced(3, 1, 0, 0);
 
-	_taa->TransitCurrentToRead(_cmdList.Get());
+	_taa->TransitCurrentColorToRead(_cmdList.Get());
 
 	////POST_PROCESS
 
@@ -523,6 +537,21 @@ void D3DFramework::UpdateCamera(const GameTimer& gt)
 	XMStoreFloat4x4(&_view, view);
 }
 
+void D3DFramework::AnimateObjects(const GameTimer& gt)
+{
+	for (const auto& r : _allRitems)
+	{
+		if (r->Geo->Name =="C:/Users/Stepan/Desktop/CG/5/Models/IBL_TEST.obj")
+		{
+			for (auto& i : r->Instances)
+			{
+				XMMATRIX rot = XMMatrixRotationY(gt.DeltaTime() * 1.0f);
+				XMStoreFloat4x4(&i.World, XMMatrixMultiply(rot, XMLoadFloat4x4(&i.World)));
+			}
+		}
+	}
+}
+
 void D3DFramework::AnimateMaterials(const GameTimer& gt)
 {
 	//float t = gt.TotalTime();
@@ -574,16 +603,22 @@ void D3DFramework::UpdateMainPassCB(const GameTimer& gt)
 	XMMATRIX view = XMLoadFloat4x4(&_view);
 	XMMATRIX proj = XMLoadFloat4x4(&_proj);
 
-	XMMATRIX viewProj = XMMatrixMultiply(view, proj);
 	XMMATRIX invView = XMMatrixInverse(nullptr, view);
 	XMMATRIX invProj = XMMatrixInverse(nullptr, proj);
-	XMMATRIX invViewProj = XMMatrixInverse(nullptr, viewProj);
+
+	XMMATRIX viewProj = XMMatrixMultiply(view, proj);
+	XMMATRIX jitteredViewProj = _taa->GetJitteredMatrix(viewProj);
+	XMMATRIX invViewProj = XMMatrixInverse(nullptr, jitteredViewProj);
 
 	XMStoreFloat4x4(&_mainPassCB.View, XMMatrixTranspose(view));
 	XMStoreFloat4x4(&_mainPassCB.InvView, XMMatrixTranspose(invView));
+
 	XMStoreFloat4x4(&_mainPassCB.Proj, XMMatrixTranspose(proj));
 	XMStoreFloat4x4(&_mainPassCB.InvProj, XMMatrixTranspose(invProj));
+
+	_mainPassCB.PrevViewProj = _mainPassCB.ViewProj;
 	XMStoreFloat4x4(&_mainPassCB.ViewProj, XMMatrixTranspose(viewProj));
+	XMStoreFloat4x4(&_mainPassCB.JitteredViewProj, XMMatrixTranspose(jitteredViewProj));
 	XMStoreFloat4x4(&_mainPassCB.InvViewProj, XMMatrixTranspose(invViewProj));
 
 	_mainPassCB.EyePosW = _eyePos;
@@ -794,6 +829,7 @@ void D3DFramework::UpdateInstanceData(const GameTimer& gt)
 		{
 			InstanceData data;
 			XMStoreFloat4x4(&data.World, XMMatrixTranspose(XMLoadFloat4x4(&inst.World)));
+			XMStoreFloat4x4(&data.PrevWorld, XMMatrixTranspose(XMLoadFloat4x4(&inst.PrevWorld)));
 			XMStoreFloat4x4(&data.TexTransform, XMMatrixTranspose(XMLoadFloat4x4(&inst.TexTransform)));
 			currInstanceBuffer->CopyData(shadowOffset++, data);
 		}
@@ -830,11 +866,20 @@ void D3DFramework::UpdateInstanceData(const GameTimer& gt)
 		{
 			InstanceData data;
 			XMStoreFloat4x4(&data.World, XMMatrixTranspose(XMLoadFloat4x4(&ri->Instances[idx].World)));
+			XMStoreFloat4x4(&data.PrevWorld, XMMatrixTranspose(XMLoadFloat4x4(&ri->Instances[idx].PrevWorld)));
 			XMStoreFloat4x4(&data.TexTransform, XMMatrixTranspose(XMLoadFloat4x4(&ri->Instances[idx].TexTransform)));
 			currInstanceBuffer->CopyData(cameraOffset++, data);
 		}
 
 		_opaqueRitems.push_back(ri);
+	}
+
+	for (auto& riPtr : _allRitems)
+	{
+		for (auto& inst : riPtr->Instances)
+		{
+			inst.PrevWorld = inst.World;
+		}
 	}
 }
 
@@ -921,7 +966,10 @@ void D3DFramework::BuildRootSignatureLightPass()
 	CD3DX12_DESCRIPTOR_RANGE brdfRange;
 	brdfRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 8);
 
-	CD3DX12_ROOT_PARAMETER slotRootParameter[12];
+	CD3DX12_DESCRIPTOR_RANGE velocityRange;
+	velocityRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 9);
+
+	CD3DX12_ROOT_PARAMETER slotRootParameter[13];
 	slotRootParameter[0].InitAsDescriptorTable(1, &albedoRange);	 // t0 Albedo
 	slotRootParameter[1].InitAsDescriptorTable(1, &normalRange);	 // t1 Normal
 	slotRootParameter[2].InitAsDescriptorTable(1, &matDataRange);	 // t2 MatData
@@ -934,10 +982,11 @@ void D3DFramework::BuildRootSignatureLightPass()
 	slotRootParameter[9].InitAsDescriptorTable(1, &irradianceRange); // t6 DiffuseHDR
 	slotRootParameter[10].InitAsDescriptorTable(1, &specularRange);  // t7 SpecularHDR
 	slotRootParameter[11].InitAsDescriptorTable(1, &brdfRange);      // t8 Brdf
+	slotRootParameter[12].InitAsDescriptorTable(1, &velocityRange);	 // t9 velocity
 
 	auto staticSamplers = GetStaticSamplers();
 
-	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(12, slotRootParameter, (UINT)staticSamplers.size(), staticSamplers.data(), D3D12_ROOT_SIGNATURE_FLAG_NONE);
+	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(13, slotRootParameter, (UINT)staticSamplers.size(), staticSamplers.data(), D3D12_ROOT_SIGNATURE_FLAG_NONE);
 
 	ComPtr<ID3DBlob> serializedRootSig = nullptr;
 	ComPtr<ID3DBlob> errorBlob = nullptr;
@@ -1017,19 +1066,31 @@ void D3DFramework::BuildRootSignatureTerrainPass()
 
 void D3DFramework::BuildRootSignatureTAAPass()
 {
-	CD3DX12_DESCRIPTOR_RANGE prevRange;
-	prevRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
+	CD3DX12_DESCRIPTOR_RANGE prevColorRange;
+	prevColorRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
 
-	CD3DX12_DESCRIPTOR_RANGE curRange;
-	curRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1);
+	CD3DX12_DESCRIPTOR_RANGE curColorRange;
+	curColorRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1);
 
-	CD3DX12_ROOT_PARAMETER slotRootParameter[2];
-	slotRootParameter[0].InitAsDescriptorTable(1, &prevRange);
-	slotRootParameter[1].InitAsDescriptorTable(1, &curRange);
+	CD3DX12_DESCRIPTOR_RANGE prevVelocityRange;
+	prevVelocityRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 2);
+
+	CD3DX12_DESCRIPTOR_RANGE curVelocityRange;
+	curVelocityRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 3);
+
+	CD3DX12_DESCRIPTOR_RANGE depthRange;
+	depthRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 4);
+
+	CD3DX12_ROOT_PARAMETER slotRootParameter[5];
+	slotRootParameter[0].InitAsDescriptorTable(1, &prevColorRange);
+	slotRootParameter[1].InitAsDescriptorTable(1, &curColorRange);
+	slotRootParameter[2].InitAsDescriptorTable(1, &prevVelocityRange);
+	slotRootParameter[3].InitAsDescriptorTable(1, &curVelocityRange);
+	slotRootParameter[4].InitAsDescriptorTable(1, &depthRange);
 
 	auto staticSamplers = GetStaticSamplers();
 
-	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(2, slotRootParameter, (UINT)staticSamplers.size(), staticSamplers.data(), D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(5, slotRootParameter, (UINT)staticSamplers.size(), staticSamplers.data(), D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
 	ComPtr<ID3DBlob> serializedRootSig = nullptr;
 	ComPtr<ID3DBlob> errorBlob = nullptr;
@@ -1132,10 +1193,11 @@ void D3DFramework::BuildGBufferPSO()
 	psoDesc.SampleDesc.Count = _4xMsaaState ? 4 : 1;
 	psoDesc.SampleDesc.Quality = _4xMsaaState ? (_4xMsaaQuality - 1) : 0;
 
-	psoDesc.NumRenderTargets = 3;
+	psoDesc.NumRenderTargets = 4;
 	psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;       // Albedo
 	psoDesc.RTVFormats[1] = DXGI_FORMAT_R32G32B32A32_FLOAT;   // Normal
 	psoDesc.RTVFormats[2] = DXGI_FORMAT_R8G8B8A8_UNORM;       // MatData
+	psoDesc.RTVFormats[3] = DXGI_FORMAT_R16G16_FLOAT;         // Velocity 
 
 	psoDesc.DSVFormat = _depthStencilFormat;
 
@@ -1246,10 +1308,11 @@ void D3DFramework::BuildTerrainPassPSO()
 	psoDesc.SampleDesc.Count = _4xMsaaState ? 4 : 1;
 	psoDesc.SampleDesc.Quality = _4xMsaaState ? (_4xMsaaQuality - 1) : 0;
 
-	psoDesc.NumRenderTargets = 3;
+	psoDesc.NumRenderTargets = 4;
 	psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;       // Albedo
 	psoDesc.RTVFormats[1] = DXGI_FORMAT_R32G32B32A32_FLOAT;   // Normal
 	psoDesc.RTVFormats[2] = DXGI_FORMAT_R8G8B8A8_UNORM;       // MatData
+	psoDesc.RTVFormats[3] = DXGI_FORMAT_R16G16_FLOAT;         // Velocity 
 
 	psoDesc.DSVFormat = _depthStencilFormat;
 
@@ -1664,6 +1727,7 @@ void D3DFramework::BuildRenderItems()
 
 			InstanceData inst;
 			inst.World = obj->World;
+			inst.PrevWorld = inst.World;
 			XMStoreFloat4x4(&inst.TexTransform, XMMatrixIdentity());
 
 			ritemsMap[key]->Instances.push_back(inst);

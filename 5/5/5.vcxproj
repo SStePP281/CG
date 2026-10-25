@@ -210,7 +210,7 @@
     </None>
   </ItemGroup>
   <ItemGroup>
-    <None Include="TAA.hlsl">
+    <None Include="..\Shaders\TAA.hlsl">
       <FileType>Document</FileType>
     </None>
   </ItemGroup>

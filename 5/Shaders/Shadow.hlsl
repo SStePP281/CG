@@ -1,6 +1,7 @@
 struct InstanceData
 {
     float4x4 World;
+    float4x4 PrevWorld;
     float4x4 TexTransform;
 };
 

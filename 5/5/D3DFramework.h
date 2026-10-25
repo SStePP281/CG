@@ -37,7 +37,7 @@ using namespace Microsoft::WRL;
 using namespace DirectX;
 
 constexpr int NUM_FRAME_RECOURCES = 3;
-constexpr int MAX_DEBUG_LAYER_COUNT = 8;
+constexpr int MAX_DEBUG_LAYER_COUNT = 9;
 
 struct RenderItem
 {
@@ -231,6 +231,7 @@ private:
     
     void CreatePPS();
 
+    void AnimateObjects(const GameTimer& gt);
     void AnimateMaterials(const GameTimer& gt);
     void AnimateLight(const GameTimer& gt);
     void UpdateMaterialCBs(const GameTimer& gt);

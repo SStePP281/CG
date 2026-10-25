@@ -2,6 +2,7 @@ struct VertexOut
 {
     float4 PosH : SV_POSITION;
     float3 PosW : POSITION;
+    float3 PrevPosW : TEXCOORD1;
     float3 NormalW : NORMAL;
     float4 TangentW : TANGENT;
     float2 TexC : TEXCOORD0;
@@ -10,6 +11,7 @@ struct VertexOut
 struct HS_CONTROL_POINT_OUTPUT
 {
     float3 PosW : POSITION;
+    float3 PrevPosW : TEXCOORD1;
     float3 NormalW : NORMAL;
     float4 TangentW : TANGENT;
     float2 TexC : TEXCOORD0;
@@ -24,6 +26,8 @@ struct HS_CONSTANT_DATA_OUTPUT
 struct DS_OUTPUT
 {
     float4 PosH : SV_POSITION;
+    float4 CurrPosH : TEXCOORD1;
+    float4 PrevPosH : TEXCOORD2;
     float3 PosW : POSITION;
     float3 NormalW : NORMAL;
     float4 TangentW : TANGENT;
@@ -34,10 +38,14 @@ cbuffer cbPass : register(b0)
 {
     float4x4 gView;
     float4x4 gInvView;
+    
     float4x4 gProj;
     float4x4 gInvProj;
+    
     float4x4 gViewProj;
+    float4x4 gJitteredViewProj;
     float4x4 gInvViewProj;
+    float4x4 gPrevViewProj;
     
     float3 gEyePosW;
     float cbPerObjectPad1;

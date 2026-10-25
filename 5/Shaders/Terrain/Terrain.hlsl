@@ -18,10 +18,14 @@ cbuffer cbPass : register(b0)
 {
     float4x4 gView;
     float4x4 gInvView;
+    
     float4x4 gProj;
     float4x4 gInvProj;
+    
     float4x4 gViewProj;
+    float4x4 gJitteredViewProj;
     float4x4 gInvViewProj;
+    float4x4 gPrevViewProj;
     
     float3 gEyePosW;
     float cbPerObjectPad1;
@@ -87,6 +91,8 @@ struct VertexIn
 struct VertexOut
 {
     float4 PosH : SV_POSITION;
+    float4 CurrPosH : TEXCOORD2;
+    float4 PrevPosH : TEXCOORD3;
     float3 PosW : POSITION;
     float2 TexC : TEXCOORD0;
     nointerpolation int Lod : TEXCOORD1;
@@ -96,8 +102,16 @@ struct GBufferOutput
 {
     float4 Albedo : SV_Target0;
     float4 Normal : SV_Target1;
-    float4 MatData : SV_Target2; // R=metallic, G=roughness, B=AO
+    float4 MatData : SV_Target2;
+    float2 Velocity : SV_Target3;
 };
+
+float2 CalcVelocity(float4 currPosH, float4 prevPosH)
+{
+    float2 curr = currPosH.xy / currPosH.w;
+    float2 prev = prevPosH.xy / prevPosH.w;
+    return (prev - curr) * float2(0.5f, -0.5f);
+}
 
 VertexOut VS(VertexIn vin)
 {
@@ -121,7 +135,9 @@ VertexOut VS(VertexIn vin)
     float h = gHeightMap.SampleLevel(gsamLinearClamp, uv, 0).r * gHeightScale + gHeightOffset;
 
     vout.PosW = float3(localXZ.x + gWorldOffset.x, h, localXZ.y + gWorldOffset.y);
-    vout.PosH = mul(float4(vout.PosW, 1), gViewProj);
+    vout.PosH = mul(float4(vout.PosW, 1), gJitteredViewProj);
+    vout.CurrPosH = mul(float4(vout.PosW, 1), gViewProj);
+    vout.PrevPosH = mul(float4(vout.PosW, 1), gPrevViewProj);
     vout.TexC = uv;
     vout.Lod = gLodLevel;
     
@@ -188,6 +204,8 @@ GBufferOutput PS(VertexOut pin)
             res.Albedo.rgb = lerp(res.Albedo.rgb, brushColor, saturate(ring + disc));
         }
     }
+    
+    res.Velocity = CalcVelocity(pin.CurrPosH, pin.PrevPosH);
 
     return res;
 }

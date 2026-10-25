@@ -20,10 +20,14 @@ struct PassConstants
 {
     XMFLOAT4X4 View = MathHelper::Identity4x4();
     XMFLOAT4X4 InvView = MathHelper::Identity4x4();
+
     XMFLOAT4X4 Proj = MathHelper::Identity4x4();
     XMFLOAT4X4 InvProj = MathHelper::Identity4x4();
+
     XMFLOAT4X4 ViewProj = MathHelper::Identity4x4();
+    XMFLOAT4X4 JitteredViewProj = MathHelper::Identity4x4();
     XMFLOAT4X4 InvViewProj = MathHelper::Identity4x4();
+    XMFLOAT4X4 PrevViewProj = MathHelper::Identity4x4();
 
     XMFLOAT3 EyePosW = { 0.0f, 0.0f, 0.0f };
     float cbPerObjectPad1 = 0.0f;
@@ -73,6 +77,7 @@ struct DisplacementConstant
 struct InstanceData
 {
     XMFLOAT4X4 World = MathHelper::Identity4x4();
+    XMFLOAT4X4 PrevWorld = MathHelper::Identity4x4();
     XMFLOAT4X4 TexTransform = MathHelper::Identity4x4();
 };
 

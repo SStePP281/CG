@@ -13,6 +13,11 @@ DS_OUTPUT DS(HS_CONSTANT_DATA_OUTPUT input, float3 Barycentric : SV_DomainLocati
             Barycentric.y * TrianglePatch[1].PosW +
             Barycentric.z * TrianglePatch[2].PosW;
 
+    float3 prevPosW =
+            Barycentric.x * TrianglePatch[0].PrevPosW +
+            Barycentric.y * TrianglePatch[1].PrevPosW +
+            Barycentric.z * TrianglePatch[2].PrevPosW;
+
     Out.NormalW = normalize(
             Barycentric.x * TrianglePatch[0].NormalW +
             Barycentric.y * TrianglePatch[1].NormalW +
@@ -33,8 +38,11 @@ DS_OUTPUT DS(HS_CONSTANT_DATA_OUTPUT input, float3 Barycentric : SV_DomainLocati
     h = h * gDisplacementScale + gDisplacementBias;
     
     Out.PosW += Out.NormalW * h;
+    prevPosW += Out.NormalW * h;
 
-    Out.PosH = mul(float4(Out.PosW, 1.0f), gViewProj);
-
+    Out.PosH = mul(float4(Out.PosW, 1.0f), gJitteredViewProj);
+    Out.CurrPosH = mul(float4(Out.PosW, 1.0f), gViewProj);
+    Out.PrevPosH = mul(float4(prevPosW, 1.0f), gPrevViewProj);
+    
     return Out;
 }

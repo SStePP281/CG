@@ -13,6 +13,7 @@ HS_CONTROL_POINT_OUTPUT HS(InputPatch<VertexOut, 3> inputPatch, uint uCPID : SV_
     HS_CONTROL_POINT_OUTPUT Out;
 
     Out.PosW = inputPatch[uCPID].PosW;
+    Out.PrevPosW = inputPatch[uCPID].PrevPosW;
     Out.NormalW = inputPatch[uCPID].NormalW;
     Out.TangentW = inputPatch[uCPID].TangentW;
     Out.TexC = inputPatch[uCPID].TexC;

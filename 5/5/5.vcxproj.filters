@@ -61,9 +61,6 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <None Include="TAA.hlsl">
-      <Filter>Shaders</Filter>
-    </None>
     <None Include="..\Shaders\GBuffer.hlsl">
       <Filter>Shaders</Filter>
     </None>
@@ -107,6 +104,9 @@
       <Filter>Shaders</Filter>
     </None>
     <None Include="..\Shaders\PostProcess\ToneMapping.hlsl">
+      <Filter>Shaders</Filter>
+    </None>
+    <None Include="..\Shaders\TAA.hlsl">
       <Filter>Shaders</Filter>
     </None>
   </ItemGroup>

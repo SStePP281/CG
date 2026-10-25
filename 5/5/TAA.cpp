@@ -28,15 +28,41 @@ void TAA::OnResize(ID3D12Device* device, UINT width, UINT height)
     CreateSRVAndRTV(device);
 }
 
-void TAA::TransitCurrentToWrite(ID3D12GraphicsCommandList* cmdList)
+void TAA::ClearCurrentColor(ID3D12GraphicsCommandList* cmdList)
+{
+    const float clearColor[] = { 0.0f, 0.0f, 0.0f, 0.0f };
+
+    cmdList->ClearRenderTargetView(_colorRTVs[1 - _historyIndex], clearColor, 0, nullptr);
+}
+
+void TAA::TransitCurrentColorToWrite(ID3D12GraphicsCommandList* cmdList)
 {
     auto b = CD3DX12_RESOURCE_BARRIER::Transition(_colorBuffer[1 - _historyIndex].Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
     cmdList->ResourceBarrier(1, &b);
 }
 
-void TAA::TransitCurrentToRead(ID3D12GraphicsCommandList* cmdList)
+void TAA::TransitCurrentColorToRead(ID3D12GraphicsCommandList* cmdList)
 {
     auto b = CD3DX12_RESOURCE_BARRIER::Transition(_colorBuffer[1 - _historyIndex].Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+    cmdList->ResourceBarrier(1, &b);
+}
+
+void TAA::ClearCurrentVelocity(ID3D12GraphicsCommandList* cmdList)
+{
+    const float clearColor[] = { 0.0f, 0.0f, 0.0f, 0.0f };
+
+    cmdList->ClearRenderTargetView(_velocityRTVs[1 - _historyIndex], clearColor, 0, nullptr);
+}
+
+void TAA::TransitCurrentVelocityToWrite(ID3D12GraphicsCommandList* cmdList)
+{
+    auto b = CD3DX12_RESOURCE_BARRIER::Transition(_velocityBuffer[1 - _historyIndex].Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    cmdList->ResourceBarrier(1, &b);
+}
+
+void TAA::TransitCurrentVelocityToRead(ID3D12GraphicsCommandList* cmdList)
+{
+    auto b = CD3DX12_RESOURCE_BARRIER::Transition(_velocityBuffer[1 - _historyIndex].Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
     cmdList->ResourceBarrier(1, &b);
 }
 
@@ -136,14 +162,12 @@ void TAA::CreateSRVAndRTV(ID3D12Device* device)
     }
 }
 
-XMFLOAT4X4 TAA::GetJitteredMatrix(XMFLOAT4X4 cameraViewProj)
+XMMATRIX TAA::GetJitteredMatrix(XMMATRIX cameraViewProj)
 {
     XMFLOAT2 jitter = Generate();
     _frameCount = (_frameCount + 1) % JITTER_COUNT;
 
-    XMStoreFloat4x4(&cameraViewProj, XMMatrixMultiply(XMLoadFloat4x4(&cameraViewProj), XMMatrixTranslation(jitter.x, jitter.y, 0)));
-
-    return cameraViewProj;
+    return XMMatrixMultiply(cameraViewProj, XMMatrixTranslation(jitter.x, jitter.y, 0));
 }
 
 float TAA::Halton(UINT index, UINT base)
