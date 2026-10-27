@@ -627,8 +627,18 @@ void D3DFramework::UpdateMainPassCB(const GameTimer& gt)
 	XMMATRIX invProj = XMMatrixInverse(nullptr, proj);
 
 	XMMATRIX viewProj = XMMatrixMultiply(view, proj);
-	XMFLOAT2 jitter = _currentAA->NextJitterPx();
-	XMMATRIX jitteredViewProj = XMMatrixMultiply(viewProj, XMMatrixTranslation(jitter.x, jitter.y, 0.0f));
+
+	XMMATRIX jitteredViewProj;
+	if (_currentAA->UsesJitter())
+	{
+		XMFLOAT2 jitter = _currentAA->NextJitterPx();
+		XMMATRIX jitteredViewProj = XMMatrixMultiply(viewProj, XMMatrixTranslation(jitter.x, jitter.y, 0.0f));
+	}
+	else
+	{
+		XMMATRIX jitteredViewProj = viewProj;
+	}
+
 	XMMATRIX invViewProj = XMMatrixInverse(nullptr, jitteredViewProj);
 
 	XMStoreFloat4x4(&_mainPassCB.View, XMMatrixTranspose(view));

@@ -16,7 +16,7 @@ public:
     ~DLAA() override;
 
     const char* Name() const override { return "DLAA"; }
-    bool UsesJitter() const override { return true; }
+    bool UsesJitter() const override { return false; }
     bool UsesVelocity() const override { return true; }
     UINT SrvSlotCount() const override { return 1; }
 
@@ -57,7 +57,7 @@ private:
     {
         UINT i = _frameCount + 1;
         return XMFLOAT2(2 * (Halton(i, 2) - 0.5f) / (float)_width,
-            2 * (Halton(i, 3) - 0.5f) / (float)_height);
+                        2 * (Halton(i, 3) - 0.5f) / (float)_height);
     }
 
 private:
