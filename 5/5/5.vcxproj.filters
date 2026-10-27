@@ -12,6 +12,18 @@
     <Filter Include="Shaders">
       <UniqueIdentifier>{71c48b84-d135-401e-8ac2-3c5e113bacb2}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Header Files\AntiAliasing">
+      <UniqueIdentifier>{2bd0282c-917c-4679-8ce0-c12c746a8e05}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\AntiAliasing">
+      <UniqueIdentifier>{89998b56-7076-4aad-89c4-936533079550}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\DLSS">
+      <UniqueIdentifier>{3b9eab21-787c-498b-b200-b9ab56fbd1d4}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\DLSS">
+      <UniqueIdentifier>{9bc2fab3-1bba-4ab8-b8db-0f2ef36d2826}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="WindowMain.cpp">
@@ -53,11 +65,17 @@
     <ClCompile Include="Terrain.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="TAA.h">
-      <Filter>Header Files</Filter>
-    </ClCompile>
     <ClCompile Include="TAA.cpp">
-      <Filter>Source Files</Filter>
+      <Filter>Source Files\AntiAliasing</Filter>
+    </ClCompile>
+    <ClCompile Include="VelocityBuffer.cpp">
+      <Filter>Source Files\AntiAliasing</Filter>
+    </ClCompile>
+    <ClCompile Include="NGXManager.cpp">
+      <Filter>Source Files\DLSS</Filter>
+    </ClCompile>
+    <ClCompile Include="DLAA.cpp">
+      <Filter>Source Files\AntiAliasing</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -158,6 +176,21 @@
     </ClInclude>
     <ClInclude Include="PathManager.h">
       <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="AntiAliasing.h">
+      <Filter>Header Files\AntiAliasing</Filter>
+    </ClInclude>
+    <ClInclude Include="TAA.h">
+      <Filter>Header Files\AntiAliasing</Filter>
+    </ClInclude>
+    <ClInclude Include="VelocityBuffers.h">
+      <Filter>Header Files\AntiAliasing</Filter>
+    </ClInclude>
+    <ClInclude Include="NGXManager.h">
+      <Filter>Header Files\DLSS</Filter>
+    </ClInclude>
+    <ClInclude Include="DLAA.h">
+      <Filter>Header Files\AntiAliasing</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

@@ -1,6 +1,8 @@
 #ifndef TAA_HPP
 #define TAA_HPP
 
+#include "AntiAliasing.h"
+
 #include <string>
 
 #include <wrl/client.h>
@@ -14,53 +16,61 @@
 using namespace DirectX;
 using namespace Microsoft::WRL;
 
-constexpr UINT JITTER_COUNT = 8;
-
-class TAA
+class TAA final : public AntiAliasing
 {
 public:
-	TAA(ID3D12Device* device, CD3DX12_CPU_DESCRIPTOR_HANDLE srvHandle, UINT srvDescriptorSize, UINT width, UINT height);
+	TAA(const AAInitContext& ctx);
 
 	TAA(const TAA& rhs) = delete;
 	TAA& operator=(const TAA& rhs) = delete;
 
-	UINT GetSrvSlotCount() { return 4; }
+	const char* Name() const override { return "TAA"; }
+	virtual bool  UsesJitter()   const { return true; }
+	virtual bool  UsesVelocity() const { return true; }
+	UINT SrvSlotCount() const override { return 2; }
 
-	void OnResize(ID3D12Device* device, UINT width, UINT height);
+	UINT OutputSrvSlot() const override { return GetCurrentSlot(); }
 
-	void Swap() { _historyIndex = 1 - _historyIndex; }
+	void OnResize(ID3D12Device* device, ID3D12GraphicsCommandList* cmdList, const AAResolution& res) override;
 
-public:
-	UINT GetPrevColorSRVOffset() { return _historyIndex; }
-	UINT GetCurrentColorSRVOfsset() { return 1 - _historyIndex; }
-
-	D3D12_CPU_DESCRIPTOR_HANDLE GetCurrentColorRTV() { return _colorRTVs[1 - _historyIndex]; }
-
-	void ClearCurrentColor(ID3D12GraphicsCommandList* cmdList);
-
-	void TransitCurrentColorToWrite(ID3D12GraphicsCommandList* cmdList);
-	void TransitCurrentColorToRead(ID3D12GraphicsCommandList* cmdList);
-
-public:
-	UINT GetPrevVelocitySRVOffset() { return 2 + _historyIndex; }
-	UINT GetCurrentVelocitySRVOfsset() { return 2 + 1 - _historyIndex; }
-
-	D3D12_CPU_DESCRIPTOR_HANDLE GetCurrentVelocityRTV() { return _velocityRTVs[1 - _historyIndex]; }
-
-	void ClearCurrentVelocity(ID3D12GraphicsCommandList* cmdList);
-
-	void TransitCurrentVelocityToWrite(ID3D12GraphicsCommandList* cmdList);
-	void TransitCurrentVelocityToRead(ID3D12GraphicsCommandList* cmdList);
+	void Resolve(ID3D12GraphicsCommandList* cmdList, const AAInputs& in) override;
 
 private:
+	UINT GetPreviousSlot() const { return _firstSlot + 1 - _currentIndex; }
+	UINT GetCurrentSlot() const { return _firstSlot + _currentIndex; }
+
+private:
+	void CreateRootsignature(const AAInitContext& ctx);
+	void CreatePSO(const AAInitContext& ctx);
+
 	void CreateResources(ID3D12Device* device);
 	void CreateSRVAndRTV(ID3D12Device* device);
 
 public:
-	XMMATRIX GetJitteredMatrix(XMMATRIX cameraViewProj);
+	virtual XMFLOAT2 NextJitterPx() override
+	{
+		XMFLOAT2 jitter = Generate();
+		_frameCount = (_frameCount + 1) % JITTER_COUNT;
+
+		return jitter;
+	}
 
 private:
-	float Halton(UINT index, UINT base);
+	float Halton(UINT index, UINT base)
+	{
+		float f = 1.0f;
+		float result = 0.0f;
+
+		while (index > 0)
+		{
+			f /= (float)base;
+			result += f * (float)(index % base);
+			index = (UINT)(floorf((float)index / base));
+		}
+
+		return result;
+	}
+
 	XMFLOAT2 Generate() 
 	{ 
 		UINT i = _frameCount + 1;
@@ -69,24 +79,25 @@ private:
 	}
 
 private:
-	std::vector<ComPtr<ID3D12Resource>> _colorBuffer;
-	std::vector<ComPtr<ID3D12Resource>> _velocityBuffer;
+	ComPtr<ID3D12Resource> _colorBuffer[2];
+	UINT _currentIndex = 0;
 
 	ComPtr<ID3D12DescriptorHeap> _taaRTVHeap;
 	D3D12_CPU_DESCRIPTOR_HANDLE _colorRTVs[2];
-	D3D12_CPU_DESCRIPTOR_HANDLE _velocityRTVs[2];
-
-	CD3DX12_CPU_DESCRIPTOR_HANDLE _srvHandle;
-	UINT _srvDescriptorSize = 0;
 	UINT _rtvDescriptorSize = 0;
+
+	ID3D12DescriptorHeap* _srvHeap;
+	UINT _firstSlot;
+	UINT _srvDescSize;
+
+	ComPtr<ID3D12RootSignature> _rootSignature;
+	ComPtr<ID3D12PipelineState> _pso;
 
 private:
 	UINT _width;
 	UINT _height;
 
 	UINT _frameCount = 0;
-
-	UINT _historyIndex = 0;
 };
 
 #endif // !TAA_HPP

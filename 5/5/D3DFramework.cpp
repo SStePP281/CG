@@ -15,6 +15,8 @@
 #include "ThrowIfFaild.h"
 #include "WICTextureLoader.h"
 #include <ResourceUploadBatch.h>
+#include "TAA.h"
+#include "DLAA.h"
 
 #include "PathManager.h"
 
@@ -28,6 +30,12 @@ bool D3DFramework::Initialize()
 {
 	if (!BaseD3DApp::Initialize()) { return false; }
 	ThrowIfFailed(_cmdList->Reset(_directCmdListAlloc.Get(), nullptr));
+
+	_ngxManager = std::make_unique<NGXManager>(_d3dDevice.Get());
+	if (!_ngxManager->IsInitialized())
+	{
+		MessageBox(0, L"RegisterNGXManager Failed.", 0, 0);
+	}
 
 	LoadModel(LOCAL_PATH + "Models/Model.obj");
 	LoadModel(LOCAL_PATH + "Models/IBL_TEST.obj");
@@ -52,10 +60,36 @@ bool D3DFramework::Initialize()
 	_terrain = std::make_unique<Terrain>(_d3dDevice.Get(), _cmdQueue.Get(), _cmdList.Get(), terrainHandle, _srvDescriptorSize);
 	_lastSlot += _terrain->GetSlotCount();
 
-	_taaSrvStart = _lastSlot;
-	CD3DX12_CPU_DESCRIPTOR_HANDLE taaHandle(_srvHeap->GetCPUDescriptorHandleForHeapStart(), _taaSrvStart, _srvDescriptorSize);
-	_taa = std::make_unique<TAA>(_d3dDevice.Get(), taaHandle, _srvDescriptorSize, CLIENT_WIDTH, CLIENT_HEIGHT);
-	_lastSlot += _taa->GetSrvSlotCount();
+	_velocityBuffer = std::make_unique<VelocityBuffers>(_d3dDevice.Get(), _srvHeap.Get(), _lastSlot, _srvDescriptorSize);
+	_velocityBuffer->OnResize(_d3dDevice.Get(), CLIENT_WIDTH, CLIENT_HEIGHT);
+	_lastSlot += _velocityBuffer->SrvSlotCount;
+
+	auto sampler = GetStaticSamplers();
+
+	AAInitContext ctx = {};
+	ctx.device = _d3dDevice.Get();
+	ctx.firstSlot = _lastSlot;
+	ctx.srvHeap = _srvHeap.Get();
+	ctx.srvDescSize = _srvDescriptorSize;
+	ctx.samplerCount = (UINT)sampler.size();
+	ctx.samplers = sampler.data();
+
+	AAResolution res = {};
+	res.displayW = CLIENT_WIDTH;
+	res.displayH = CLIENT_HEIGHT;
+	res.renderW = CLIENT_WIDTH;
+	res.renderH = CLIENT_HEIGHT;
+
+	_TAA = std::make_unique<TAA>(ctx);
+	_TAA->OnResize(_d3dDevice.Get(), _cmdList.Get(), res);
+	_lastSlot += _TAA->SrvSlotCount();
+
+	ctx.firstSlot = _lastSlot;
+	_DLAA = std::make_unique<DLAA>(_cmdList.Get(), _ngxManager.get(), ctx);
+	_DLAA->OnResize(_d3dDevice.Get(), _cmdList.Get(), res);
+	_lastSlot += _DLAA->SrvSlotCount();
+
+	_currentAA = _isUseDLAA ? static_cast<AntiAliasing*>(_DLAA.get()) : static_cast<AntiAliasing*>(_TAA.get());
 
 	_ppChain = std::make_unique<PostProcessChain>();
 	CreatePPS();
@@ -73,7 +107,6 @@ bool D3DFramework::Initialize()
 	BuildRootSignatureLightPass();
 	BuildRootSignatureShadowPass();
 	BuildRootSignatureTerrainPass();
-	BuildRootSignatureTAAPass();
 
 	BuildShadersAndInputLayout();
 
@@ -81,7 +114,6 @@ bool D3DFramework::Initialize()
 	BuildLightPassPSO();
 	BuildShadowPassPSO();
 	BuildTerrainPassPSO();
-	BuildTAAPassPSO();
 
 	ThrowIfFailed(_cmdList->Close());
 	ID3D12CommandList* cmdsLists[] = { _cmdList.Get() };
@@ -129,7 +161,8 @@ void D3DFramework::OnResize()
 
 	if (_gBuffer.get() != nullptr) { _gBuffer->OnResize(_d3dDevice.Get(), CLIENT_WIDTH, CLIENT_HEIGHT); }
 	if (_ppChain.get() != nullptr) { _ppChain->OnResize(_d3dDevice.Get(), _srvHeap.Get(), _srvDescriptorSize, CLIENT_WIDTH, CLIENT_HEIGHT); }
-	if (_taa.get() != nullptr) { _taa->OnResize(_d3dDevice.Get(), CLIENT_WIDTH, CLIENT_HEIGHT); }
+	if (_velocityBuffer.get() != nullptr) { _velocityBuffer->OnResize(_d3dDevice.Get(), CLIENT_WIDTH, CLIENT_HEIGHT); }
+	if (_currentAA != nullptr) { _currentAA->OnResize(_d3dDevice.Get(), _cmdList.Get(), { CLIENT_WIDTH, CLIENT_HEIGHT, CLIENT_WIDTH, CLIENT_HEIGHT }); }
 }
 
 void D3DFramework::Update(const GameTimer& gt)
@@ -228,15 +261,15 @@ void D3DFramework::Draw(const GameTimer& gt)
 	_gBuffer->TransitToOpaqueRenderingState(_cmdList.Get());
 	_gBuffer->ClearView(_cmdList.Get());
 
-	_taa->TransitCurrentVelocityToWrite(_cmdList.Get());
-	_taa->ClearCurrentVelocity(_cmdList.Get());
+	_velocityBuffer->TransitCurrentToWrite(_cmdList.Get());
+	_velocityBuffer->ClearCurrent(_cmdList.Get());
 
 	std::array<D3D12_CPU_DESCRIPTOR_HANDLE, 4> rtvs =
 	{
        _gBuffer->Textures[(UINT)GBufferIndex::Albedo].RTV,
        _gBuffer->Textures[(UINT)GBufferIndex::Normal].RTV,
        _gBuffer->Textures[(UINT)GBufferIndex::MatData].RTV,
-	   _taa->GetCurrentVelocityRTV()
+	   _velocityBuffer->CurrentRTV()
 	};
 
 	auto dsv = _gBuffer->Textures[(UINT)GBufferIndex::Depth].DSV;
@@ -246,8 +279,8 @@ void D3DFramework::Draw(const GameTimer& gt)
 	DrawTerrain(_cmdList.Get());
 
 	_gBuffer->TransitToLightRenderingState(_cmdList.Get());
-
-	_taa->TransitCurrentVelocityToRead(_cmdList.Get());
+	
+	_velocityBuffer->TransitCurrentToRead(_cmdList.Get());
 
 	//LIGHTING PASS
 
@@ -271,7 +304,7 @@ void D3DFramework::Draw(const GameTimer& gt)
 	CD3DX12_GPU_DESCRIPTOR_HANDLE irradianceGpu(_srvHeap->GetGPUDescriptorHandleForHeapStart(), _iblIrradianceSrvSlot, _srvDescriptorSize);
 	CD3DX12_GPU_DESCRIPTOR_HANDLE specularGpu(_srvHeap->GetGPUDescriptorHandleForHeapStart(), _iblSpecularSrvSlot, _srvDescriptorSize);
 	CD3DX12_GPU_DESCRIPTOR_HANDLE brdfGpu(_srvHeap->GetGPUDescriptorHandleForHeapStart(), _iblBrdfSrvSlot, _srvDescriptorSize);
-	CD3DX12_GPU_DESCRIPTOR_HANDLE velocityForLightGpu(_srvHeap->GetGPUDescriptorHandleForHeapStart(), _taaSrvStart + _taa->GetCurrentVelocitySRVOfsset(), _srvDescriptorSize);
+	CD3DX12_GPU_DESCRIPTOR_HANDLE velocityForLightGpu(_srvHeap->GetGPUDescriptorHandleForHeapStart(), _velocityBuffer->Current().srvSlot, _srvDescriptorSize);
 
 	_cmdList->SetGraphicsRootDescriptorTable(0, albedoGpu);			   // t0 Albedo
 	_cmdList->SetGraphicsRootDescriptorTable(1, normalGpu);			   // t1 Normal
@@ -332,36 +365,14 @@ void D3DFramework::Draw(const GameTimer& gt)
 	_cmdList->ResourceBarrier(1, &toSRV);
 
 	// TAA PASS
-	
-	_taa->TransitCurrentColorToWrite(_cmdList.Get());
 
-	_cmdList->IASetVertexBuffers(0, 0, nullptr);
-	_cmdList->IASetIndexBuffer(nullptr);
-	_cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	AAInputs in = {};
+	in.color = { _ppChain->GetHDRBuffer(), _ppChain->GetHDRSrvSlot() };
+	in.depth = { _gBuffer->Textures[(UINT)GBufferIndex::Depth].Resource.Get(), _gBufferSrvStart + (UINT)GBufferIndex::Depth };
+	in.prevVelocity = _velocityBuffer->Previous();
+	in.velocity = _velocityBuffer->Current();
 
-	_cmdList->SetPipelineState(_psos["taa"].Get());
-	_cmdList->SetGraphicsRootSignature(_rootSignatureTaaPass.Get());
-
-	auto taaBufferRTV = _taa->GetCurrentColorRTV();
-	_cmdList->OMSetRenderTargets(1, &taaBufferRTV, FALSE, nullptr);
-
-	CD3DX12_GPU_DESCRIPTOR_HANDLE prevColorGpu(_srvHeap->GetGPUDescriptorHandleForHeapStart(), _taaSrvStart + _taa->GetPrevColorSRVOffset(), _srvDescriptorSize);
-	CD3DX12_GPU_DESCRIPTOR_HANDLE curColorGpu(_srvHeap->GetGPUDescriptorHandleForHeapStart(), _ppChain->GetHDRSrvSlot(), _srvDescriptorSize);
-	CD3DX12_GPU_DESCRIPTOR_HANDLE prevVelocityGpu(_srvHeap->GetGPUDescriptorHandleForHeapStart(), _taaSrvStart + _taa->GetPrevVelocitySRVOffset(), _srvDescriptorSize);
-	CD3DX12_GPU_DESCRIPTOR_HANDLE curVelocityGpu(_srvHeap->GetGPUDescriptorHandleForHeapStart(), _taaSrvStart + _taa->GetCurrentVelocitySRVOfsset(), _srvDescriptorSize);
-
-	_cmdList->SetGraphicsRootDescriptorTable(0, prevColorGpu);		// t0 
-	_cmdList->SetGraphicsRootDescriptorTable(1, curColorGpu);		// t1 
-	_cmdList->SetGraphicsRootDescriptorTable(2, prevVelocityGpu);   // t2 
-	_cmdList->SetGraphicsRootDescriptorTable(3, curVelocityGpu);	// t3 
-	_cmdList->SetGraphicsRootDescriptorTable(4, depthGpu);	        // t4
-
-	D3D12_RECT fullRect = { 0, 0, CLIENT_WIDTH, CLIENT_HEIGHT };
-	_cmdList->RSSetScissorRects(1, &fullRect);
-
-	_cmdList->DrawInstanced(3, 1, 0, 0);
-
-	_taa->TransitCurrentColorToRead(_cmdList.Get());
+	_currentAA->Resolve(_cmdList.Get(), in);
 
 	////POST_PROCESS
 
@@ -371,7 +382,7 @@ void D3DFramework::Draw(const GameTimer& gt)
 		auto barrierToPP = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
 		_cmdList->ResourceBarrier(1, &barrierToPP);
 
-		_ppChain->ExecuteAll(_cmdList.Get(), _srvHeap.Get(), _srvDescriptorSize, _taaSrvStart + _taa->GetCurrentColorSRVOfsset(), CurrentBackBufferView());
+		_ppChain->ExecuteAll(_cmdList.Get(), _srvHeap.Get(), _srvDescriptorSize, _currentAA->OutputSrvSlot(), CurrentBackBufferView());
 
 		auto barrierToPresent = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
 		_cmdList->ResourceBarrier(1, &barrierToPresent);
@@ -379,7 +390,7 @@ void D3DFramework::Draw(const GameTimer& gt)
 
 	////PRESENT
 
-	_taa->Swap();
+	_velocityBuffer->Swap();
 
 	ThrowIfFailed(_cmdList->Close());
 	ID3D12CommandList* cmdsLists[] = { _cmdList.Get() };
@@ -497,6 +508,15 @@ void D3DFramework::OnKeyboardInput(const GameTimer& gt)
 		Sleep(200);
 	}
 
+	if (GetAsyncKeyState(VK_F5) & 0x8000)
+	{
+		_isUseDLAA = !_isUseDLAA;
+
+		_currentAA = _isUseDLAA ? static_cast<AntiAliasing*>(_DLAA.get()) : static_cast<AntiAliasing*>(_TAA.get());
+
+		Sleep(200);
+	}
+
 	for (int vk = '1'; vk <= '9'; vk++)
 	{
 		if (KeyPressed(vk))
@@ -607,7 +627,8 @@ void D3DFramework::UpdateMainPassCB(const GameTimer& gt)
 	XMMATRIX invProj = XMMatrixInverse(nullptr, proj);
 
 	XMMATRIX viewProj = XMMatrixMultiply(view, proj);
-	XMMATRIX jitteredViewProj = _taa->GetJitteredMatrix(viewProj);
+	XMFLOAT2 jitter = _currentAA->NextJitterPx();
+	XMMATRIX jitteredViewProj = XMMatrixMultiply(viewProj, XMMatrixTranslation(jitter.x, jitter.y, 0.0f));
 	XMMATRIX invViewProj = XMMatrixInverse(nullptr, jitteredViewProj);
 
 	XMStoreFloat4x4(&_mainPassCB.View, XMMatrixTranspose(view));
@@ -1064,52 +1085,6 @@ void D3DFramework::BuildRootSignatureTerrainPass()
 	));
 }
 
-void D3DFramework::BuildRootSignatureTAAPass()
-{
-	CD3DX12_DESCRIPTOR_RANGE prevColorRange;
-	prevColorRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
-
-	CD3DX12_DESCRIPTOR_RANGE curColorRange;
-	curColorRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1);
-
-	CD3DX12_DESCRIPTOR_RANGE prevVelocityRange;
-	prevVelocityRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 2);
-
-	CD3DX12_DESCRIPTOR_RANGE curVelocityRange;
-	curVelocityRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 3);
-
-	CD3DX12_DESCRIPTOR_RANGE depthRange;
-	depthRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 4);
-
-	CD3DX12_ROOT_PARAMETER slotRootParameter[5];
-	slotRootParameter[0].InitAsDescriptorTable(1, &prevColorRange);
-	slotRootParameter[1].InitAsDescriptorTable(1, &curColorRange);
-	slotRootParameter[2].InitAsDescriptorTable(1, &prevVelocityRange);
-	slotRootParameter[3].InitAsDescriptorTable(1, &curVelocityRange);
-	slotRootParameter[4].InitAsDescriptorTable(1, &depthRange);
-
-	auto staticSamplers = GetStaticSamplers();
-
-	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(5, slotRootParameter, (UINT)staticSamplers.size(), staticSamplers.data(), D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
-
-	ComPtr<ID3DBlob> serializedRootSig = nullptr;
-	ComPtr<ID3DBlob> errorBlob = nullptr;
-	HRESULT hr = D3D12SerializeRootSignature(&rootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1, serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
-
-	if (errorBlob != nullptr)
-	{
-		OutputDebugStringA((char*)errorBlob->GetBufferPointer());
-	}
-
-	ThrowIfFailed(hr);
-
-	ThrowIfFailed(_d3dDevice->CreateRootSignature(0,
-		serializedRootSig->GetBufferPointer(),
-		serializedRootSig->GetBufferSize(),
-		IID_PPV_ARGS(&_rootSignatureTaaPass)
-	));
-}
-
 void D3DFramework::BuildDescriptorHeaps()
 {
 	std::vector<Texture*> orderList;
@@ -1322,49 +1297,6 @@ void D3DFramework::BuildTerrainPassPSO()
 	ThrowIfFailed(_d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&_psos["terrainWire"])));
 }
 
-void D3DFramework::BuildTAAPassPSO()
-{
-	CD3DX12_BLEND_DESC blendDesc(D3D12_DEFAULT);
-
-	CD3DX12_DEPTH_STENCIL_DESC dsDesc(D3D12_DEFAULT);
-	dsDesc.DepthEnable = FALSE;
-	dsDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
-	dsDesc.DepthFunc = D3D12_COMPARISON_FUNC_ALWAYS;
-
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
-	ZeroMemory(&psoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
-
-	psoDesc.InputLayout = { nullptr, 0 };
-	psoDesc.pRootSignature = _rootSignatureTaaPass.Get();
-	psoDesc.BlendState = blendDesc;
-	psoDesc.DepthStencilState = dsDesc;
-	psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
-
-	psoDesc.VS =
-	{
-		reinterpret_cast<BYTE*>(_shaders["TAAVS"]->GetBufferPointer()),
-		_shaders["TAAVS"]->GetBufferSize()
-	};
-
-	psoDesc.PS =
-	{
-		reinterpret_cast<BYTE*>(_shaders["TAAPS"]->GetBufferPointer()),
-		_shaders["TAAPS"]->GetBufferSize()
-	};
-
-	psoDesc.SampleMask = UINT_MAX;
-	psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-
-	psoDesc.NumRenderTargets = 1;
-	psoDesc.RTVFormats[0] = HDR_FORMAT;
-	psoDesc.SampleDesc.Count = _4xMsaaState ? 4 : 1;
-	psoDesc.SampleDesc.Quality = _4xMsaaState ? (_4xMsaaQuality - 1) : 0;
-
-	psoDesc.DSVFormat = DXGI_FORMAT_UNKNOWN;
-
-	ThrowIfFailed(_d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&_psos["taa"])));
-}
-
 void D3DFramework::BuildShadersAndInputLayout()
 {
 	_shaders["gbufferVS"] = D3DUtil::CompileShader(LOCAL_PATH_W + L"Shaders/GBuffer.hlsl", nullptr, "VS", "vs_5_1");
@@ -1380,9 +1312,6 @@ void D3DFramework::BuildShadersAndInputLayout()
 
 	_shaders["terrainVS"] = D3DUtil::CompileShader(LOCAL_PATH_W + L"Shaders/" + TERRAIN_FOLDER_W + L"Terrain.hlsl", nullptr, "VS", "vs_5_1");
 	_shaders["terrainPS"] = D3DUtil::CompileShader(LOCAL_PATH_W + L"Shaders/" + TERRAIN_FOLDER_W + L"Terrain.hlsl", nullptr, "PS", "ps_5_1");
-
-	_shaders["TAAVS"] = D3DUtil::CompileShader(LOCAL_PATH_W + L"Shaders/TAA.hlsl", nullptr, "VS", "vs_5_1");
-	_shaders["TAAPS"] = D3DUtil::CompileShader(LOCAL_PATH_W + L"Shaders/TAA.hlsl", nullptr, "PS", "ps_5_1");
 
 	_inputLayout =
 	{

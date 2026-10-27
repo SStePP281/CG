@@ -98,6 +98,7 @@ public:
 
     UINT GetHDRSrvSlot() const { return _hdrSrvSlot; }
 
+
     void OnResize(ID3D12Device* device, ID3D12DescriptorHeap* srvHeap, UINT srvDescSize, int width, int height);
 
 private:
