@@ -100,6 +100,7 @@ DLAA::~DLAA()
 void DLAA::OnResize(ID3D12Device* device, ID3D12GraphicsCommandList* cmdList, const AAResolution& res)
 {
     _frameCount = 0;
+    _resetHistory = true;
 
     _width = res.renderW;
     _height = res.renderH;
@@ -132,10 +133,11 @@ void DLAA::Resolve(ID3D12GraphicsCommandList* cmdList, const AAInputs& in)
     evalParams.InRenderSubrectDimensions.Width = _width;
     evalParams.InRenderSubrectDimensions.Height = _height;
 
-    evalParams.InReset = (_frameCount == 0) ? 1 : 0;
+    evalParams.InReset = _resetHistory ? 1 : 0;
+    _resetHistory = false;
 
-    evalParams.InMVScaleX = 1.0f;
-    evalParams.InMVScaleY = 1.0f;
+    evalParams.InMVScaleX = (float)_width;
+    evalParams.InMVScaleY = (float)_height;
 
     evalParams.InPreExposure = 1.0f;
     evalParams.InExposureScale = 1.0f;

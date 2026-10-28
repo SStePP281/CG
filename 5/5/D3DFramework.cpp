@@ -513,6 +513,7 @@ void D3DFramework::OnKeyboardInput(const GameTimer& gt)
 		_isUseDLAA = !_isUseDLAA;
 
 		_currentAA = _isUseDLAA ? static_cast<AntiAliasing*>(_DLAA.get()) : static_cast<AntiAliasing*>(_TAA.get());
+		_currentAA->ResetHistory();
 
 		Sleep(200);
 	}
@@ -628,15 +629,11 @@ void D3DFramework::UpdateMainPassCB(const GameTimer& gt)
 
 	XMMATRIX viewProj = XMMatrixMultiply(view, proj);
 
-	XMMATRIX jitteredViewProj;
+	XMMATRIX jitteredViewProj = viewProj;
 	if (_currentAA->UsesJitter())
 	{
 		XMFLOAT2 jitter = _currentAA->NextJitterPx();
-		XMMATRIX jitteredViewProj = XMMatrixMultiply(viewProj, XMMatrixTranslation(jitter.x, jitter.y, 0.0f));
-	}
-	else
-	{
-		XMMATRIX jitteredViewProj = viewProj;
+		jitteredViewProj = XMMatrixMultiply(viewProj, XMMatrixTranslation(jitter.x, jitter.y, 0.0f));
 	}
 
 	XMMATRIX invViewProj = XMMatrixInverse(nullptr, jitteredViewProj);

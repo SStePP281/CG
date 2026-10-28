@@ -16,7 +16,7 @@ public:
     ~DLAA() override;
 
     const char* Name() const override { return "DLAA"; }
-    bool UsesJitter() const override { return false; }
+    bool UsesJitter() const override { return true; }
     bool UsesVelocity() const override { return true; }
     UINT SrvSlotCount() const override { return 1; }
 
@@ -29,12 +29,16 @@ private:
     void InitializeFeature(ID3D12GraphicsCommandList* cmdList, const AAResolution& res);
 
 public:
+    void ResetHistory() override { _resetHistory = true; }
+
     virtual XMFLOAT2 NextJitterPx() override
     {
-        _lastJitter = Generate();
+        UINT i = _frameCount + 1;
+        _lastJitter = XMFLOAT2(Halton(i, 2) - 0.5f, Halton(i, 3) - 0.5f);
         _frameCount = (_frameCount + 1) % JITTER_COUNT;
 
-        return _lastJitter;
+        return XMFLOAT2(2.0f * _lastJitter.x / (float)_width,
+                       -2.0f * _lastJitter.y / (float)_height);
     }
 
 private:
@@ -53,13 +57,6 @@ private:
         return result;
     }
 
-    XMFLOAT2 Generate()
-    {
-        UINT i = _frameCount + 1;
-        return XMFLOAT2(2 * (Halton(i, 2) - 0.5f) / (float)_width,
-                        2 * (Halton(i, 3) - 0.5f) / (float)_height);
-    }
-
 private:
     void CreateResources(ID3D12Device* device);
     void CreateSRVAndRTV(ID3D12Device* device);
@@ -73,6 +70,7 @@ private:
     UINT _height;
 
     UINT _frameCount = 0;
+    bool _resetHistory = true;
 
     bool _initialized = false;
 
@@ -88,7 +86,7 @@ private:
     UINT _srvDescSize;
 
 private:
-    XMFLOAT2 _lastJitter;
+    XMFLOAT2 _lastJitter = { 0.0f, 0.0f };
 };
 
 #endif // !DLAA_HPP
