@@ -24,6 +24,27 @@
     <Filter Include="Source Files\DLSS">
       <UniqueIdentifier>{9bc2fab3-1bba-4ab8-b8db-0f2ef36d2826}</UniqueIdentifier>
     </Filter>
+    <Filter Include="RenderUI">
+      <UniqueIdentifier>{c7aa017b-55df-4791-a8ce-1c4b1d539f06}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="RenderUI\Panels">
+      <UniqueIdentifier>{3bad3608-f42f-461c-9f46-907fe18165e0}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="RenderUI\Main">
+      <UniqueIdentifier>{9bfe21e8-977d-44b7-9265-7f2496b60e21}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="RenderUI\Main\Header">
+      <UniqueIdentifier>{19d5d8b6-aa2d-453c-a3e5-0b961a3de57c}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="RenderUI\Main\Source">
+      <UniqueIdentifier>{2f3813a5-59fb-4a9a-91d6-b8efdc746c83}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="RenderUI\Libary">
+      <UniqueIdentifier>{e9639df8-92df-40a9-abdb-e45b65d918b4}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="RenderUI\Libary\imgui">
+      <UniqueIdentifier>{2a130c4b-eddb-4e42-9e35-4093feaa72db}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="WindowMain.cpp">
@@ -76,6 +97,30 @@
     </ClCompile>
     <ClCompile Include="DLAA.cpp">
       <Filter>Source Files\AntiAliasing</Filter>
+    </ClCompile>
+    <ClCompile Include="RenderGUI.cpp">
+      <Filter>RenderUI\Main\Source</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\ThirdParty\imgui\imgui.cpp">
+      <Filter>RenderUI\Libary\imgui</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\ThirdParty\imgui\imgui_demo.cpp">
+      <Filter>RenderUI\Libary\imgui</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\ThirdParty\imgui\imgui_draw.cpp">
+      <Filter>RenderUI\Libary\imgui</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\ThirdParty\imgui\imgui_tables.cpp">
+      <Filter>RenderUI\Libary\imgui</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\ThirdParty\imgui\imgui_widgets.cpp">
+      <Filter>RenderUI\Libary\imgui</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\ThirdParty\imgui\backends\imgui_impl_dx12.cpp">
+      <Filter>RenderUI\Libary\imgui</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\ThirdParty\imgui\backends\imgui_impl_win32.cpp">
+      <Filter>RenderUI\Libary\imgui</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -191,6 +236,33 @@
     </ClInclude>
     <ClInclude Include="DLAA.h">
       <Filter>Header Files\AntiAliasing</Filter>
+    </ClInclude>
+    <ClInclude Include="RenderGUI.h">
+      <Filter>RenderUI\Main\Header</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\ThirdParty\imgui\imconfig.h">
+      <Filter>RenderUI\Libary\imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\ThirdParty\imgui\imgui.h">
+      <Filter>RenderUI\Libary\imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\ThirdParty\imgui\imgui_internal.h">
+      <Filter>RenderUI\Libary\imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\ThirdParty\imgui\imstb_rectpack.h">
+      <Filter>RenderUI\Libary\imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\ThirdParty\imgui\imstb_textedit.h">
+      <Filter>RenderUI\Libary\imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\ThirdParty\imgui\imstb_truetype.h">
+      <Filter>RenderUI\Libary\imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\ThirdParty\imgui\backends\imgui_impl_dx12.h">
+      <Filter>RenderUI\Libary\imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\ThirdParty\imgui\backends\imgui_impl_win32.h">
+      <Filter>RenderUI\Libary\imgui</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

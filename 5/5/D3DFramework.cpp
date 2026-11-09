@@ -115,6 +115,17 @@ bool D3DFramework::Initialize()
 	BuildShadowPassPSO();
 	BuildTerrainPassPSO();
 
+	_guiSrvStart = _lastSlot;
+	_gui = std::make_unique<RenderGUI>();
+	if (_gui->Initialize(_hMainWnd, _d3dDevice.Get(), _cmdQueue.Get(), _srvHeap.Get(), _backBufferFormat, SWAP_CHAIN_BUFFER_COUNT, _guiSrvStart, _srvDescriptorSize))
+	{
+		_lastSlot += _gui->GetSlotCount();
+	}
+	else
+	{
+		_guiSrvStart = 0;
+	}
+
 	ThrowIfFailed(_cmdList->Close());
 	ID3D12CommandList* cmdsLists[] = { _cmdList.Get() };
 	_cmdQueue->ExecuteCommandLists(_countof(cmdsLists), cmdsLists);
@@ -202,6 +213,20 @@ void D3DFramework::Draw(const GameTimer& gt)
 
 	ID3D12DescriptorHeap* heaps[] = { _srvHeap.Get() };
 	_cmdList->SetDescriptorHeaps(1, heaps);
+
+	//GUI
+
+	_gui->BeginFrame();
+
+	ImGui::Begin("Graphics Debugger");
+
+	ImGui::Text("DirectX 12 Renderer");
+
+	ImGui::Separator();
+
+	ImGui::Text("FPS: %.1f", );
+
+	ImGui::End();
 
 	//TERRAIN DRAW MODE
 
@@ -388,7 +413,14 @@ void D3DFramework::Draw(const GameTimer& gt)
 		_cmdList->ResourceBarrier(1, &barrierToPresent);
 	}
 
-	////PRESENT
+	//GUI
+
+	auto backBuffer =  CurrentBackBufferView();
+	_cmdList->OMSetRenderTargets(1, &backBuffer, TRUE, nullptr);
+
+	_gui->Render(_cmdList.Get());
+
+	//PRESENT
 
 	_velocityBuffer->Swap();
 
@@ -401,6 +433,13 @@ void D3DFramework::Draw(const GameTimer& gt)
 
 	_currFrameResource->Fence = ++_currFence;
 	_cmdQueue->Signal(_fence.Get(), _currFence);
+}
+
+LRESULT D3DFramework::HandleMsg(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+	if (_gui && _gui->HandleMessage(hwnd, msg, wParam, lParam)) { return 1; }
+
+	return BaseD3DApp::HandleMsg(hwnd, msg, wParam, lParam);
 }
 
 void D3DFramework::OnMouseDown(WPARAM btnState, int x, int y)

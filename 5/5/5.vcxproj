@@ -105,7 +105,7 @@
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <AdditionalIncludeDirectories>$(ProjectDir)..\..\DLSS\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\..\DLSS\include;$(ProjectDir)..\..\ThirdParty\imgui;$(ProjectDir)..\..\ThirdParty\imgui\backends;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -125,7 +125,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>$(ProjectDir)..\..\DLSS\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\..\DLSS\include;$(ProjectDir)..\..\ThirdParty\imgui;$(ProjectDir)..\..\ThirdParty\imgui\backends;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -138,6 +138,13 @@
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="..\..\ThirdParty\imgui\backends\imgui_impl_dx12.cpp" />
+    <ClCompile Include="..\..\ThirdParty\imgui\backends\imgui_impl_win32.cpp" />
+    <ClCompile Include="..\..\ThirdParty\imgui\imgui.cpp" />
+    <ClCompile Include="..\..\ThirdParty\imgui\imgui_demo.cpp" />
+    <ClCompile Include="..\..\ThirdParty\imgui\imgui_draw.cpp" />
+    <ClCompile Include="..\..\ThirdParty\imgui\imgui_tables.cpp" />
+    <ClCompile Include="..\..\ThirdParty\imgui\imgui_widgets.cpp" />
     <ClCompile Include="BaseD3DApp.cpp" />
     <ClCompile Include="D3DFramework.cpp" />
     <ClCompile Include="D3DUtil.cpp" />
@@ -150,6 +157,7 @@
     <ClCompile Include="MathHelper.cpp" />
     <ClCompile Include="NGXManager.cpp" />
     <ClCompile Include="PostProcess.cpp" />
+    <ClCompile Include="RenderGUI.cpp" />
     <ClCompile Include="ShadowMap.cpp" />
     <ClCompile Include="TAA.cpp" />
     <ClCompile Include="Terrain.cpp" />
@@ -160,10 +168,19 @@
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\..\ThirdParty\imgui\backends\imgui_impl_dx12.h" />
+    <ClInclude Include="..\..\ThirdParty\imgui\backends\imgui_impl_win32.h" />
+    <ClInclude Include="..\..\ThirdParty\imgui\imconfig.h" />
+    <ClInclude Include="..\..\ThirdParty\imgui\imgui.h" />
+    <ClInclude Include="..\..\ThirdParty\imgui\imgui_internal.h" />
+    <ClInclude Include="..\..\ThirdParty\imgui\imstb_rectpack.h" />
+    <ClInclude Include="..\..\ThirdParty\imgui\imstb_textedit.h" />
+    <ClInclude Include="..\..\ThirdParty\imgui\imstb_truetype.h" />
     <ClInclude Include="AntiAliasing.h" />
     <ClInclude Include="BaseD3DApp.h" />
     <ClInclude Include="DLAA.h" />
     <ClInclude Include="NGXManager.h" />
+    <ClInclude Include="RenderGUI.h" />
     <ClInclude Include="TAA.h" />
     <ClInclude Include="D3DFramework.h" />
     <ClInclude Include="D3DUtil.h" />

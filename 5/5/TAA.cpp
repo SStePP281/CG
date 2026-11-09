@@ -58,7 +58,7 @@ void TAA::Resolve(ID3D12GraphicsCommandList* cmdList, const AAInputs& in)
     cmdList->SetGraphicsRootDescriptorTable(3, curVelocityGpu);	   // t3 
     cmdList->SetGraphicsRootDescriptorTable(4, depthGpu);	       // t4
 
-    D3D12_RECT fullRect = { 0, 0, _width, _height};
+    D3D12_RECT fullRect = { 0, 0, (LONG)_width, (LONG)_height};
     cmdList->RSSetScissorRects(1, &fullRect);
 
     cmdList->DrawInstanced(3, 1, 0, 0);

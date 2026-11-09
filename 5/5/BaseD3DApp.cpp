@@ -339,6 +339,16 @@ LRESULT BaseD3DApp::MsgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
     BaseD3DApp* app = BaseD3DApp::GetApp();
 
+    if (app)
+    {
+        return app->HandleMsg(hwnd, msg, wParam, lParam);
+    }
+
+    return DefWindowProc(hwnd, msg, wParam, lParam);
+}
+
+LRESULT BaseD3DApp::HandleMsg(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
     switch (msg)
     {
         case WM_CREATE:
@@ -352,10 +362,7 @@ LRESULT BaseD3DApp::MsgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         case WM_MBUTTONDOWN:
         case WM_RBUTTONDOWN:
         {
-            if (app)
-            {
-                app->OnMouseDown(wParam, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
-            }
+            OnMouseDown(wParam, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
             return 0;
         }
 
@@ -363,28 +370,19 @@ LRESULT BaseD3DApp::MsgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         case WM_MBUTTONUP:
         case WM_RBUTTONUP:
         {
-            if (app)
-            {
-                app->OnMouseUp(wParam, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
-            }
+            OnMouseUp(wParam, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
             return 0;
         }
 
         case WM_MOUSEMOVE:
         {
-            if (app)
-            {
-                app->OnMouseMove(wParam, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
-            }
+            OnMouseMove(wParam, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
             return 0;
         }
 
         case WM_MOUSEWHEEL:
         {
-            if (app)
-            {
-                app->OnMouseWheel(GET_WHEEL_DELTA_WPARAM(wParam));
-            }
+            OnMouseWheel(GET_WHEEL_DELTA_WPARAM(wParam));
             return 0;
         }
 
@@ -398,49 +396,49 @@ LRESULT BaseD3DApp::MsgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
         case WM_SIZE:
         {
-            if (app && app->_d3dDevice)
+            if (_d3dDevice)
             {
-                app->_resizing = true;
+                _resizing = true;
                 if (wParam == SIZE_MINIMIZED)
                 {
-                    app->_minimized = true;
+                    _minimized = true;
                 }
                 else if (wParam == SIZE_MAXIMIZED)
                 {
-                    app->_maximized = true;
+                    _maximized = true;
                 }
                 else if (wParam == SIZE_RESTORED)
                 {
-                    if (app->_minimized)
+                    if (_minimized)
                     {
-                        app->_minimized = false;
+                        _minimized = false;
                     }
-                    else if (app->_maximized)
+                    else if (_maximized)
                     {
-                        app->_maximized = false;
+                        _maximized = false;
                     }
-                    else if (app->_resizing)
+                    else if (_resizing)
                     {
-                        app->_resizing = false;
+                        _resizing = false;
                     }
 
-                    app->OnResize();
+                    OnResize();
                 }
+                return 0;
             }
-            return 0;
         }
 
         case WM_ACTIVATE:
         {
             if (LOWORD(wParam) == WA_INACTIVE)
             {
-                app->_appPaused = true;
-                app->_timer.Stop();
+                _appPaused = true;
+                _timer.Stop();
             }
             else
             {
-                app->_appPaused = false;
-                app->_timer.Start();
+                _appPaused = false;
+                _timer.Start();
             }
 
             return 0;
@@ -448,20 +446,20 @@ LRESULT BaseD3DApp::MsgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
         case WM_ENTERSIZEMOVE:
         {
-            app->_appPaused = true;
-            app->_resizing = true;
-            app->_timer.Stop();
+            _appPaused = true;
+            _resizing = true;
+            _timer.Stop();
 
             return 0;
         }
 
         case WM_EXITSIZEMOVE:
         {
-            app->_appPaused = false;
-            app->_resizing = false;
-            app->_timer.Start();
+            _appPaused = false;
+            _resizing = false;
+            _timer.Start();
 
-            app->OnResize();
+            OnResize();
 
             return 0;
         }

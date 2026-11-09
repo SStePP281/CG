@@ -41,15 +41,19 @@ public:
 	int Run();
 	virtual bool Initialize();
 	static LRESULT MsgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
+
 protected:
 	virtual void CreateDescriptorHeaps();
 	virtual void OnResize();
 	virtual void Update(const GameTimer& gt) = 0;
 	virtual void Draw(const GameTimer& gt) = 0;
+
+	virtual LRESULT HandleMsg(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 	virtual void OnMouseDown(WPARAM btnState, int x, int y) {}
 	virtual void OnMouseUp(WPARAM btnState, int x, int y) {}
 	virtual void OnMouseMove(WPARAM btnState, int x, int y) {}
 	virtual void OnMouseWheel(int delta) {}
+
 protected:
 	bool InitMainWindow();
 	bool InitDirect3D();

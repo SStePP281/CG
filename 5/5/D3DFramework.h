@@ -34,6 +34,7 @@
 #include "VelocityBuffers.h"
 #include "AntiAliasing.h"
 #include "NGXManager.h"
+#include "RenderGUI.h"
 
 class TAA; 
 class DLAA;
@@ -217,6 +218,7 @@ private:
     virtual void Update(const GameTimer& gt) override;
     virtual void Draw(const GameTimer& gt) override;
 
+    virtual LRESULT HandleMsg(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) override;
     virtual void OnMouseDown(WPARAM btnState, int x, int y) override;
     virtual void OnMouseUp(WPARAM btnState, int x, int y) override;
     virtual void OnMouseMove(WPARAM btnState, int x, int y) override;
@@ -355,6 +357,11 @@ private:
     BoundingBox _sceneBounds;
 
     POINT _lastMousePos;
+
+private:
+    std::unique_ptr<RenderGUI> _gui;
+
+    UINT _guiSrvStart = 0;
 
 private:
     bool _isDebugMode = false;
