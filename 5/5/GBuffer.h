@@ -12,6 +12,7 @@
 #include <dxgiformat.h>
 #include <DirectXMath.h>
 #include <DirectXColors.h>
+#include "RenderSettings.h"
 
 using namespace Microsoft::WRL;
 using namespace DirectX;
@@ -46,15 +47,14 @@ private:
     };
 
 public:
-    GBuffer(ID3D12Device* device, int width, int height,
-        CD3DX12_CPU_DESCRIPTOR_HANDLE srvHandle, UINT srvDescriptorSize);
+    GBuffer(ID3D12Device* device, Resolution res, CD3DX12_CPU_DESCRIPTOR_HANDLE srvHandle, UINT srvDescriptorSize);
 
     void TransitToOpaqueRenderingState(ID3D12GraphicsCommandList* cmdList);
     void TransitToLightRenderingState(ID3D12GraphicsCommandList* cmdList);
 
     void ClearView(ID3D12GraphicsCommandList* cmdList);
 
-    void OnResize(ID3D12Device* device, int width, int height);
+    void OnResize(ID3D12Device* device, Resolution res);
 
     std::vector<GBufferTexture> Textures;
 
@@ -62,7 +62,7 @@ public:
     ComPtr<ID3D12DescriptorHeap> DSVHeap;
 
 private:
-    void CreateTextures(ID3D12Device* device, int width, int height);
+    void CreateTextures(ID3D12Device* device, Resolution res);
     void CreateSRV(ID3D12Device* device);
     void CreateRTVandDSV(ID3D12Device* device);
 

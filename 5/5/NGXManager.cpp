@@ -26,8 +26,6 @@ NGXManager::NGXManager(ID3D12Device* device) : _device(device)
         return;
     }
 
-    _bInitialized = true;
-
     std::cout << "[NGX] Initialized successfully.\n";
 
     NVSDK_NGX_Result paramResult = NVSDK_NGX_D3D12_GetCapabilityParameters(&_parameters);
@@ -40,6 +38,8 @@ NGXManager::NGXManager(ID3D12Device* device) : _device(device)
     }
 
     std::cout << "[NGX] Capability parameters acquired.\n";
+
+    _bInitialized = true;
 }
 
 NGXManager::~NGXManager()

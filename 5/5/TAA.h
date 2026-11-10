@@ -24,14 +24,15 @@ public:
 	TAA(const TAA& rhs) = delete;
 	TAA& operator=(const TAA& rhs) = delete;
 
-	const char* Name() const override { return "TAA"; }
+	AAMode GetMode() const override { return AAMode::TAA; }
+
 	virtual bool  UsesJitter()   const { return true; }
 	virtual bool  UsesVelocity() const { return true; }
 	UINT SrvSlotCount() const override { return 2; }
 
 	UINT OutputSrvSlot() const override { return GetCurrentSlot(); }
 
-	void OnResize(ID3D12Device* device, ID3D12GraphicsCommandList* cmdList, const AAResolution& res) override;
+	void OnResize(ID3D12Device* device, ID3D12GraphicsCommandList* cmdList, const RenderSettings& res) override;
 
 	void Resolve(ID3D12GraphicsCommandList* cmdList, const AAInputs& in) override;
 

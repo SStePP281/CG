@@ -5,7 +5,7 @@
 #include "nvsdk_ngx_params.h"
 
 DLAA::DLAA(ID3D12GraphicsCommandList* cmdList, NGXManager* ngxManager, const AAInitContext& ctx) :
-	_ngxManager(ngxManager), _srvHeap(ctx.srvHeap), _srvDescSize(ctx.srvDescSize), _firstSlot(ctx.firstSlot)
+    _ngxManager(ngxManager), _srvHeap(ctx.srvHeap), _srvDescSize(ctx.srvDescSize), _firstSlot(ctx.firstSlot)
 {
     _rtvDescriptorSize = ctx.device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
 
@@ -16,70 +16,48 @@ DLAA::DLAA(ID3D12GraphicsCommandList* cmdList, NGXManager* ngxManager, const AAI
     ThrowIfFailed(ctx.device->CreateDescriptorHeap(&rtvHeapDesc, IID_PPV_ARGS(&_rtvHeap)));
 }
 
-void DLAA::InitializeFeature(ID3D12GraphicsCommandList* cmdList, const AAResolution& res)
+void DLAA::InitializeFeature(ID3D12GraphicsCommandList* cmdList)
 {
     if (!_ngxManager->IsInitialized())
     {
-        std::cerr << "[DLAA] NGX is not initialized.\n";
+        OutputDebugStringA("[DLAA] NGX is not initialized.");
         return;
     }
 
     if (_featureHandle != nullptr)
     {
-        std::cerr << "[DLAA] Feature already exists.\n";
-        return;
-    }
-
-    if (res.renderW == 0 || res.renderH == 0 || res.displayW == 0 || res.displayH == 0)
-    {
-        OutputDebugStringA("[DLAA] Invalid resolution.\n");
-        return;
-    }
-
-    if (res.renderW != res.displayW || res.renderH != res.displayH)
-    {
-        OutputDebugStringA("[DLAA] Render and display resolutions must match.\n");
-        return;
-    }
-
-    NVSDK_NGX_Parameter* params = nullptr;
-
-    NVSDK_NGX_Result paramResult = NVSDK_NGX_D3D12_AllocateParameters(&params);
-
-    if (NVSDK_NGX_FAILED(paramResult) || !params)
-    {
-        OutputDebugStringA("[DLAA] Failed to allocate NGX parameters.\n");
+        OutputDebugStringA("[DLAA] Feature already exists.");
         return;
     }
 
     NVSDK_NGX_DLSS_Create_Params createParams{};
 
-    createParams.Feature.InWidth = res.renderW;
-    createParams.Feature.InHeight = res.renderH;
+    createParams.Feature.InWidth = _render.Width;
+    createParams.Feature.InHeight = _render.Height;
 
-    createParams.Feature.InTargetWidth = res.displayW;
-    createParams.Feature.InTargetHeight = res.displayH;
+    createParams.Feature.InTargetWidth = _display.Width;
+    createParams.Feature.InTargetHeight = _display.Height;
 
-    createParams.Feature.InPerfQualityValue = NVSDK_NGX_PerfQuality_Value_DLAA;
-    createParams.InFeatureCreateFlags = NVSDK_NGX_DLSS_Feature_Flags_None;
+    createParams.Feature.InPerfQualityValue = _quality;
+    createParams.InFeatureCreateFlags =
+        NVSDK_NGX_DLSS_Feature_Flags_MVLowRes
+        | NVSDK_NGX_DLSS_Feature_Flags_IsHDR
+        | NVSDK_NGX_DLSS_Feature_Flags_AutoExposure;
 
     createParams.InEnableOutputSubrects = false;
 
-    NVSDK_NGX_Result result = NGX_D3D12_CREATE_DLSS_EXT(cmdList, 1, 1, &_featureHandle, params, &createParams);
-
-    NVSDK_NGX_D3D12_DestroyParameters(params);
+    NVSDK_NGX_Result result = NGX_D3D12_CREATE_DLSS_EXT(cmdList, 1, 1, &_featureHandle, _ngxManager->GetParameters(), &createParams);
 
     if (NVSDK_NGX_FAILED(result))
     {
         _featureHandle = nullptr;
 
-        OutputDebugStringA("[DLAA] Failed to create DLSS feature.\n");
+        std::string msg = "[DLAA] Create failed: " + std::to_string((int)result) + "\n";
+        OutputDebugStringA(msg.c_str());
         return;
     }
 
-    OutputDebugStringA("[DLAA] DLAA feature created successfully.\n");
-
-    return;
+    OutputDebugStringA("[DLAA] DLSS feature created successfully.\n");
 }
 
 DLAA::~DLAA()
@@ -97,22 +75,60 @@ DLAA::~DLAA()
     }
 }
 
-void DLAA::OnResize(ID3D12Device* device, ID3D12GraphicsCommandList* cmdList, const AAResolution& res)
+Resolution DLAA::ComputeRenderResolution(const RenderSettings& s) const
 {
-    _frameCount = 0;
-    _resetHistory = true;
+    if (s.Preset == UpscalePreset::DLAA)
+    {
+        return s.Display;
+    }
+    else if (s.Preset == UpscalePreset::Custom)
+    {
+        return s.Display * s.RenderScale;
+    }
+    else
+    {
+        NVSDK_NGX_Parameter* params = _ngxManager->GetParameters();
+        if (!params) { return s.Display; }
 
-    _width = res.renderW;
-    _height = res.renderH;
+        unsigned int optW = 0, optH = 0, maxW = 0, maxH = 0, minW = 0, minH = 0;
+        float sharpness = 0.0f;
+
+        // Только из аргумента s: поля _display/_quality обновятся позже, в OnResize
+        NVSDK_NGX_Result r = NGX_DLSS_GET_OPTIMAL_SETTINGS(params, s.Display.Width, s.Display.Height, ToNGXQuality(s.Preset), &optW, &optH, &maxW, &maxH, &minW, &minH, &sharpness);
+
+        if (NVSDK_NGX_FAILED(r) || optW == 0 || optH == 0)
+        {
+            return s.Display;
+        }
+
+        return { optW, optH };
+    }
+}
+
+void DLAA::OnResize(ID3D12Device* device, ID3D12GraphicsCommandList* cmdList, const RenderSettings& s)
+{
+    _render = s.Render;
+    _display = s.Display;
+    _quality = ToNGXQuality(s.Preset);
+
+    if (_featureHandle) { NVSDK_NGX_D3D12_ReleaseFeature(_featureHandle); _featureHandle = nullptr; }
 
     CreateResources(device);
     CreateSRVAndRTV(device);
 
-    InitializeFeature(cmdList, res);
+    _frameCount = 0;
+    _resetHistory = true;
+    _needCreateFeature = true;
 }
 
 void DLAA::Resolve(ID3D12GraphicsCommandList* cmdList, const AAInputs& in)
 {
+    if (_needCreateFeature)
+    {
+        InitializeFeature(cmdList);
+        _needCreateFeature = false;
+    }
+
     if (!_featureHandle) { return; }
 
     auto outputToWrite = CD3DX12_RESOURCE_BARRIER::Transition(_output.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -130,14 +146,14 @@ void DLAA::Resolve(ID3D12GraphicsCommandList* cmdList, const AAInputs& in)
     evalParams.InJitterOffsetX = _lastJitter.x;
     evalParams.InJitterOffsetY = _lastJitter.y;
 
-    evalParams.InRenderSubrectDimensions.Width = _width;
-    evalParams.InRenderSubrectDimensions.Height = _height;
+    evalParams.InRenderSubrectDimensions.Width = _render.Width;
+    evalParams.InRenderSubrectDimensions.Height = _render.Height;
 
     evalParams.InReset = _resetHistory ? 1 : 0;
     _resetHistory = false;
 
-    evalParams.InMVScaleX = (float)_width;
-    evalParams.InMVScaleY = (float)_height;
+    evalParams.InMVScaleX = (float)_render.Width;
+    evalParams.InMVScaleY = (float)_render.Height;
 
     evalParams.InPreExposure = 1.0f;
     evalParams.InExposureScale = 1.0f;
@@ -156,7 +172,7 @@ void DLAA::Resolve(ID3D12GraphicsCommandList* cmdList, const AAInputs& in)
 
 void DLAA::CreateResources(ID3D12Device* device)
 {
-    D3D12_RESOURCE_DESC desc = CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_R16G16B16A16_FLOAT, _width, _height, 1, 1, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS | D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET);
+    D3D12_RESOURCE_DESC desc = CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_R16G16B16A16_FLOAT, _display.Width, _display.Height, 1, 1, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS | D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET);
     CD3DX12_HEAP_PROPERTIES heap(D3D12_HEAP_TYPE_DEFAULT);
 
     D3D12_CLEAR_VALUE clear = {};

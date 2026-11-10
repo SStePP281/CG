@@ -38,6 +38,7 @@
 
 class TAA; 
 class DLAA;
+class NoAA;
 
 using namespace Microsoft::WRL;
 using namespace DirectX;
@@ -214,7 +215,9 @@ public:
     virtual std::wstring GetWindowTitile() override;
 
 private:
-    virtual void OnResize() override;
+    virtual void UpdateRenderResolution() override;
+    virtual void OnDisplayResize() override;
+    virtual void OnRenderResize() override;
     virtual void Update(const GameTimer& gt) override;
     virtual void Draw(const GameTimer& gt) override;
 
@@ -283,6 +286,8 @@ private:
     ComPtr<ID3D12Resource> CreateDefault1x1Texture(DXGI_FORMAT format, const UINT8 rgba[4], ComPtr<ID3D12Resource>& uploadHeap);
     std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> GetStaticSamplers();
 
+    AntiAliasing* GetAAByMode(AAMode mode);
+
 private:
     std::vector<std::unique_ptr<FrameResource>> _frameResources;
     FrameResource* _currFrameResource = nullptr;
@@ -319,7 +324,8 @@ private:
     std::unique_ptr<PostProcessChain> _ppChain;
     std::unique_ptr<NGXManager> _ngxManager;
 
-    AntiAliasing* _currentAA;
+    AntiAliasing* _currentAA = nullptr;
+    std::unique_ptr<NoAA> _noAA;
     std::unique_ptr<TAA> _TAA;
     std::unique_ptr<DLAA> _DLAA;
 
@@ -367,8 +373,8 @@ private:
     bool _isDebugMode = false;
     bool _isTerrainDegub = false;
     bool _isUseBeckmann = false;
-    bool _isUseDLAA = false;
 
+    bool _renderSettingsDirty = false;
     bool _prevKeys[256] = {};
 
     enum class BrushMode { Draw, Erase };
@@ -379,13 +385,13 @@ private:
     float _brushRadius = 20.0f;
     float _brushStrength = 1.0f;
 
-    std::vector<D3D12_RECT> BuildScissorRects(int K, int width, int height)
+    std::vector<D3D12_RECT> BuildScissorRects(int K, Resolution res)
     {
         int cols = (int)ceilf(sqrtf((float)K));
         int rows = (int)ceilf((float)K / cols);
 
-        int cellW = width / cols;
-        int cellH = height / rows;
+        int cellW = res.Width / cols;
+        int cellH = res.Height / rows;
 
         std::vector<D3D12_RECT> rects;
         rects.reserve(K);

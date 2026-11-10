@@ -15,6 +15,7 @@
 #include "ThrowIfFaild.h"
 #include "WICTextureLoader.h"
 #include <ResourceUploadBatch.h>
+#include "NoAA.h"
 #include "TAA.h"
 #include "DLAA.h"
 
@@ -46,9 +47,40 @@ bool D3DFramework::Initialize()
 
 	BuildDescriptorHeaps();
 
+	{
+		auto sampler = GetStaticSamplers();
+
+		AAInitContext ctx = {};
+		ctx.device = _d3dDevice.Get();
+		ctx.firstSlot = _lastSlot;
+		ctx.srvHeap = _srvHeap.Get();
+		ctx.srvDescSize = _srvDescriptorSize;
+		ctx.samplerCount = (UINT)sampler.size();
+		ctx.samplers = sampler.data();
+
+		_noAA = std::make_unique<NoAA>();
+		_lastSlot += _noAA->SrvSlotCount();
+
+		_TAA = std::make_unique<TAA>(ctx);
+		_lastSlot += _TAA->SrvSlotCount();
+
+		ctx.firstSlot = _lastSlot;
+		_DLAA = std::make_unique<DLAA>(_cmdList.Get(), _ngxManager.get(), ctx);
+		_lastSlot += _DLAA->SrvSlotCount();
+
+		_currentAA = GetAAByMode(_renderSettings.Mode);
+
+		UpdateRenderResolution();
+		BaseD3DApp::OnRenderResize();
+
+		_noAA->OnResize(_d3dDevice.Get(), _cmdList.Get(), _renderSettings);
+		_TAA->OnResize(_d3dDevice.Get(), _cmdList.Get(), _renderSettings);
+		_DLAA->OnResize(_d3dDevice.Get(), _cmdList.Get(), _renderSettings);
+	}
+
 	_gBufferSrvStart = _lastSlot;
 	CD3DX12_CPU_DESCRIPTOR_HANDLE gBufHandle(_srvHeap->GetCPUDescriptorHandleForHeapStart(), _gBufferSrvStart, _srvDescriptorSize);
-	_gBuffer = std::make_unique<GBuffer>(_d3dDevice.Get(), CLIENT_WIDTH, CLIENT_HEIGHT, gBufHandle, _srvDescriptorSize);
+	_gBuffer = std::make_unique<GBuffer>(_d3dDevice.Get(), _renderSettings.Render, gBufHandle, _srvDescriptorSize);
 	_lastSlot += (UINT)GBufferIndex::Count;
 
 	_shadowSrvStart = _lastSlot++;
@@ -61,35 +93,8 @@ bool D3DFramework::Initialize()
 	_lastSlot += _terrain->GetSlotCount();
 
 	_velocityBuffer = std::make_unique<VelocityBuffers>(_d3dDevice.Get(), _srvHeap.Get(), _lastSlot, _srvDescriptorSize);
-	_velocityBuffer->OnResize(_d3dDevice.Get(), CLIENT_WIDTH, CLIENT_HEIGHT);
+	_velocityBuffer->OnResize(_d3dDevice.Get(), _renderSettings.Render);
 	_lastSlot += _velocityBuffer->SrvSlotCount;
-
-	auto sampler = GetStaticSamplers();
-
-	AAInitContext ctx = {};
-	ctx.device = _d3dDevice.Get();
-	ctx.firstSlot = _lastSlot;
-	ctx.srvHeap = _srvHeap.Get();
-	ctx.srvDescSize = _srvDescriptorSize;
-	ctx.samplerCount = (UINT)sampler.size();
-	ctx.samplers = sampler.data();
-
-	AAResolution res = {};
-	res.displayW = CLIENT_WIDTH;
-	res.displayH = CLIENT_HEIGHT;
-	res.renderW = CLIENT_WIDTH;
-	res.renderH = CLIENT_HEIGHT;
-
-	_TAA = std::make_unique<TAA>(ctx);
-	_TAA->OnResize(_d3dDevice.Get(), _cmdList.Get(), res);
-	_lastSlot += _TAA->SrvSlotCount();
-
-	ctx.firstSlot = _lastSlot;
-	_DLAA = std::make_unique<DLAA>(_cmdList.Get(), _ngxManager.get(), ctx);
-	_DLAA->OnResize(_d3dDevice.Get(), _cmdList.Get(), res);
-	_lastSlot += _DLAA->SrvSlotCount();
-
-	_currentAA = _isUseDLAA ? static_cast<AntiAliasing*>(_DLAA.get()) : static_cast<AntiAliasing*>(_TAA.get());
 
 	_ppChain = std::make_unique<PostProcessChain>();
 	CreatePPS();
@@ -159,21 +164,50 @@ std::wstring D3DFramework::GetWindowTitile()
 			L"  R: " + std::to_wstring((int)_brushRadius) + L" m" +
 			L"  S: " + std::to_wstring((int)(_brushStrength * 100) / 100.0f).substr(0, 4);
 	}
+	else
+	{
+		title += L"   AA: ";
+		title += ToString(_currentAA->GetMode());
+
+		if (_currentAA->GetMode() == AAMode::DLAA)
+		{
+			title += L"   Preset: ";
+			title += ToString(_renderSettings.Preset);
+		}
+
+		title += L"   Render: " + std::to_wstring(_renderSettings.Render.Width) + L"x" + std::to_wstring(_renderSettings.Render.Height)
+			+ L" / " + std::to_wstring(_renderSettings.Display.Width) + L"x" + std::to_wstring(_renderSettings.Display.Height);
+	}
 
 	return title;
 }
 
-void D3DFramework::OnResize()
+void D3DFramework::UpdateRenderResolution()
 {
-	BaseD3DApp::OnResize();
+	_renderSettings.Render = _currentAA ? _currentAA->ComputeRenderResolution(_renderSettings) : _renderSettings.Display;
+}
+
+void D3DFramework::OnDisplayResize()
+{
+	BaseD3DApp::OnDisplayResize();
 
 	XMMATRIX P = XMMatrixPerspectiveFovLH(0.25f * MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
 	XMStoreFloat4x4(&_proj, P);
+}
 
-	if (_gBuffer.get() != nullptr) { _gBuffer->OnResize(_d3dDevice.Get(), CLIENT_WIDTH, CLIENT_HEIGHT); }
-	if (_ppChain.get() != nullptr) { _ppChain->OnResize(_d3dDevice.Get(), _srvHeap.Get(), _srvDescriptorSize, CLIENT_WIDTH, CLIENT_HEIGHT); }
-	if (_velocityBuffer.get() != nullptr) { _velocityBuffer->OnResize(_d3dDevice.Get(), CLIENT_WIDTH, CLIENT_HEIGHT); }
-	if (_currentAA != nullptr) { _currentAA->OnResize(_d3dDevice.Get(), _cmdList.Get(), { CLIENT_WIDTH, CLIENT_HEIGHT, CLIENT_WIDTH, CLIENT_HEIGHT }); }
+void D3DFramework::OnRenderResize()
+{
+	FlushCommandQueue();
+
+	BaseD3DApp::OnRenderResize();
+
+	if (_gBuffer.get() != nullptr) { _gBuffer->OnResize(_d3dDevice.Get(), _renderSettings.Render); }
+	if (_ppChain.get() != nullptr) { _ppChain->OnResize(_d3dDevice.Get(), _srvHeap.Get(), _srvDescriptorSize, _renderSettings.Render, _renderSettings.Display); }
+	if (_velocityBuffer.get() != nullptr) { _velocityBuffer->OnResize(_d3dDevice.Get(), _renderSettings.Render); }
+
+	if (_TAA != nullptr) { _TAA->OnResize(_d3dDevice.Get(), _cmdList.Get(), _renderSettings); }
+	if (_DLAA != nullptr) { _DLAA->OnResize(_d3dDevice.Get(), _cmdList.Get(), _renderSettings); }
+	if (_currentAA != nullptr) { _currentAA->ResetHistory(); }
 }
 
 void D3DFramework::Update(const GameTimer& gt)
@@ -190,6 +224,13 @@ void D3DFramework::Update(const GameTimer& gt)
 		ThrowIfFailed(_fence->SetEventOnCompletion(_currFrameResource->Fence, eventHandle));
 		WaitForSingleObject(eventHandle, INFINITE);
 		CloseHandle(eventHandle);
+	}
+
+	if (_renderSettingsDirty)
+	{
+		UpdateRenderResolution();
+		OnRenderResize();
+		_renderSettingsDirty = false;
 	}
 
 	AnimateObjects(gt);
@@ -224,7 +265,7 @@ void D3DFramework::Draw(const GameTimer& gt)
 
 	ImGui::Separator();
 
-	ImGui::Text("FPS: %.1f", );
+	ImGui::Text("FPS: %.1f", ImGui::GetIO().Framerate);
 
 	ImGui::End();
 
@@ -233,8 +274,8 @@ void D3DFramework::Draw(const GameTimer& gt)
 	_terrain->TransitHitToWrite(_cmdList.Get());
 	if (_paintMode)
 	{
-		float mouseX = 2.0f * _lastMousePos.x / CLIENT_WIDTH - 1.0f;
-		float mouseY = 1.0f - 2.0f * _lastMousePos.y / CLIENT_HEIGHT;
+		float mouseX = 2.0f * _lastMousePos.x / _renderSettings.Display.Width - 1.0f;
+		float mouseY = 1.0f - 2.0f * _lastMousePos.y / _renderSettings.Display.Height;
 
 		CD3DX12_GPU_DESCRIPTOR_HANDLE h(_srvHeap->GetGPUDescriptorHandleForHeapStart(), _terrainSrvStart, _srvDescriptorSize);
 		_terrain->DoPick(_cmdList.Get(), _currFrameResource->PassCB->Resource()->GetGPUVirtualAddress(), h, mouseX, mouseY, 1000.0f);
@@ -280,8 +321,8 @@ void D3DFramework::Draw(const GameTimer& gt)
 
 	//GEOMETRY PASS (GBuffer)
 
-	_cmdList->RSSetViewports(1, &_screenViewport);
-	_cmdList->RSSetScissorRects(1, &_scissorRect);
+	_cmdList->RSSetViewports(1, &_renderViewport);
+	_cmdList->RSSetScissorRects(1, &_renderScissor);
 
 	_gBuffer->TransitToOpaqueRenderingState(_cmdList.Get());
 	_gBuffer->ClearView(_cmdList.Get());
@@ -311,6 +352,11 @@ void D3DFramework::Draw(const GameTimer& gt)
 
 	auto toRT = CD3DX12_RESOURCE_BARRIER::Transition(_ppChain->GetHDRBuffer(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
 	_cmdList->ResourceBarrier(1, &toRT);
+
+	// Backbuffer: PRESENT -> RT один раз за кадр. В него пишут debug light pass, PP и GUI.
+	// Обратно в PRESENT - в самом конце, после GUI.
+	auto backBufferToRT = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
+	_cmdList->ResourceBarrier(1, &backBufferToRT);
 
 	float clearColor[4] = { 0, 0, 0, 1 };
 	auto hdrRTV = _isDebugMode ? CurrentBackBufferView() : _ppChain->GetLightPassRTV();
@@ -356,7 +402,10 @@ void D3DFramework::Draw(const GameTimer& gt)
 
 	if (_isDebugMode)
 	{
-		std::vector<D3D12_RECT> scissorRects = BuildScissorRects(MAX_DEBUG_LAYER_COUNT, CLIENT_WIDTH, CLIENT_HEIGHT);
+		// Debug пишет прямо в backbuffer (Display)
+		_cmdList->RSSetViewports(1, &_screenViewport);
+
+		std::vector<D3D12_RECT> scissorRects = BuildScissorRects(MAX_DEBUG_LAYER_COUNT, _renderSettings.Display);
 
 		UINT passElementSize = D3DUtil::CalcConstantBufferSize(sizeof(PassConstants));
 
@@ -375,8 +424,8 @@ void D3DFramework::Draw(const GameTimer& gt)
 	}
 	else
 	{
-		D3D12_RECT fullRect = { 0, 0, CLIENT_WIDTH, CLIENT_HEIGHT };
-		_cmdList->RSSetScissorRects(1, &fullRect);
+		_cmdList->RSSetViewports(1, &_renderViewport);
+		_cmdList->RSSetScissorRects(1, &_renderScissor);
 
 		_mainPassCB.DebugMode = 0;
 		_currFrameResource->PassCB->CopyData(0, _mainPassCB);
@@ -399,18 +448,21 @@ void D3DFramework::Draw(const GameTimer& gt)
 
 	_currentAA->Resolve(_cmdList.Get(), in);
 
+	// NGX (DLSS) внутри Create/Evaluate ставит на cmdList свои descriptor heaps
+	// и не возвращает их - восстанавливаем наш, иначе PP и GUI берут хэндлы из чужой кучи
+	ID3D12DescriptorHeap* heapsAfterAA[] = { _srvHeap.Get() };
+	_cmdList->SetDescriptorHeaps(1, heapsAfterAA);
+
 	////POST_PROCESS
 
 	
 	if (!_isDebugMode)
 	{
-		auto barrierToPP = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
-		_cmdList->ResourceBarrier(1, &barrierToPP);
+		// После light pass / AA в cmdList остался render-viewport, PP пишет в Display
+		_cmdList->RSSetViewports(1, &_screenViewport);
+		_cmdList->RSSetScissorRects(1, &_scissorRect);
 
 		_ppChain->ExecuteAll(_cmdList.Get(), _srvHeap.Get(), _srvDescriptorSize, _currentAA->OutputSrvSlot(), CurrentBackBufferView());
-
-		auto barrierToPresent = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
-		_cmdList->ResourceBarrier(1, &barrierToPresent);
 	}
 
 	//GUI
@@ -419,6 +471,9 @@ void D3DFramework::Draw(const GameTimer& gt)
 	_cmdList->OMSetRenderTargets(1, &backBuffer, TRUE, nullptr);
 
 	_gui->Render(_cmdList.Get());
+
+	auto backBufferToPresent = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
+	_cmdList->ResourceBarrier(1, &backBufferToPresent);
 
 	//PRESENT
 
@@ -549,10 +604,36 @@ void D3DFramework::OnKeyboardInput(const GameTimer& gt)
 
 	if (GetAsyncKeyState(VK_F5) & 0x8000)
 	{
-		_isUseDLAA = !_isUseDLAA;
+		_renderSettings.Mode = (AAMode)(((int)_renderSettings.Mode + 1) % 3);
 
-		_currentAA = _isUseDLAA ? static_cast<AntiAliasing*>(_DLAA.get()) : static_cast<AntiAliasing*>(_TAA.get());
-		_currentAA->ResetHistory();
+		_currentAA = GetAAByMode(_renderSettings.Mode);
+		_renderSettingsDirty = true;
+
+		Sleep(200);
+	}
+
+	if (GetAsyncKeyState(VK_F6) & 0x8000)
+	{
+		int next = ((int)_renderSettings.Preset + 1) % (int)UpscalePreset::Custom;
+		_renderSettings.Preset = (UpscalePreset)next;
+		_renderSettingsDirty = true;
+		Sleep(200);
+	}
+
+	if (GetAsyncKeyState(VK_F7) & 0x8000)
+	{
+		_renderSettings.Preset = UpscalePreset::Custom;
+		_renderSettings.RenderScale = std::max(0.33f, _renderSettings.RenderScale - 0.05f);
+		_renderSettingsDirty = true;
+
+		Sleep(200);
+	}
+
+	if (GetAsyncKeyState(VK_F8) & 0x8000)
+	{
+		_renderSettings.Preset = UpscalePreset::Custom;
+		_renderSettings.RenderScale = std::min(1.0f, _renderSettings.RenderScale + 0.05f);
+		_renderSettingsDirty = true;
 
 		Sleep(200);
 	}
@@ -689,8 +770,8 @@ void D3DFramework::UpdateMainPassCB(const GameTimer& gt)
 	XMStoreFloat4x4(&_mainPassCB.InvViewProj, XMMatrixTranspose(invViewProj));
 
 	_mainPassCB.EyePosW = _eyePos;
-	_mainPassCB.RenderTargetSize = XMFLOAT2(CLIENT_WIDTH, CLIENT_HEIGHT);
-	_mainPassCB.InvRenderTargetSize = XMFLOAT2(1.0f / CLIENT_WIDTH, 1.0f / CLIENT_HEIGHT);
+	_mainPassCB.RenderTargetSize = _renderSettings.Render.ToFloat2();
+	_mainPassCB.InvRenderTargetSize = _renderSettings.Render.InvFloat2();
 	_mainPassCB.NearZ = 1.0f;
 	_mainPassCB.FarZ = 1000.0f;
 	_mainPassCB.TotalTime = gt.TotalTime();
@@ -847,7 +928,7 @@ void D3DFramework::UpdateShadowCB(const GameTimer& gt)
 
 void D3DFramework::UpdateTerrainCB(const GameTimer& gt)
 {
-	_terrain->UpdateLOD(_eyePos, 0.25f * MathHelper::Pi, (float)CLIENT_HEIGHT, _camFrustum);
+	_terrain->UpdateLOD(_eyePos, 0.25f * MathHelper::Pi, (float)_renderSettings.Display.Height, _camFrustum);
 
 	assert(_terrain->GetVisibleTiles().size() <= MAX_TERRAIN_TILES);
 
@@ -1425,12 +1506,11 @@ void D3DFramework::CreatePPS()
 	toneDesc.ShaderPath = LOCAL_PATH + "Shaders/" + POST_PROCESS_FOLDER + "ToneMapping.hlsl";
 	toneDesc.Stage = PostProcessStage::Tonemapping;
 	toneDesc.OutputFormat = _backBufferFormat;
-	toneDesc.Width = CLIENT_WIDTH;
-	toneDesc.Height = CLIENT_HEIGHT;
+	toneDesc.Res = _renderSettings.Display;
 
 	_ppChain->ReservePass(_d3dDevice.Get(), toneDesc, _srvHeap.Get(), _lastSlot, _srvDescriptorSize);
 
-	_ppChain->InitHDRBuffer(_d3dDevice.Get(), _srvHeap.Get(), _lastSlot, _srvDescriptorSize, CLIENT_WIDTH, CLIENT_HEIGHT);
+	_ppChain->InitHDRBuffer(_d3dDevice.Get(), _srvHeap.Get(), _lastSlot, _srvDescriptorSize, _renderSettings.Render);
 
 	_ppChain->CommitAll(_d3dDevice.Get(), _srvHeap.Get(), _srvDescriptorSize);
 }
@@ -2160,4 +2240,19 @@ std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> D3DFramework::GetStaticSamplers
 		pointWrap, pointClamp,
 		linearWrap, linearClamp,
 		anisotropicWrap, anisotropicClamp, shadow };
+}
+
+AntiAliasing* D3DFramework::GetAAByMode(AAMode mode)
+{
+	switch (mode)
+	{
+	case AAMode::None:
+		return static_cast<AntiAliasing*>(_noAA.get());
+	case AAMode::TAA:
+		return static_cast<AntiAliasing*>(_TAA.get());
+	case AAMode::DLAA:
+		return static_cast<AntiAliasing*>(_DLAA.get());
+	default:
+		return nullptr;
+	}
 }

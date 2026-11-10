@@ -15,6 +15,8 @@
 #include "ThrowIfFaild.h"
 #include "D3DUtil.h"
 
+#include "RenderSettings.h"
+
 using namespace Microsoft::WRL;
 
 constexpr DXGI_FORMAT HDR_FORMAT = DXGI_FORMAT_R16G16B16A16_FLOAT;
@@ -40,8 +42,7 @@ struct PassDesc
 
     DXGI_FORMAT OutputFormat = HDR_FORMAT;
     bool UseDepth = false;
-    int Width = 0;
-    int Height = 0;
+    Resolution Res;
 
     PostProcessStage Stage = PostProcessStage::BeforeTonemapping;
     int Priority = 0;
@@ -58,7 +59,7 @@ public:
     void Build(ID3D12Device* device, ID3D12DescriptorHeap* srvHeap, UINT srvDescSize);
     void Execute(ID3D12GraphicsCommandList* cmdList, ID3D12DescriptorHeap* srvHeap, UINT srvDescSize, D3D12_CPU_DESCRIPTOR_HANDLE rtv);
 
-    void OnResize(ID3D12Device* device, ID3D12DescriptorHeap* srvHeap, UINT srvDescSize, int width, int height);
+    void OnResize(ID3D12Device* device, ID3D12DescriptorHeap* srvHeap, UINT srvDescSize, Resolution res);
 
     PassDesc Desc;
     UINT OutputSrvSlot = 0;
@@ -84,7 +85,7 @@ private:
 class PostProcessChain
 {
 public:
-    void InitHDRBuffer(ID3D12Device* device, ID3D12DescriptorHeap* srvHeap, UINT& lastSlot, UINT srvDescSize, int width, int height);
+    void InitHDRBuffer(ID3D12Device* device, ID3D12DescriptorHeap* srvHeap, UINT& lastSlot, UINT srvDescSize, Resolution res);
 
     UINT ReservePass(ID3D12Device* device, const PassDesc& desc, ID3D12DescriptorHeap* srvHeap, UINT& lastSlot, UINT srvDescSize);
     void CommitAll(ID3D12Device* device, ID3D12DescriptorHeap* srvHeap, UINT srvDescSize);
@@ -98,8 +99,7 @@ public:
 
     UINT GetHDRSrvSlot() const { return _hdrSrvSlot; }
 
-
-    void OnResize(ID3D12Device* device, ID3D12DescriptorHeap* srvHeap, UINT srvDescSize, int width, int height);
+    void OnResize(ID3D12Device* device, ID3D12DescriptorHeap* srvHeap, UINT srvDescSize, Resolution render, Resolution display);
 
 private:
     void Sort();

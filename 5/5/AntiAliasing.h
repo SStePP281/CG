@@ -4,6 +4,7 @@
 #include <d3d12.h>
 #include <d3dx12.h>
 #include <DirectXMath.h>
+#include "RenderSettings.h"
 
 constexpr UINT JITTER_COUNT = 8;
 
@@ -21,12 +22,6 @@ struct AAInputs
     AATexture prevVelocity;
 };
 
-struct AAResolution
-{
-    UINT renderW, renderH;
-    UINT displayW, displayH;
-};
-
 struct AAInitContext
 {
     ID3D12Device* device;
@@ -37,8 +32,6 @@ struct AAInitContext
     UINT samplerCount;
 };
 
-enum class AAMode { None, TAA, DLAA };
-
 class AntiAliasing
 {
 public:
@@ -47,15 +40,15 @@ public:
     AntiAliasing& operator=(const AntiAliasing&) = delete;
     virtual ~AntiAliasing() = default;
 
-    virtual const char* Name() const = 0;
+    virtual AAMode GetMode() const { return AAMode::None; }
 
     virtual bool  UsesJitter()   const { return false; }
     virtual bool  UsesVelocity() const { return false; }
-    virtual float RenderScale()  const { return 1.0f; }
+    virtual Resolution ComputeRenderResolution(const RenderSettings& s) const { return s.Display; }
 
     virtual UINT SrvSlotCount() const = 0;
 
-    virtual void OnResize(ID3D12Device* device, ID3D12GraphicsCommandList* cmdList, const AAResolution& res) = 0;
+    virtual void OnResize(ID3D12Device* device, ID3D12GraphicsCommandList* cmdList, const RenderSettings& res) = 0;
 
     virtual void ResetHistory() {}
 

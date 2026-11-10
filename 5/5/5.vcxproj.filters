@@ -45,6 +45,9 @@
     <Filter Include="RenderUI\Libary\imgui">
       <UniqueIdentifier>{2a130c4b-eddb-4e42-9e35-4093feaa72db}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Source Files\Core">
+      <UniqueIdentifier>{afb18901-171d-4990-a314-7bc2251b8295}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="WindowMain.cpp">
@@ -263,6 +266,12 @@
     </ClInclude>
     <ClInclude Include="..\..\ThirdParty\imgui\backends\imgui_impl_win32.h">
       <Filter>RenderUI\Libary\imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="RenderSettings.h">
+      <Filter>Source Files\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="NoAA.h">
+      <Filter>Header Files\AntiAliasing</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

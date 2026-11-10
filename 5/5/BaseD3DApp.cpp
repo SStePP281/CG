@@ -13,6 +13,11 @@ BaseD3DApp::BaseD3DApp(HINSTANCE hInstance) : _hInstance(hInstance)
 {
     assert(_app == nullptr);
 	_app = this;
+
+    _renderSettings.Display = { 1920, 1080 };
+    _renderSettings.Preset = UpscalePreset::DLAA;
+    _renderSettings.RenderScale = 1.0f;
+    UpdateRenderResolution();
 }
 
 BaseD3DApp::~BaseD3DApp()
@@ -30,7 +35,7 @@ void BaseD3DApp::Set4xMsaaState(bool value)
         _4xMsaaState = value;
 
         CreateSwapChain();
-        OnResize();
+        OnDisplayResize();
     }
 }
 
@@ -39,7 +44,7 @@ bool BaseD3DApp::Initialize()
     if (!InitMainWindow()) { return false; }
     if (!InitDirect3D()) { return false; }
 
-    OnResize();
+    OnDisplayResize();
     return true;
 }
 
@@ -63,7 +68,7 @@ bool BaseD3DApp::InitMainWindow()
 		return false;
 	}
 
-	RECT R = { 0, 0, CLIENT_WIDTH, CLIENT_HEIGHT};
+	RECT R = { 0, 0, (LONG)_renderSettings.Display.Width, (LONG)_renderSettings.Display.Height };
     AdjustWindowRect(&R, WS_OVERLAPPEDWINDOW, false);
 	int width  = R.right - R.left;
 	int height = R.bottom - R.top;
@@ -140,8 +145,8 @@ void BaseD3DApp::CreateSwapChain()
     _swapChain.Reset();
 
     DXGI_SWAP_CHAIN_DESC sd;
-    sd.BufferDesc.Width = CLIENT_WIDTH;
-    sd.BufferDesc.Height = CLIENT_HEIGHT;
+    sd.BufferDesc.Width = _renderSettings.Display.Width;
+    sd.BufferDesc.Height = _renderSettings.Display.Height;
     sd.BufferDesc.RefreshRate.Numerator = 60;
     sd.BufferDesc.RefreshRate.Denominator = 1;
     sd.BufferDesc.Format = _backBufferFormat;
@@ -185,7 +190,13 @@ void BaseD3DApp::CreateDescriptorHeaps()
     ThrowIfFailed(_d3dDevice->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(_srvHeap.GetAddressOf())));
 }
 
-void BaseD3DApp::OnResize() 
+void BaseD3DApp::UpdateRenderResolution()
+{
+    _renderSettings.Render.Width = max(1u, (UINT)(_renderSettings.Display.Width * _renderSettings.RenderScale));
+    _renderSettings.Render.Height = max(1u, (UINT)(_renderSettings.Display.Height * _renderSettings.RenderScale));
+}
+
+void BaseD3DApp::OnDisplayResize() 
 {
     assert(_d3dDevice);
     assert(_swapChain);
@@ -198,7 +209,7 @@ void BaseD3DApp::OnResize()
     for (int i = 0; i < SWAP_CHAIN_BUFFER_COUNT; ++i) { _swapChainBuffer[i].Reset(); }
     _depthStencilBuffer.Reset();
 
-    ThrowIfFailed(_swapChain->ResizeBuffers(SWAP_CHAIN_BUFFER_COUNT, CLIENT_WIDTH, CLIENT_HEIGHT, _backBufferFormat, DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH));
+    ThrowIfFailed(_swapChain->ResizeBuffers(SWAP_CHAIN_BUFFER_COUNT, _renderSettings.Display.Width, _renderSettings.Display.Height, _backBufferFormat, DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH));
 
     _currBackBuffer = 0;
 
@@ -213,8 +224,8 @@ void BaseD3DApp::OnResize()
     D3D12_RESOURCE_DESC depthStencilDesc;
     depthStencilDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
     depthStencilDesc.Alignment = 0;
-    depthStencilDesc.Width = CLIENT_WIDTH;
-    depthStencilDesc.Height = CLIENT_HEIGHT;
+    depthStencilDesc.Width = _renderSettings.Display.Width;
+    depthStencilDesc.Height = _renderSettings.Display.Height;
     depthStencilDesc.DepthOrArraySize = 1;
     depthStencilDesc.MipLevels = 1;
  
@@ -255,12 +266,23 @@ void BaseD3DApp::OnResize()
 
     _screenViewport.TopLeftX = 0;
     _screenViewport.TopLeftY = 0;
-    _screenViewport.Width = static_cast<float>(CLIENT_WIDTH);
-    _screenViewport.Height = static_cast<float>(CLIENT_HEIGHT);
+    _screenViewport.Width = static_cast<float>(_renderSettings.Display.Width);
+    _screenViewport.Height = static_cast<float>(_renderSettings.Display.Height);
     _screenViewport.MinDepth = 0.0f;
     _screenViewport.MaxDepth = 1.0f;
 
-    _scissorRect = { 0, 0, CLIENT_WIDTH, CLIENT_HEIGHT };
+    _scissorRect = { 0, 0, (LONG)_renderSettings.Display.Width, (LONG)_renderSettings.Display.Height };
+
+    OnRenderResize();
+}
+
+void BaseD3DApp::OnRenderResize()
+{
+    _renderViewport = _screenViewport;
+    _renderViewport.Width = static_cast<float>(_renderSettings.Render.Width);
+    _renderViewport.Height = static_cast<float>(_renderSettings.Render.Height);
+
+    _renderScissor = { 0, 0, (LONG)_renderSettings.Render.Width, (LONG)_renderSettings.Render.Height };
 }
 
 int BaseD3DApp::Run()
@@ -396,36 +418,53 @@ LRESULT BaseD3DApp::HandleMsg(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
         case WM_SIZE:
         {
-            if (_d3dDevice)
-            {
-                _resizing = true;
-                if (wParam == SIZE_MINIMIZED)
-                {
-                    _minimized = true;
-                }
-                else if (wParam == SIZE_MAXIMIZED)
-                {
-                    _maximized = true;
-                }
-                else if (wParam == SIZE_RESTORED)
-                {
-                    if (_minimized)
-                    {
-                        _minimized = false;
-                    }
-                    else if (_maximized)
-                    {
-                        _maximized = false;
-                    }
-                    else if (_resizing)
-                    {
-                        _resizing = false;
-                    }
+            UINT width = LOWORD(lParam);
+            UINT height = HIWORD(lParam);
 
-                    OnResize();
-                }
+            if (wParam == SIZE_MINIMIZED)
+            {
+                _appPaused = true;
+                _minimized = true;
+                _maximized = false;
                 return 0;
             }
+
+            _renderSettings.Display = { width, height };
+            UpdateRenderResolution();
+
+            if (!_d3dDevice) { return 0; }
+
+            if (wParam == SIZE_MAXIMIZED)
+            {
+                _appPaused = false;
+                _minimized = false;
+                _maximized = true;
+                OnDisplayResize();
+            }
+            else if (wParam == SIZE_RESTORED)
+            {
+                if (_minimized)
+                {
+                    _appPaused = false;
+                    _minimized = false;
+                    OnDisplayResize();
+                }
+                else if (_maximized)
+                {
+                    _appPaused = false;
+                    _maximized = false;
+                    OnDisplayResize();
+                }
+                else if (_resizing)
+                {
+                }
+                else
+                {
+                    OnDisplayResize();
+                }
+            }
+
+            return 0;
         }
 
         case WM_ACTIVATE:
@@ -459,7 +498,7 @@ LRESULT BaseD3DApp::HandleMsg(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             _resizing = false;
             _timer.Start();
 
-            OnResize();
+            OnDisplayResize();
 
             return 0;
         }

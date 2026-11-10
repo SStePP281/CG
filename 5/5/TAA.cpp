@@ -18,13 +18,13 @@ TAA::TAA(const AAInitContext& ctx)
     CreatePSO(ctx);
 }
 
-void TAA::OnResize(ID3D12Device* device, ID3D12GraphicsCommandList* cmdList, const AAResolution& res)
+void TAA::OnResize(ID3D12Device* device, ID3D12GraphicsCommandList* cmdList, const RenderSettings& res)
 {
     _currentIndex = 0;
     _frameCount = 0;
 
-    _width = res.renderW;
-    _height = res.renderH;
+    _width = res.Render.Width;
+    _height = res.Render.Height;
 
     CreateResources(device);
     CreateSRVAndRTV(device);

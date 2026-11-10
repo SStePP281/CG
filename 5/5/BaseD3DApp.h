@@ -12,11 +12,9 @@
 #include <dxgi1_6.h>      
 #include <d3dx12.h>
 #include "GameTimer.h"
+#include "RenderSettings.h"
 
 using namespace Microsoft::WRL;
-
-constexpr UINT CLIENT_WIDTH = 1920;
-constexpr UINT CLIENT_HEIGHT = 1080;
 
 constexpr int SWAP_CHAIN_BUFFER_COUNT = 2;
 
@@ -35,7 +33,7 @@ public:
 	ComPtr<ID3D12Device> GetDevice() const { return _d3dDevice; }
 	ComPtr<ID3D12GraphicsCommandList> GetCommandList() const { return _cmdList; }
 
-	constexpr float AspectRatio() const { return (float)CLIENT_WIDTH / CLIENT_HEIGHT; }
+	float AspectRatio() const { return (float)_renderSettings.Display.Width / _renderSettings.Display.Height; }
 	bool Get4xMsaaState() const { return _4xMsaaState; }
 	void Set4xMsaaState(bool value);
 	int Run();
@@ -44,7 +42,9 @@ public:
 
 protected:
 	virtual void CreateDescriptorHeaps();
-	virtual void OnResize();
+	virtual void UpdateRenderResolution();
+	virtual void OnDisplayResize();
+	virtual void OnRenderResize();
 	virtual void Update(const GameTimer& gt) = 0;
 	virtual void Draw(const GameTimer& gt) = 0;
 
@@ -69,6 +69,8 @@ protected:
 	virtual std::wstring GetWindowTitile() { return L""; }
 
 protected:
+	RenderSettings _renderSettings;
+
 	static BaseD3DApp* _app;
 	HINSTANCE _hInstance = nullptr;
 	HWND _hMainWnd = nullptr;
@@ -106,6 +108,9 @@ protected:
 
 	D3D12_VIEWPORT _screenViewport;
 	D3D12_RECT _scissorRect;
+
+	D3D12_VIEWPORT _renderViewport;
+	D3D12_RECT _renderScissor;
 
 	std::wstring _mainWndCaption = L"D3D App";
 	D3D_DRIVER_TYPE _d3dDriverType = D3D_DRIVER_TYPE_HARDWARE;

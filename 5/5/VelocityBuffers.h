@@ -6,6 +6,7 @@
 #include <d3d12.h>
 #include <d3dx12.h>
 #include <DirectXMath.h>
+#include "RenderSettings.h"
 
 using namespace Microsoft::WRL;
 
@@ -15,7 +16,7 @@ public:
     static constexpr UINT SrvSlotCount = 2;
 
     VelocityBuffers(ID3D12Device* device, ID3D12DescriptorHeap* srvHeap, UINT firstSlot, UINT srvDescSize);
-    void OnResize(ID3D12Device* device, UINT w, UINT h);
+    void OnResize(ID3D12Device* device, Resolution res);
 
     void Swap() { _current = 1 - _current; }
 

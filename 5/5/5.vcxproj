@@ -180,7 +180,9 @@
     <ClInclude Include="BaseD3DApp.h" />
     <ClInclude Include="DLAA.h" />
     <ClInclude Include="NGXManager.h" />
+    <ClInclude Include="NoAA.h" />
     <ClInclude Include="RenderGUI.h" />
+    <ClInclude Include="RenderSettings.h" />
     <ClInclude Include="TAA.h" />
     <ClInclude Include="D3DFramework.h" />
     <ClInclude Include="D3DUtil.h" />

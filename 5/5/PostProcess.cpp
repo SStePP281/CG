@@ -48,10 +48,9 @@ void PostProcessPass::Execute(ID3D12GraphicsCommandList* cmdList, ID3D12Descript
 	cmdList->DrawInstanced(3, 1, 0, 0);
 }
 
-void PostProcessPass::OnResize(ID3D12Device* device, ID3D12DescriptorHeap* srvHeap, UINT srvDescSize, int width, int height)
+void PostProcessPass::OnResize(ID3D12Device* device, ID3D12DescriptorHeap* srvHeap, UINT srvDescSize, Resolution res)
 {
-	Desc.Width = width;
-	Desc.Height = height;
+	Desc.Res = res;
 
 	OutputBuffer.Reset();
 	CreateOutputBuffer(device);
@@ -130,8 +129,8 @@ void PostProcessPass::CreateOutputBuffer(ID3D12Device* device)
 {
 	D3D12_RESOURCE_DESC desc = {};
 	desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-	desc.Width = Desc.Width;
-	desc.Height = Desc.Height;
+	desc.Width = Desc.Res.Width;
+	desc.Height = Desc.Res.Height;
 	desc.DepthOrArraySize = 1;
 	desc.MipLevels = 1;
 	desc.Format = Desc.OutputFormat;
@@ -235,9 +234,9 @@ void PostProcessPass::BuildPSO(ID3D12Device* device)
 
 // CHAIN
 
-void PostProcessChain::InitHDRBuffer(ID3D12Device* device, ID3D12DescriptorHeap* srvHeap, UINT& lastSlot, UINT srvDescSize, int width, int height)
+void PostProcessChain::InitHDRBuffer(ID3D12Device* device, ID3D12DescriptorHeap* srvHeap, UINT& lastSlot, UINT srvDescSize, Resolution res)
 {
-	D3D12_RESOURCE_DESC desc = CD3DX12_RESOURCE_DESC::Tex2D(HDR_FORMAT, width, height, 1, 1, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET);
+	D3D12_RESOURCE_DESC desc = CD3DX12_RESOURCE_DESC::Tex2D(HDR_FORMAT, res.Width, res.Height, 1, 1, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET);
 
 	D3D12_CLEAR_VALUE clear = {};
 	clear.Format = HDR_FORMAT;
@@ -339,14 +338,14 @@ void PostProcessChain::ExecuteAll(ID3D12GraphicsCommandList* cmdList, ID3D12Desc
 	}
 }
 
-void PostProcessChain::OnResize(ID3D12Device* device, ID3D12DescriptorHeap* srvHeap, UINT srvDescSize, int width, int height)
+void PostProcessChain::OnResize(ID3D12Device* device, ID3D12DescriptorHeap* srvHeap, UINT srvDescSize, Resolution render, Resolution display)
 {
 	if (_hdrBuffer)
 	{
 		_hdrBuffer.Reset();
 		_hdrRTVHeap.Reset();
 
-		D3D12_RESOURCE_DESC desc = CD3DX12_RESOURCE_DESC::Tex2D(HDR_FORMAT, width, height, 1, 1, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET);
+		D3D12_RESOURCE_DESC desc = CD3DX12_RESOURCE_DESC::Tex2D(HDR_FORMAT, render.Width, render.Height, 1, 1, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET);
 
 		D3D12_CLEAR_VALUE clear = {};
 		clear.Format = HDR_FORMAT;
@@ -377,7 +376,7 @@ void PostProcessChain::OnResize(ID3D12Device* device, ID3D12DescriptorHeap* srvH
 
 	for (auto& pass : _passes)
 	{
-		pass->OnResize(device, srvHeap, srvDescSize, width, height);
+		pass->OnResize(device, srvHeap, srvDescSize, display);
 	}
 }
 

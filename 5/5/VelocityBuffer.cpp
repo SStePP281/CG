@@ -12,11 +12,11 @@ VelocityBuffers::VelocityBuffers(ID3D12Device* device, ID3D12DescriptorHeap* srv
     ThrowIfFailed(device->CreateDescriptorHeap(&hd, IID_PPV_ARGS(&_rtvHeap)));
 }
 
-void VelocityBuffers::OnResize(ID3D12Device* d, UINT w, UINT h)
+void VelocityBuffers::OnResize(ID3D12Device* d, Resolution res)
 {
     _current = 1;
 
-    D3D12_RESOURCE_DESC desc = CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_R16G16_FLOAT, w, h, 1, 1, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET);
+    D3D12_RESOURCE_DESC desc = CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_R16G16_FLOAT, res.Width, res.Height, 1, 1, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET);
     CD3DX12_HEAP_PROPERTIES heap(D3D12_HEAP_TYPE_DEFAULT);
 
     D3D12_CLEAR_VALUE clear = {};

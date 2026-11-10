@@ -2,7 +2,7 @@
 #include "ThrowIfFaild.h"
 #include <d3dx12.h>
 
-GBuffer::GBuffer(ID3D12Device* device, int width, int height, CD3DX12_CPU_DESCRIPTOR_HANDLE srvHandle, UINT srvDescriptorSize)
+GBuffer::GBuffer(ID3D12Device* device, Resolution res, CD3DX12_CPU_DESCRIPTOR_HANDLE srvHandle, UINT srvDescriptorSize)
     : _srvHandle(srvHandle), _srvDescriptorSize(srvDescriptorSize)
 {
     D3D12_DESCRIPTOR_HEAP_DESC rtvDesc = {};
@@ -19,12 +19,12 @@ GBuffer::GBuffer(ID3D12Device* device, int width, int height, CD3DX12_CPU_DESCRI
 
     Textures.resize((UINT)GBufferIndex::Count);
 
-    CreateTextures(device, width, height);
+    CreateTextures(device, res);
     CreateRTVandDSV(device);
     CreateSRV(device);
 }
 
-void GBuffer::CreateTextures(ID3D12Device* device, int width, int height)
+void GBuffer::CreateTextures(ID3D12Device* device, Resolution res)
 {
     CD3DX12_HEAP_PROPERTIES heapProp(D3D12_HEAP_TYPE_DEFAULT);
 
@@ -36,7 +36,8 @@ void GBuffer::CreateTextures(ID3D12Device* device, int width, int height)
 
     for (UINT i = 0; i < (UINT)GBufferIndex::Count; ++i)
     {
-        D3D12_RESOURCE_DESC resDesc = CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_R8G8B8A8_UNORM, width, height, 1, 0, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET);
+        // mipLevels = 1: мипы G-буферу не нужны (0 означало бы полную цепочку)
+        D3D12_RESOURCE_DESC resDesc = CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_R8G8B8A8_UNORM, res.Width, res.Height, 1, 1, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET);
 
         if (i == (UINT)GBufferIndex::Depth)
         {
@@ -59,11 +60,16 @@ void GBuffer::CreateTextures(ID3D12Device* device, int width, int height)
             clearValue.Color[3] = 1.0f;
         }
 
+        // Начальное состояние = то, что TransitToOpaqueRenderingState ожидает как "before"
+        D3D12_RESOURCE_STATES initialState = (i == (UINT)GBufferIndex::Depth)
+            ? (D3D12_RESOURCE_STATE_DEPTH_READ | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE)
+            : D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE;
+
         ThrowIfFailed(device->CreateCommittedResource(
             &heapProp,
             D3D12_HEAP_FLAG_NONE,
             &resDesc,
-            D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE,
+            initialState,
             &clearValue,
             IID_PPV_ARGS(&Textures[i].Resource)));
     }
@@ -190,11 +196,11 @@ void GBuffer::ClearView(ID3D12GraphicsCommandList* cmdList)
     }
 }
 
-void GBuffer::OnResize(ID3D12Device* device, int width, int height)
+void GBuffer::OnResize(ID3D12Device* device, Resolution res)
 {
     for (auto& t : Textures) t.Resource.Reset();
 
-    CreateTextures(device, width, height);
+    CreateTextures(device, res);
     CreateRTVandDSV(device);
     CreateSRV(device);
 }
