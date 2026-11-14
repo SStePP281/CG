@@ -4,9 +4,10 @@
 #include "nvsdk_ngx_helpers.h"
 #include "nvsdk_ngx_params.h"
 
-DLAA::DLAA(ID3D12GraphicsCommandList* cmdList, NGXManager* ngxManager, const AAInitContext& ctx) :
-    _ngxManager(ngxManager), _srvHeap(ctx.srvHeap), _srvDescSize(ctx.srvDescSize), _firstSlot(ctx.firstSlot)
+DLAA::DLAA(ID3D12GraphicsCommandList* cmdList, NGXManager* ngxManager, const AAInitContext& ctx) : _ngxManager(ngxManager)
 {
+    _srvRange = ctx.srvAlloc->Allocate(1);
+
     _rtvDescriptorSize = ctx.device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
 
     D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc = {};
@@ -93,7 +94,6 @@ Resolution DLAA::ComputeRenderResolution(const RenderSettings& s) const
         unsigned int optW = 0, optH = 0, maxW = 0, maxH = 0, minW = 0, minH = 0;
         float sharpness = 0.0f;
 
-        // Только из аргумента s: поля _display/_quality обновятся позже, в OnResize
         NVSDK_NGX_Result r = NGX_DLSS_GET_OPTIMAL_SETTINGS(params, s.Display.Width, s.Display.Height, ToNGXQuality(s.Preset), &optW, &optH, &maxW, &maxH, &minW, &minH, &sharpness);
 
         if (NVSDK_NGX_FAILED(r) || optW == 0 || optH == 0)
@@ -187,7 +187,6 @@ void DLAA::CreateResources(ID3D12Device* device)
 
 void DLAA::CreateSRVAndRTV(ID3D12Device* device)
 {
-    CD3DX12_CPU_DESCRIPTOR_HANDLE srv = CD3DX12_CPU_DESCRIPTOR_HANDLE(_srvHeap->GetCPUDescriptorHandleForHeapStart(), _firstSlot, _srvDescSize);
 
     const D3D12_RESOURCE_DESC colorDesc = _output.Get()->GetDesc();
 
@@ -200,8 +199,7 @@ void DLAA::CreateSRVAndRTV(ID3D12Device* device)
         srvDesc.Texture2D.MipLevels = colorDesc.MipLevels;
         srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
 
-        device->CreateShaderResourceView(_output.Get(), &srvDesc, srv);
-        srv.Offset(1, _srvDescSize);
+        device->CreateShaderResourceView(_output.Get(), &srvDesc, _srvRange.Cpu());
     }
 
     {

@@ -239,7 +239,7 @@ float4 PS(VSOut pin) : SV_Target
 
     float3 IBL = CalculateIBLAmbient(N, V, mat);
 
-    float3 color = IBL + Lo;
+    float3 color = Lo;
 
     if (DebugMode)
     {

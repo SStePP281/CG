@@ -2,9 +2,10 @@
 #include "ThrowIfFaild.h"
 #include <d3dx12.h>
 
-GBuffer::GBuffer(ID3D12Device* device, Resolution res, CD3DX12_CPU_DESCRIPTOR_HANDLE srvHandle, UINT srvDescriptorSize)
-    : _srvHandle(srvHandle), _srvDescriptorSize(srvDescriptorSize)
+GBuffer::GBuffer(ID3D12Device* device, Resolution res, DescriptorAllocator* srvAlloc)
 {
+    _srvRange = srvAlloc->Allocate((UINT)GBufferIndex::Count);
+
     D3D12_DESCRIPTOR_HEAP_DESC rtvDesc = {};
     rtvDesc.NumDescriptors = 3;
     rtvDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
@@ -36,7 +37,6 @@ void GBuffer::CreateTextures(ID3D12Device* device, Resolution res)
 
     for (UINT i = 0; i < (UINT)GBufferIndex::Count; ++i)
     {
-        // mipLevels = 1: мипы G-буферу не нужны (0 означало бы полную цепочку)
         D3D12_RESOURCE_DESC resDesc = CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_R8G8B8A8_UNORM, res.Width, res.Height, 1, 1, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET);
 
         if (i == (UINT)GBufferIndex::Depth)
@@ -60,18 +60,9 @@ void GBuffer::CreateTextures(ID3D12Device* device, Resolution res)
             clearValue.Color[3] = 1.0f;
         }
 
-        // Начальное состояние = то, что TransitToOpaqueRenderingState ожидает как "before"
-        D3D12_RESOURCE_STATES initialState = (i == (UINT)GBufferIndex::Depth)
-            ? (D3D12_RESOURCE_STATE_DEPTH_READ | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE)
-            : D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE;
+        D3D12_RESOURCE_STATES initialState = (i == (UINT)GBufferIndex::Depth) ? (D3D12_RESOURCE_STATE_DEPTH_READ | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE) : D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE;
 
-        ThrowIfFailed(device->CreateCommittedResource(
-            &heapProp,
-            D3D12_HEAP_FLAG_NONE,
-            &resDesc,
-            initialState,
-            &clearValue,
-            IID_PPV_ARGS(&Textures[i].Resource)));
+        ThrowIfFailed(device->CreateCommittedResource(&heapProp, D3D12_HEAP_FLAG_NONE, &resDesc, initialState, &clearValue, IID_PPV_ARGS(&Textures[i].Resource)));
     }
 }
 
@@ -82,15 +73,12 @@ void GBuffer::CreateSRV(ID3D12Device* device)
     srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
     srvDesc.Texture2D.MipLevels = 1;
 
-    CD3DX12_CPU_DESCRIPTOR_HANDLE hSrv = _srvHandle;
-
     for (UINT i = 0; i < (UINT)GBufferIndex::Count; ++i)
     {
         srvDesc.Format = INFO_FORMATS[i];
-        Textures[i].SRV = hSrv;
+        Textures[i].SRV = _srvRange.Sub(i);
 
-        device->CreateShaderResourceView(Textures[i].Resource.Get(), &srvDesc, hSrv);
-        hSrv.Offset(1, _srvDescriptorSize);
+        device->CreateShaderResourceView(Textures[i].Resource.Get(), &srvDesc, _srvRange.Cpu(i));
     }
 }
 

@@ -10,6 +10,7 @@
 #include <d3dx12.h>
 
 #include "ModelStruct.h"
+#include "DescriptorHeapAllocator.h"
 
 using namespace Microsoft::WRL;
 
@@ -71,24 +72,26 @@ struct QuadNode
 class Terrain
 {
 public:
-	Terrain(ID3D12Device* device, ID3D12CommandQueue* cmdQueue, ID3D12GraphicsCommandList* cmdList, CD3DX12_CPU_DESCRIPTOR_HANDLE srvHandle, UINT srvDescriptorSize);
+	Terrain(ID3D12Device* device, ID3D12CommandQueue* cmdQueue, ID3D12GraphicsCommandList* cmdList, DescriptorAllocator* srvAlloc);
 
 	Terrain(const Terrain& rhs) = delete;
 	Terrain& operator=(const Terrain& rhs) = delete;
 
-	void DoPick(ID3D12GraphicsCommandList* cmdList, D3D12_GPU_VIRTUAL_ADDRESS passCB, CD3DX12_GPU_DESCRIPTOR_HANDLE firstSlot, float mouseNdcX, float mouseNdcY, float maxDist);
+	void DoPick(ID3D12GraphicsCommandList* cmdList, D3D12_GPU_VIRTUAL_ADDRESS passCB, float mouseNdcX, float mouseNdcY, float maxDist);
 	void TransitHitToWrite(ID3D12GraphicsCommandList* cmdList);
 	void TransitHitToRead(ID3D12GraphicsCommandList* cmdList);
 
-	void DoBrush(ID3D12GraphicsCommandList* cmdList, CD3DX12_GPU_DESCRIPTOR_HANDLE firstSlot, UINT layer, bool erase, float radiusMeters, float strengthDt);
-
-	UINT GetSlotCount() { return 6; }
+	void DoBrush(ID3D12GraphicsCommandList* cmdList, UINT layer, bool erase, float radiusMeters, float strengthDt);
 
 	UINT GetWidth() const { return _width; }
 	UINT GetHeight() const { return _height; }
 
 	UINT GetMaskCount() const { return _maskCount; }
 	UINT GetLayerCount() const { return _layerCount; }
+
+	D3D12_GPU_DESCRIPTOR_HANDLE TexturesGpu() const { return _texSrvSubRange.Gpu(); }
+	D3D12_GPU_DESCRIPTOR_HANDLE HitSrvGpu()  const { return _hitSrvSubRange.Gpu(); }
+
 	const std::vector<float>& GetLayerTileSizes() const { return _layerTileSizes; }
 
 	const MeshGeometry* GetTileMesh() const { return _tileMesh.get(); }
@@ -133,8 +136,11 @@ private:
 	ComPtr<ID3D12Resource> _maskArray;
 	UINT _maskCount = 0;
 
-	CD3DX12_CPU_DESCRIPTOR_HANDLE _srvHandle;
-	UINT _srvDescriptorSize = 0;
+	DescriptorRange _descRange;
+
+	DescriptorRange _texSrvSubRange;
+	DescriptorRange _brushUavSubRange;
+	DescriptorRange _hitSrvSubRange;
 
 	UINT _width = 0;
 	UINT _height = 0;

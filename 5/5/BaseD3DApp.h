@@ -13,6 +13,7 @@
 #include <d3dx12.h>
 #include "GameTimer.h"
 #include "RenderSettings.h"
+#include "DescriptorHeapAllocator.h"
 
 using namespace Microsoft::WRL;
 
@@ -32,6 +33,9 @@ public:
 
 	ComPtr<ID3D12Device> GetDevice() const { return _d3dDevice; }
 	ComPtr<ID3D12GraphicsCommandList> GetCommandList() const { return _cmdList; }
+
+	UINT64 GetCurrentFence() const { return _currFence; }
+	UINT64 GetNextFence() const { return _currFence + 1; }
 
 	float AspectRatio() const { return (float)_renderSettings.Display.Width / _renderSettings.Display.Height; }
 	bool Get4xMsaaState() const { return _4xMsaaState; }
@@ -98,13 +102,12 @@ protected:
 	ComPtr<ID3D12Resource> _swapChainBuffer[SWAP_CHAIN_BUFFER_COUNT];
 	ComPtr<ID3D12Resource> _depthStencilBuffer;
 
-	ComPtr<ID3D12DescriptorHeap> _srvHeap;
+	std::unique_ptr<DescriptorAllocator> _srvAlloc;
 	ComPtr<ID3D12DescriptorHeap> _rtvHeap;
 	ComPtr<ID3D12DescriptorHeap> _dsvHeap;
 
 	UINT _rtvDescriptorSize = 0;
 	UINT _dsvDescriptorSize = 0;
-	UINT _srvDescriptorSize = 0;
 
 	D3D12_VIEWPORT _screenViewport;
 	D3D12_RECT _scissorRect;

@@ -12,9 +12,14 @@
 
 using namespace DirectX;
 
-Terrain::Terrain(ID3D12Device* device, ID3D12CommandQueue* cmdQueue, ID3D12GraphicsCommandList* cmdList, CD3DX12_CPU_DESCRIPTOR_HANDLE srvHandle, UINT srvDescriptorSize)
-	: _srvHandle(srvHandle), _srvDescriptorSize(srvDescriptorSize)
+Terrain::Terrain(ID3D12Device* device, ID3D12CommandQueue* cmdQueue, ID3D12GraphicsCommandList* cmdList, DescriptorAllocator* srvAlloc)
 {
+	_descRange = srvAlloc->Allocate(6);
+
+	_texSrvSubRange = _descRange.Sub(0, 3);
+	_brushUavSubRange = _descRange.Sub(3, 2);
+	_hitSrvSubRange = _descRange.Sub(5);
+
 	CreateHitBuffer(device);
 	BuildPickPipeline(device);
 	BuildBrushPipeline(device);
@@ -33,7 +38,7 @@ Terrain::Terrain(ID3D12Device* device, ID3D12CommandQueue* cmdQueue, ID3D12Graph
 	cmdList->ResourceBarrier(1, &barrier);
 }
 
-void Terrain::DoPick(ID3D12GraphicsCommandList* cmdList, D3D12_GPU_VIRTUAL_ADDRESS passCB, CD3DX12_GPU_DESCRIPTOR_HANDLE firstSlot, float mouseNdcX, float mouseNdcY, float maxDist)
+void Terrain::DoPick(ID3D12GraphicsCommandList* cmdList, D3D12_GPU_VIRTUAL_ADDRESS passCB, float mouseNdcX, float mouseNdcY, float maxDist)
 {
 	cmdList->SetPipelineState(_terrainPickPSO.Get());
 	cmdList->SetComputeRootSignature(_rootSignatureTerrainPick.Get());
@@ -43,11 +48,8 @@ void Terrain::DoPick(ID3D12GraphicsCommandList* cmdList, D3D12_GPU_VIRTUAL_ADDRE
 	float c[8] = { mouseNdcX, mouseNdcY, maxDist, TERRAIN_HEIGHT_SCALE, TERRAIN_HEIGHT_OFFSET, TERRAIN_WORLD_SIZE, TERRAIN_WORLD_OFFSET, TERRAIN_WORLD_OFFSET };
 	cmdList->SetComputeRoot32BitConstants(1, 8, c, 0);
 
-	cmdList->SetComputeRootDescriptorTable(2, firstSlot);
-
-	CD3DX12_GPU_DESCRIPTOR_HANDLE hitHandle = firstSlot;
-	hitHandle.Offset(4, _srvDescriptorSize);
-	cmdList->SetComputeRootDescriptorTable(3, hitHandle);
+	cmdList->SetComputeRootDescriptorTable(2, _texSrvSubRange.Gpu(0));     // height
+	cmdList->SetComputeRootDescriptorTable(3, _brushUavSubRange.Gpu(1));   // hit UAV
 
 	cmdList->Dispatch(1, 1, 1);
 
@@ -55,7 +57,7 @@ void Terrain::DoPick(ID3D12GraphicsCommandList* cmdList, D3D12_GPU_VIRTUAL_ADDRE
 	cmdList->ResourceBarrier(1, &uavBarrier);
 }
 
-void Terrain::DoBrush(ID3D12GraphicsCommandList* cmdList, CD3DX12_GPU_DESCRIPTOR_HANDLE firstSlot, UINT layer, bool erase, float radiusMeters, float strengthDt)
+void Terrain::DoBrush(ID3D12GraphicsCommandList* cmdList, UINT layer, bool erase, float radiusMeters, float strengthDt)
 {
 	auto toUav = CD3DX12_RESOURCE_BARRIER::Transition(_maskArray.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 	cmdList->ResourceBarrier(1, &toUav);
@@ -67,9 +69,7 @@ void Terrain::DoBrush(ID3D12GraphicsCommandList* cmdList, CD3DX12_GPU_DESCRIPTOR
 	{ (int)layer, erase ? 1 : 0, radiusMeters, strengthDt, (int)_maskCount, (int)_layerCount, TERRAIN_WORLD_SIZE, (int)TERRAIN_MASK_SIZE };
 	cmdList->SetComputeRoot32BitConstants(0, 8, &c, 0);
 
-	CD3DX12_GPU_DESCRIPTOR_HANDLE uavHandle = firstSlot;
-	uavHandle.Offset(3, _srvDescriptorSize);
-	cmdList->SetComputeRootDescriptorTable(1, uavHandle);
+	cmdList->SetComputeRootDescriptorTable(1, _brushUavSubRange.Gpu());
 
 	float texelMeters = TERRAIN_WORLD_SIZE / TERRAIN_MASK_SIZE;
 	UINT side = 2 * (UINT)ceilf(radiusMeters / texelMeters) + 1;
@@ -231,8 +231,7 @@ void Terrain::CreateSRVAndUAV(ID3D12Device* device)
 		srvDesc.Texture2D.MipLevels = desc.MipLevels;
 		srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
 
-		device->CreateShaderResourceView(_heightMap.Get(), &srvDesc, _srvHandle);
-		_srvHandle.Offset(1, _srvDescriptorSize);
+		device->CreateShaderResourceView(_heightMap.Get(), &srvDesc, _texSrvSubRange.Cpu(0));
 	}
 
 	{
@@ -248,8 +247,7 @@ void Terrain::CreateSRVAndUAV(ID3D12Device* device)
 		srvDesc.Texture2DArray.MostDetailedMip = 0;
 		srvDesc.Texture2DArray.ResourceMinLODClamp = 0.0f;
 
-		device->CreateShaderResourceView(_layerArray.Get(), &srvDesc, _srvHandle);
-		_srvHandle.Offset(1, _srvDescriptorSize);
+		device->CreateShaderResourceView(_layerArray.Get(), &srvDesc, _texSrvSubRange.Cpu(1));
 	}
 
 	{
@@ -265,8 +263,7 @@ void Terrain::CreateSRVAndUAV(ID3D12Device* device)
 		srvDesc.Texture2DArray.MostDetailedMip = 0;
 		srvDesc.Texture2DArray.ResourceMinLODClamp = 0.0f;
 
-		device->CreateShaderResourceView(_maskArray.Get(), &srvDesc, _srvHandle);
-		_srvHandle.Offset(1, _srvDescriptorSize);
+		device->CreateShaderResourceView(_maskArray.Get(), &srvDesc, _texSrvSubRange.Cpu(2));
 	}
 
 	{
@@ -277,8 +274,7 @@ void Terrain::CreateSRVAndUAV(ID3D12Device* device)
 		uavDesc.Texture2DArray.FirstArraySlice = 0;
 		uavDesc.Texture2DArray.ArraySize = _maskCount;
 
-		device->CreateUnorderedAccessView(_maskArray.Get(), nullptr, &uavDesc, _srvHandle);
-		_srvHandle.Offset(1, _srvDescriptorSize);
+		device->CreateUnorderedAccessView(_maskArray.Get(), nullptr, &uavDesc, _brushUavSubRange.Cpu(0));
 	}
 
 	{
@@ -290,8 +286,7 @@ void Terrain::CreateSRVAndUAV(ID3D12Device* device)
 		srv.Buffer.NumElements = 1;
 		srv.Buffer.StructureByteStride = sizeof(TerrainHit);
 		srv.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
-		device->CreateShaderResourceView(_hitBuffer.Get(), &srv, _srvHandle);
-		_srvHandle.Offset(1, _srvDescriptorSize);
+		device->CreateShaderResourceView(_hitBuffer.Get(), &srv, _hitSrvSubRange.Cpu(0));
 	}
 
 	{
@@ -301,8 +296,7 @@ void Terrain::CreateSRVAndUAV(ID3D12Device* device)
 		uav.Buffer.FirstElement = 0;
 		uav.Buffer.NumElements = 1;
 		uav.Buffer.StructureByteStride = sizeof(TerrainHit);
-		device->CreateUnorderedAccessView(_hitBuffer.Get(), nullptr, &uav, _srvHandle);
-		_srvHandle.Offset(1, _srvDescriptorSize);
+		device->CreateUnorderedAccessView(_hitBuffer.Get(), nullptr, &uav, _brushUavSubRange.Cpu(1));
 	}
 }
 

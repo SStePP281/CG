@@ -125,6 +125,15 @@
     <ClCompile Include="..\..\ThirdParty\imgui\backends\imgui_impl_win32.cpp">
       <Filter>RenderUI\Libary\imgui</Filter>
     </ClCompile>
+    <ClCompile Include="DescriptorHeapAllocator.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="TextureManager.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="DeferredReleaseQueue.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="..\Shaders\GBuffer.hlsl">
@@ -272,6 +281,15 @@
     </ClInclude>
     <ClInclude Include="NoAA.h">
       <Filter>Header Files\AntiAliasing</Filter>
+    </ClInclude>
+    <ClInclude Include="DescriptorHeapAllocator.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="TextureManager.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="DeferredReleaseQueue.h">
+      <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

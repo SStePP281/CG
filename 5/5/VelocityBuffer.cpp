@@ -1,9 +1,12 @@
 #include "VelocityBuffers.h"
 #include "ThrowIfFaild.h"
 
-VelocityBuffers::VelocityBuffers(ID3D12Device* device, ID3D12DescriptorHeap* srvHeap, UINT firstSlot, UINT srvDescSize) : 
-    _srvHeap(srvHeap), _firstSlot(firstSlot), _srvDescSize(srvDescSize), _rtvDescSize(device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV))
+VelocityBuffers::VelocityBuffers(ID3D12Device* device, DescriptorAllocator* srvAlloc)
 {
+    _srvRange = srvAlloc->Allocate(2);
+
+    _rtvDescSize = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+
     D3D12_DESCRIPTOR_HEAP_DESC hd = {};
     hd.NumDescriptors = 2;
     hd.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
@@ -33,8 +36,6 @@ void VelocityBuffers::OnResize(ID3D12Device* d, Resolution res)
 
 void VelocityBuffers::CreateViews(ID3D12Device* device)
 {
-    CD3DX12_CPU_DESCRIPTOR_HANDLE srv = CD3DX12_CPU_DESCRIPTOR_HANDLE(_srvHeap->GetCPUDescriptorHandleForHeapStart(), _firstSlot, _srvDescSize);
-
     const D3D12_RESOURCE_DESC velocityDesc = _buffer[0].Get()->GetDesc();
 
     {
@@ -48,8 +49,7 @@ void VelocityBuffers::CreateViews(ID3D12Device* device)
             srvDesc.Texture2D.MipLevels = velocityDesc.MipLevels;
             srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
 
-            device->CreateShaderResourceView(_buffer[i].Get(), &srvDesc, srv);
-            srv.Offset(1, _srvDescSize);
+            device->CreateShaderResourceView(_buffer[i].Get(), &srvDesc, _srvRange.Cpu(i));
         }
     }
 

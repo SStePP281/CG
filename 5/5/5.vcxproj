@@ -148,6 +148,8 @@
     <ClCompile Include="BaseD3DApp.cpp" />
     <ClCompile Include="D3DFramework.cpp" />
     <ClCompile Include="D3DUtil.cpp" />
+    <ClCompile Include="DeferredReleaseQueue.cpp" />
+    <ClCompile Include="DescriptorHeapAllocator.cpp" />
     <ClCompile Include="DLAA.cpp" />
     <ClCompile Include="FrameResource.cpp" />
     <ClCompile Include="GameTimer.cpp" />
@@ -161,6 +163,7 @@
     <ClCompile Include="ShadowMap.cpp" />
     <ClCompile Include="TAA.cpp" />
     <ClCompile Include="Terrain.cpp" />
+    <ClCompile Include="TextureManager.cpp" />
     <ClCompile Include="VelocityBuffer.cpp" />
     <ClCompile Include="WindowMain.cpp" />
   </ItemGroup>
@@ -178,6 +181,8 @@
     <ClInclude Include="..\..\ThirdParty\imgui\imstb_truetype.h" />
     <ClInclude Include="AntiAliasing.h" />
     <ClInclude Include="BaseD3DApp.h" />
+    <ClInclude Include="DeferredReleaseQueue.h" />
+    <ClInclude Include="DescriptorHeapAllocator.h" />
     <ClInclude Include="DLAA.h" />
     <ClInclude Include="NGXManager.h" />
     <ClInclude Include="NoAA.h" />
@@ -197,6 +202,7 @@
     <ClInclude Include="PostProcess.h" />
     <ClInclude Include="ShadowMap.h" />
     <ClInclude Include="Terrain.h" />
+    <ClInclude Include="TextureManager.h" />
     <ClInclude Include="UploadBuffer.h" />
     <ClInclude Include="ThrowIfFaild.h" />
     <ClInclude Include="VelocityBuffers.h" />

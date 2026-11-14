@@ -16,6 +16,7 @@
 #include "D3DUtil.h"
 
 #include "RenderSettings.h"
+#include "DescriptorHeapAllocator.h"
 
 using namespace Microsoft::WRL;
 
@@ -47,25 +48,22 @@ struct PassDesc
     PostProcessStage Stage = PostProcessStage::BeforeTonemapping;
     int Priority = 0;
 
-    std::vector<UINT> InputSrvSlots;
-
-    std::vector<UINT> ExtraInputSrvSlots;
+    std::vector<DescriptorRange> ExtraInputSrv;
 };
 
 class PostProcessPass
 {
 public:
-    PostProcessPass(ID3D12Device* device, const PassDesc& desc, ID3D12DescriptorHeap* srvHeap, UINT& lastSlot, UINT srvDescSize);
-    void Build(ID3D12Device* device, ID3D12DescriptorHeap* srvHeap, UINT srvDescSize);
-    void Execute(ID3D12GraphicsCommandList* cmdList, ID3D12DescriptorHeap* srvHeap, UINT srvDescSize, D3D12_CPU_DESCRIPTOR_HANDLE rtv);
+    PostProcessPass(ID3D12Device* device, const PassDesc& desc, DescriptorAllocator* srvAlloc);
+    void Build(ID3D12Device* device);
+    void Execute(ID3D12GraphicsCommandList* cmdList, DescriptorRange input, D3D12_CPU_DESCRIPTOR_HANDLE rtv);
 
-    void OnResize(ID3D12Device* device, ID3D12DescriptorHeap* srvHeap, UINT srvDescSize, Resolution res);
+    void OnResize(ID3D12Device* device, Resolution res);
 
     PassDesc Desc;
-    UINT OutputSrvSlot = 0;
 
     D3D12_CPU_DESCRIPTOR_HANDLE OutputRTV = {};
-    D3D12_GPU_DESCRIPTOR_HANDLE OutputSRV = {};
+    DescriptorRange OutputSRV = {};
 
     ComPtr<ID3D12Resource> OutputBuffer;
     ComPtr<ID3D12RootSignature> RootSignature;
@@ -74,9 +72,9 @@ public:
 
 private:
 
-    void CreateResources(ID3D12Device* device, ID3D12DescriptorHeap* srvHeap, UINT& lastSlot, UINT srvDescSize);
+    void CreateResources(ID3D12Device* device, DescriptorAllocator* srvAlloc);
     void CreateOutputBuffer(ID3D12Device* device);
-    void BuildRootSignature(ID3D12Device* device, ID3D12DescriptorHeap* srvHeap, UINT srvDescSize);
+    void BuildRootSignature(ID3D12Device* device);
     void BuildPSO(ID3D12Device* device);
 
     ComPtr<ID3D12Resource> _constantBuffer;
@@ -85,21 +83,20 @@ private:
 class PostProcessChain
 {
 public:
-    void InitHDRBuffer(ID3D12Device* device, ID3D12DescriptorHeap* srvHeap, UINT& lastSlot, UINT srvDescSize, Resolution res);
+    void InitHDRBuffer(ID3D12Device* device, DescriptorAllocator* srvAlloc, Resolution res);
 
-    UINT ReservePass(ID3D12Device* device, const PassDesc& desc, ID3D12DescriptorHeap* srvHeap, UINT& lastSlot, UINT srvDescSize);
-    void CommitAll(ID3D12Device* device, ID3D12DescriptorHeap* srvHeap, UINT srvDescSize);
-    void ExecuteAll(ID3D12GraphicsCommandList* cmdList, ID3D12DescriptorHeap* srvHeap, UINT srvDescSize, UINT firstInputSlot, D3D12_CPU_DESCRIPTOR_HANDLE backBufferRTV);
+    DescriptorRange ReservePass(ID3D12Device* device, const PassDesc& desc, DescriptorAllocator* srvAlloc);
+    void CommitAll(ID3D12Device* device);
+    void ExecuteAll(ID3D12GraphicsCommandList* cmdList, DescriptorRange firstInput, D3D12_CPU_DESCRIPTOR_HANDLE backBufferRTV);
 
     PostProcessPass* GetPass(const std::string& name);
     PostProcessPass* First() { return _passes[0].get(); }
 
     D3D12_CPU_DESCRIPTOR_HANDLE GetLightPassRTV() const { return _hdrRTV; }
     ID3D12Resource* GetHDRBuffer() const { return _hdrBuffer.Get(); }
+    DescriptorRange GetHDRSrv() const { return _hdrSrv; }
 
-    UINT GetHDRSrvSlot() const { return _hdrSrvSlot; }
-
-    void OnResize(ID3D12Device* device, ID3D12DescriptorHeap* srvHeap, UINT srvDescSize, Resolution render, Resolution display);
+    void OnResize(ID3D12Device* device, Resolution render, Resolution display);
 
 private:
     void Sort();
@@ -109,7 +106,7 @@ private:
     ComPtr<ID3D12Resource> _hdrBuffer;
     ComPtr<ID3D12DescriptorHeap> _hdrRTVHeap;
     D3D12_CPU_DESCRIPTOR_HANDLE _hdrRTV = {};
-    UINT _hdrSrvSlot = 0;
+    DescriptorRange _hdrSrv = {};
 };
 
 #endif // !POST_PROCESS_HPP

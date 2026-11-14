@@ -1,6 +1,6 @@
 #include "GBufferCommon.hlsl"
 
-Texture2D gDisplacementMap : register(t2);
+Texture2D gDisplacementMap : register(t5);
 SamplerState gsamAnisotropicWrap : register(s4);
 
 [domain("tri")]

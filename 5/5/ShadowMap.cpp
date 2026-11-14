@@ -2,8 +2,10 @@
 #include "ThrowIfFaild.h"
 #include <d3dx12.h>
 
-ShadowMap::ShadowMap(ID3D12Device* device, CD3DX12_CPU_DESCRIPTOR_HANDLE srvHandle, UINT srvDescriptorSize) : _srvHandle(srvHandle), _srvDescriptorSize(srvDescriptorSize)
+ShadowMap::ShadowMap(ID3D12Device* device, DescriptorAllocator* srvAlloc)
 {
+	SrvRange = srvAlloc->Allocate(1);
+
 	D3D12_DESCRIPTOR_HEAP_DESC dsvDesc = {};
 	dsvDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
 	dsvDesc.NumDescriptors = CASCADES_COUNT;
@@ -17,27 +19,14 @@ ShadowMap::ShadowMap(ID3D12Device* device, CD3DX12_CPU_DESCRIPTOR_HANDLE srvHand
 void ShadowMap::CreateTexture(ID3D12Device* device)
 {
 	CD3DX12_HEAP_PROPERTIES heapProp(D3D12_HEAP_TYPE_DEFAULT);
-	D3D12_RESOURCE_DESC resDesc = CD3DX12_RESOURCE_DESC::Tex2D(
-		DXGI_FORMAT_R24G8_TYPELESS,
-		SHADOW_MAP_TEXTURE_DEFAULT_SIZE,
-		SHADOW_MAP_TEXTURE_DEFAULT_SIZE,
-		CASCADES_COUNT,
-		1, 1, 0,
-		D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL
-	);
+	D3D12_RESOURCE_DESC resDesc = CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_R24G8_TYPELESS, SHADOW_MAP_TEXTURE_DEFAULT_SIZE, SHADOW_MAP_TEXTURE_DEFAULT_SIZE, CASCADES_COUNT, 1, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL);
 
 	D3D12_CLEAR_VALUE clearValue = {};
 	clearValue.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
 	clearValue.DepthStencil.Depth = 1.0f;
 	clearValue.DepthStencil.Stencil = 0;
 
-	ThrowIfFailed(device->CreateCommittedResource(
-		&heapProp,
-		D3D12_HEAP_FLAG_NONE,
-		&resDesc,
-		D3D12_RESOURCE_STATE_DEPTH_READ | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
-		&clearValue,
-		IID_PPV_ARGS(&Resource)));
+	ThrowIfFailed(device->CreateCommittedResource(&heapProp, D3D12_HEAP_FLAG_NONE, &resDesc, D3D12_RESOURCE_STATE_DEPTH_READ | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, &clearValue, IID_PPV_ARGS(&Resource)));
 }
 
 void ShadowMap::CreateSRVAndDSV(ID3D12Device* device)
@@ -68,8 +57,7 @@ void ShadowMap::CreateSRVAndDSV(ID3D12Device* device)
 	srvDesc.Texture2DArray.FirstArraySlice = 0;
 	srvDesc.Texture2DArray.ArraySize = CASCADES_COUNT;
 
-	device->CreateShaderResourceView(Resource.Get(), &srvDesc, _srvHandle);
-	SRV = _srvHandle;
+	device->CreateShaderResourceView(Resource.Get(), &srvDesc, SrvRange.Cpu());
 }
 
 void ShadowMap::TransitToOpaqueRenderingState(ID3D12GraphicsCommandList* cmdList)

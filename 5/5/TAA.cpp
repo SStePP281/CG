@@ -4,8 +4,9 @@
 #include "PathManager.h"
 
 TAA::TAA(const AAInitContext& ctx)
-    : _srvHeap(ctx.srvHeap), _firstSlot(ctx.firstSlot), _srvDescSize(ctx.srvDescSize)
 {
+    _srvRange = ctx.srvAlloc->Allocate(2);
+
     _rtvDescriptorSize = ctx.device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
 
     D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc = {};
@@ -46,17 +47,11 @@ void TAA::Resolve(ID3D12GraphicsCommandList* cmdList, const AAInputs& in)
 
     cmdList->OMSetRenderTargets(1, &_colorRTVs[_currentIndex], FALSE, nullptr);
 
-    CD3DX12_GPU_DESCRIPTOR_HANDLE prevColorGpu(_srvHeap->GetGPUDescriptorHandleForHeapStart(), GetPreviousSlot(), _srvDescSize);
-    CD3DX12_GPU_DESCRIPTOR_HANDLE curColorGpu(_srvHeap->GetGPUDescriptorHandleForHeapStart(), in.color.srvSlot, _srvDescSize);
-    CD3DX12_GPU_DESCRIPTOR_HANDLE prevVelocityGpu(_srvHeap->GetGPUDescriptorHandleForHeapStart(), in.prevVelocity.srvSlot, _srvDescSize);
-    CD3DX12_GPU_DESCRIPTOR_HANDLE curVelocityGpu(_srvHeap->GetGPUDescriptorHandleForHeapStart(), in.velocity.srvSlot, _srvDescSize);
-    CD3DX12_GPU_DESCRIPTOR_HANDLE depthGpu(_srvHeap->GetGPUDescriptorHandleForHeapStart(), in.depth.srvSlot, _srvDescSize);
-
-    cmdList->SetGraphicsRootDescriptorTable(0, prevColorGpu);	   // t0 
-    cmdList->SetGraphicsRootDescriptorTable(1, curColorGpu);	   // t1 
-    cmdList->SetGraphicsRootDescriptorTable(2, prevVelocityGpu);   // t2 
-    cmdList->SetGraphicsRootDescriptorTable(3, curVelocityGpu);	   // t3 
-    cmdList->SetGraphicsRootDescriptorTable(4, depthGpu);	       // t4
+    cmdList->SetGraphicsRootDescriptorTable(0, _srvRange.Gpu(1 - _currentIndex));   // t0
+    cmdList->SetGraphicsRootDescriptorTable(1, in.color.srv.Gpu());	                // t1 
+    cmdList->SetGraphicsRootDescriptorTable(2, in.prevVelocity.srv.Gpu());          // t2 
+    cmdList->SetGraphicsRootDescriptorTable(3, in.velocity.srv.Gpu());	            // t3 
+    cmdList->SetGraphicsRootDescriptorTable(4, in.depth.srv.Gpu());	                // t4
 
     D3D12_RECT fullRect = { 0, 0, (LONG)_width, (LONG)_height};
     cmdList->RSSetScissorRects(1, &fullRect);
@@ -172,8 +167,6 @@ void TAA::CreateResources(ID3D12Device* device)
 
 void TAA::CreateSRVAndRTV(ID3D12Device* device)
 {
-    CD3DX12_CPU_DESCRIPTOR_HANDLE srv = CD3DX12_CPU_DESCRIPTOR_HANDLE(_srvHeap->GetCPUDescriptorHandleForHeapStart(), _firstSlot, _srvDescSize);
-
     const D3D12_RESOURCE_DESC colorDesc = _colorBuffer[0].Get()->GetDesc();
 
     {
@@ -187,8 +180,7 @@ void TAA::CreateSRVAndRTV(ID3D12Device* device)
             srvDesc.Texture2D.MipLevels = colorDesc.MipLevels;
             srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
 
-            device->CreateShaderResourceView(_colorBuffer[i].Get(), &srvDesc, srv);
-            srv.Offset(1, _srvDescSize);
+            device->CreateShaderResourceView(_colorBuffer[i].Get(), &srvDesc, _srvRange.Cpu(i));
         }
     }
 

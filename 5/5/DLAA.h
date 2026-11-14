@@ -19,14 +19,13 @@ public:
 
     bool UsesJitter() const override { return true; }
     bool UsesVelocity() const override { return true; }
-    UINT SrvSlotCount() const override { return 1; }
 
     virtual Resolution ComputeRenderResolution(const RenderSettings& s) const override;
 
     void OnResize(ID3D12Device* device, ID3D12GraphicsCommandList* cmdList, const RenderSettings& res) override;
     void Resolve(ID3D12GraphicsCommandList* cmdList, const AAInputs& in) override;
 
-    UINT OutputSrvSlot() const override { return _firstSlot; }
+    DescriptorRange OutputSrv() const override { return _srvRange; }
 
 private:
     void InitializeFeature(ID3D12GraphicsCommandList* cmdList);
@@ -85,9 +84,7 @@ private:
     D3D12_CPU_DESCRIPTOR_HANDLE _rtv;
     UINT _rtvDescriptorSize = 0;
 
-    ID3D12DescriptorHeap* _srvHeap;
-    UINT _firstSlot;
-    UINT _srvDescSize;
+    DescriptorRange _srvRange;
 
 private:
     XMFLOAT2 _lastJitter = { 0.0f, 0.0f };

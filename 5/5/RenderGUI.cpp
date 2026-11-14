@@ -3,26 +3,23 @@
 #include "backends/imgui_impl_win32.h"
 #include "backends/imgui_impl_dx12.h"
 #include "d3dx12.h"
-
+#include <algorithm>
+#include <iostream>
 #include <Windows.h>
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
-bool RenderGUI::Initialize(HWND hwnd, ID3D12Device* device, ID3D12CommandQueue* commandQueue, ID3D12DescriptorHeap* srvHeap, DXGI_FORMAT rtvFormat, UINT frameCount, UINT firstSlot, UINT srvDescSize)
+void RenderGUI::Initialize(HWND hwnd, ID3D12Device* device, ID3D12CommandQueue* commandQueue, DescriptorAllocator* srvAlloc, DXGI_FORMAT rtvFormat, UINT frameCount)
 {
-	if (_initialized) { return true; }
+    if (_initialized) { return; }
 
-	if (!hwnd || !device || !commandQueue || !srvHeap || frameCount == 0) { return false; }
-
-    _srvHeap = srvHeap;
-    _srvDescSize = srvDescSize;
-    _firstSlot = firstSlot;
-
-    _freeSlots.clear();
-    for (UINT i = 0; i < DESCRIPTOR_COUNT; ++i)
+    if (!hwnd || !device || !commandQueue || !srvAlloc || frameCount == 0)
     {
-        _freeSlots.push_back(_firstSlot + DESCRIPTOR_COUNT - 1 - i);
+        std::cout << "[GUI] Initialize: invalid arguments, GUI disabled" << std::endl;
+        return;
     }
+
+    _srvAlloc = srvAlloc;
 
     IMGUI_CHECKVERSION();
 
@@ -37,8 +34,9 @@ bool RenderGUI::Initialize(HWND hwnd, ID3D12Device* device, ID3D12CommandQueue* 
 
     if (!ImGui_ImplWin32_Init(hwnd))
     {
+        std::cout << "[GUI] ImGui_ImplWin32_Init failed, GUI disabled" << std::endl;
         Shutdown();
-        return false;
+        return;
     }
     _win32Initialized = true;
 
@@ -49,21 +47,22 @@ bool RenderGUI::Initialize(HWND hwnd, ID3D12Device* device, ID3D12CommandQueue* 
     initInfo.NumFramesInFlight = frameCount;
     initInfo.RTVFormat = rtvFormat;
     initInfo.DSVFormat = DXGI_FORMAT_UNKNOWN;
-    initInfo.SrvDescriptorHeap = srvHeap;
+    initInfo.SrvDescriptorHeap = srvAlloc->Heap();
     initInfo.UserData = this;
     initInfo.SrvDescriptorAllocFn = AllocateDescriptor;
     initInfo.SrvDescriptorFreeFn = FreeDescriptor;
 
     if (!ImGui_ImplDX12_Init(&initInfo))
     {
+        std::cout << "[GUI] ImGui_ImplDX12_Init failed, GUI disabled" << std::endl;
         Shutdown();
-        return false;
+        return;
     }
 
     _dx12Initialized = true;
     _initialized = true;
 
-    return true;
+    std::cout << "[GUI] ImGui initialized" << std::endl;
 }
 
 void RenderGUI::BeginFrame()
@@ -112,65 +111,28 @@ void RenderGUI::Shutdown()
         _contextCreated = false;
     }
 
-    _freeSlots.clear();
-
-    _srvHeap = nullptr;
-    _firstSlot = 0;
-    _srvDescSize = 0;
-
     _initialized = false;
-}
-
-bool RenderGUI::Allocate(D3D12_CPU_DESCRIPTOR_HANDLE& cpuHandle, D3D12_GPU_DESCRIPTOR_HANDLE& gpuHandle)
-{
-    if (_freeSlots.empty()) { return false; }
-
-    UINT slot = _freeSlots.back();
-    _freeSlots.pop_back();
-
-    cpuHandle = CD3DX12_CPU_DESCRIPTOR_HANDLE(_srvHeap->GetCPUDescriptorHandleForHeapStart(), slot, _srvDescSize);
-
-    gpuHandle = CD3DX12_GPU_DESCRIPTOR_HANDLE(_srvHeap->GetGPUDescriptorHandleForHeapStart(), slot, _srvDescSize);
-
-    return true;
-}
-
-void RenderGUI::Free(D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle)
-{
-    const D3D12_CPU_DESCRIPTOR_HANDLE heapStart = _srvHeap->GetCPUDescriptorHandleForHeapStart();
-
-    if (cpuHandle.ptr < heapStart.ptr) { return; }
-
-    const SIZE_T offset = cpuHandle.ptr - heapStart.ptr;
-
-    if (offset % _srvDescSize != 0) { return; }
-
-    const UINT slot = static_cast<UINT>(offset / _srvDescSize);
-
-    if (slot < _firstSlot || slot >= _firstSlot + DESCRIPTOR_COUNT) { return; }
-
-    for (UINT freeSlot : _freeSlots)
-    {
-        if (freeSlot == slot) { return; }
-    }
-
-    _freeSlots.push_back(slot);
 }
 
 void RenderGUI::AllocateDescriptor(ImGui_ImplDX12_InitInfo* info, D3D12_CPU_DESCRIPTOR_HANDLE* cpuHandle, D3D12_GPU_DESCRIPTOR_HANDLE* gpuHandle)
 {
-    RenderGUI* gui = static_cast<RenderGUI*>(info->UserData);
+    auto* gui = static_cast<RenderGUI*>(info->UserData);
 
-    if (!gui->Allocate(*cpuHandle, *gpuHandle))
-    {
-        *cpuHandle = {};
-        *gpuHandle = {};
-    }
+    DescriptorRange r = gui->_srvAlloc->Allocate(1);
+    gui->_imguiSrvs.push_back(r);
+
+    *cpuHandle = r.Cpu();
+    *gpuHandle = r.Gpu();
 }
 
 void RenderGUI::FreeDescriptor(ImGui_ImplDX12_InitInfo* info, D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle, D3D12_GPU_DESCRIPTOR_HANDLE gpuHandle)
 {
     RenderGUI* gui = static_cast<RenderGUI*>(info->UserData);
+    auto& v = gui->_imguiSrvs;
 
-    gui->Free(cpuHandle);
+    auto it = std::find_if(v.begin(), v.end(), [&](const DescriptorRange& r) { return r.Cpu().ptr == cpuHandle.ptr; });
+    assert(it != v.end() && "ImGui freed a descriptor it never allocated");
+
+    gui->_srvAlloc->Free(*it);
+    v.erase(it);
 }

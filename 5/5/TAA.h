@@ -28,17 +28,12 @@ public:
 
 	virtual bool  UsesJitter()   const { return true; }
 	virtual bool  UsesVelocity() const { return true; }
-	UINT SrvSlotCount() const override { return 2; }
 
-	UINT OutputSrvSlot() const override { return GetCurrentSlot(); }
+	DescriptorRange OutputSrv() const override { return _srvRange.Sub(_currentIndex); }
 
 	void OnResize(ID3D12Device* device, ID3D12GraphicsCommandList* cmdList, const RenderSettings& res) override;
 
 	void Resolve(ID3D12GraphicsCommandList* cmdList, const AAInputs& in) override;
-
-private:
-	UINT GetPreviousSlot() const { return _firstSlot + 1 - _currentIndex; }
-	UINT GetCurrentSlot() const { return _firstSlot + _currentIndex; }
 
 private:
 	void CreateRootsignature(const AAInitContext& ctx);
@@ -87,9 +82,7 @@ private:
 	D3D12_CPU_DESCRIPTOR_HANDLE _colorRTVs[2];
 	UINT _rtvDescriptorSize = 0;
 
-	ID3D12DescriptorHeap* _srvHeap;
-	UINT _firstSlot;
-	UINT _srvDescSize;
+	DescriptorRange _srvRange;
 
 	ComPtr<ID3D12RootSignature> _rootSignature;
 	ComPtr<ID3D12PipelineState> _pso;

@@ -8,6 +8,7 @@
 #include <string>
 #include <unordered_map>
 #include "MathHelper.h"
+#include "DescriptorHeapAllocator.h"
 
 using namespace DirectX;
 using namespace Microsoft::WRL;
@@ -121,18 +122,25 @@ struct MaterialConstants
 	float Pad1[2] = { 0.0f, 0.0f };
 };
 
+struct TextureHandle
+{
+	uint32_t Index = UINT32_MAX;
+	uint32_t Generation = 0;
+	bool Valid() const { return Index != UINT32_MAX; }
+};
+
 struct Material
 {
 	std::string Name;
 
 	int MatCBIndex = -1;
 
-	int DiffuseSrvHeapIndex = 0;
-	int NormalSrvHeapIndex = 1;
-	int MetallicSrvHeapIndex = 2;
-	int RoughnessSrvHeapIndex = 3;
-	int AOSrvHeapIndex = 4;
-	int DisplacementSrvHeapIndex = 5;
+	TextureHandle Albedo;
+	TextureHandle Normal;
+	TextureHandle Metallic;
+	TextureHandle Roughness;
+	TextureHandle AO;
+	TextureHandle Displacement;
 
 	int NumFramesDirty = 3;
 
@@ -142,13 +150,10 @@ struct Material
 struct Texture
 {
 	std::string Name;
-
 	std::wstring Filename;
 
 	ComPtr<ID3D12Resource> Resource = nullptr;
-	ComPtr<ID3D12Resource> UploadHeap = nullptr;
-
-	int SrvHeapIndex = -1;
+	DescriptorRange SrvRange = {};
 };
 
 struct Model

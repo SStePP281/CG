@@ -13,6 +13,7 @@
 #include <DirectXMath.h>
 #include <DirectXColors.h>
 #include "RenderSettings.h"
+#include "DescriptorHeapAllocator.h"
 
 using namespace Microsoft::WRL;
 using namespace DirectX;
@@ -31,7 +32,7 @@ struct GBufferTexture
     ComPtr<ID3D12Resource> Resource = nullptr;
 
     D3D12_CPU_DESCRIPTOR_HANDLE RTV = {};
-    D3D12_CPU_DESCRIPTOR_HANDLE SRV = {};
+    DescriptorRange SRV = {};
     D3D12_CPU_DESCRIPTOR_HANDLE DSV = {};
 };
 
@@ -47,7 +48,7 @@ private:
     };
 
 public:
-    GBuffer(ID3D12Device* device, Resolution res, CD3DX12_CPU_DESCRIPTOR_HANDLE srvHandle, UINT srvDescriptorSize);
+    GBuffer(ID3D12Device* device, Resolution res, DescriptorAllocator* srvAlloc);
 
     void TransitToOpaqueRenderingState(ID3D12GraphicsCommandList* cmdList);
     void TransitToLightRenderingState(ID3D12GraphicsCommandList* cmdList);
@@ -66,8 +67,7 @@ private:
     void CreateSRV(ID3D12Device* device);
     void CreateRTVandDSV(ID3D12Device* device);
 
-    CD3DX12_CPU_DESCRIPTOR_HANDLE _srvHandle;
-    UINT _srvDescriptorSize = 0;
+    DescriptorRange _srvRange;
 };
 
 #endif // !G_BUFFER_HPP

@@ -35,6 +35,8 @@
 #include "AntiAliasing.h"
 #include "NGXManager.h"
 #include "RenderGUI.h"
+#include "TextureManager.h"
+#include "DeferredReleaseQueue.h"
 
 class TAA; 
 class DLAA;
@@ -261,9 +263,6 @@ private:
     void BuildShadowPassPSO();
     void BuildTerrainPassPSO();
 
-    void BuildDescriptorHeaps();
-    void BuildLightSRV();
-
     void BuildShadersAndInputLayout();
 
     void CreateLight();
@@ -283,7 +282,6 @@ private:
 
     void LoadIBLTextures();
 
-    ComPtr<ID3D12Resource> CreateDefault1x1Texture(DXGI_FORMAT format, const UINT8 rgba[4], ComPtr<ID3D12Resource>& uploadHeap);
     std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> GetStaticSamplers();
 
     AntiAliasing* GetAAByMode(AAMode mode);
@@ -293,6 +291,8 @@ private:
     FrameResource* _currFrameResource = nullptr;
     int _currFrameResourceIndex = 0;
 
+    std::unique_ptr<DeferredReleaseQueue> _releaseQueue;
+
     ComPtr<ID3D12RootSignature> _rootSignatureGBuffer = nullptr;
     ComPtr<ID3D12RootSignature> _rootSignatureLightPass = nullptr;
     ComPtr<ID3D12RootSignature> _rootSignatureShadowPass = nullptr;
@@ -300,8 +300,9 @@ private:
 
     std::unordered_map<std::string, std::unique_ptr<MeshGeometry>> _geometries;
     std::unordered_map<std::string, std::unique_ptr<Material>> _materials;
-    std::unordered_map<std::string, std::unique_ptr<Texture>> _textures;
     std::vector<Light> _lights;
+
+    std::unique_ptr<TextureManager> _textures;
 
     std::unordered_map<std::string, std::unique_ptr<Model>> _models;
     std::vector<std::unique_ptr<SceneObject>> _sceneObjects;
@@ -329,19 +330,10 @@ private:
     std::unique_ptr<TAA> _TAA;
     std::unique_ptr<DLAA> _DLAA;
 
-    UINT _lastSlot = 0;
-    UINT _gBufferSrvStart = 0;
-    UINT _lightSbSrvSlot = 0;
-    UINT _shadowSrvStart = 0;
-    UINT _terrainSrvStart = 0;
-
-    UINT _iblIrradianceSrvSlot = 0;
-    UINT _iblSpecularSrvSlot = 0;
-    UINT _iblBrdfSrvSlot = 0;
-
     ComPtr<ID3D12Resource> _iblIrradiance;
     ComPtr<ID3D12Resource> _iblSpecular;
     ComPtr<ID3D12Resource> _iblBrdf;
+    DescriptorRange _iblSrv;
 
     BoundingFrustum _camFrustum;
     std::unique_ptr<OctreeNode> _octreeRoot;
@@ -366,8 +358,6 @@ private:
 
 private:
     std::unique_ptr<RenderGUI> _gui;
-
-    UINT _guiSrvStart = 0;
 
 private:
     bool _isDebugMode = false;
