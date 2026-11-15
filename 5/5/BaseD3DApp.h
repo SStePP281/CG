@@ -14,6 +14,7 @@
 #include "GameTimer.h"
 #include "RenderSettings.h"
 #include "DescriptorHeapAllocator.h"
+#include "FrameStats.h"
 
 using namespace Microsoft::WRL;
 
@@ -65,13 +66,13 @@ protected:
 
 	ID3D12Resource* CurrentBackBuffer() const { return _swapChainBuffer[_currBackBuffer].Get(); }
 	DescriptorRange CurrentBackBufferRtv() const { return _swapChainRtv.Sub(_currBackBuffer); }
-	
-	void CalculateFrameStats();
-	virtual std::wstring GetWindowTitile() { return L""; }
 
 protected:
 	RenderSettings _renderSettings;
 	ShadowSettings _shadowSettings;
+
+	FrameStats _frameStats;
+	FrameTimeHistory _frameHistory;
 
 	static BaseD3DApp* _app;
 	HINSTANCE _hInstance = nullptr;
@@ -82,7 +83,7 @@ protected:
 	bool _maximized = false;
 	bool _resizing = false;
 	bool _fullscreenState = false;
-	bool _4xMsaaState = false;
+	bool _4xMsaaState = true;
 	UINT _4xMsaaQuality = 0;
 
 	GameTimer _timer;

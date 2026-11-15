@@ -246,7 +246,6 @@ int BaseD3DApp::Run()
 
             if (!_appPaused)
             {
-                CalculateFrameStats();
                 Update(_timer);
                 Draw(_timer);
             }
@@ -271,30 +270,6 @@ void BaseD3DApp::FlushCommandQueue()
         ThrowIfFailed(_fence->SetEventOnCompletion(_currFence, eventHandle));
         WaitForSingleObject(eventHandle, INFINITE);
         CloseHandle(eventHandle);
-    }
-}
-
-void BaseD3DApp::CalculateFrameStats()
-{
-    static int frameCnt = 0;
-    static float timeElapsed = 0.0f;
-
-    frameCnt++;
-
-    if ((_timer.TotalTime() - timeElapsed) >= 1.0f)
-    {
-        float fps = (float)frameCnt;
-        float mspf = 1000.0f / fps;
-
-        std::wstring windowText = _mainWndCaption +
-            L"    FPS: " + std::to_wstring((int)fps) +
-            L"    MS per Frame: " + std::to_wstring(mspf) +
-            GetWindowTitile();
-
-        SetWindowTextW(_hMainWnd, windowText.c_str());
-
-        frameCnt = 0;
-        timeElapsed += 1.0f;
     }
 }
 

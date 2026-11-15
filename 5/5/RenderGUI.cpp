@@ -65,14 +65,50 @@ void RenderGUI::Initialize(HWND hwnd, ID3D12Device* device, ID3D12CommandQueue* 
     std::cout << "[GUI] ImGui initialized" << std::endl;
 }
 
-void RenderGUI::BeginFrame()
+void RenderGUI::NewFrame()
 {
     if (!_initialized) { return; }
 
     ImGui_ImplDX12_NewFrame();
     ImGui_ImplWin32_NewFrame();
-
     ImGui::NewFrame();
+
+    if (!Visible) { return; }
+
+    DrawMenuBar();
+    DrawPanels();
+}
+
+void RenderGUI::DrawMenuBar()
+{
+    if (!ImGui::BeginMainMenuBar()) { return; }
+
+    if (ImGui::BeginMenu("View"))
+    {
+        for (auto& p : _panels)
+        {
+            if (p->ShowInMenu()) { ImGui::MenuItem(p->Name(), nullptr, &p->Open); }
+        }
+        ImGui::EndMenu();
+    }
+
+    ImGui::EndMainMenuBar();
+}
+
+void RenderGUI::DrawPanels()
+{
+    for (auto& p : _panels)
+    {
+        if (!p->Open) { continue; }
+
+        p->BeforeBegin();
+
+        if (ImGui::Begin(p->Name(), &p->Open, p->Flags()))
+        {
+            p->Draw();
+        }
+        ImGui::End();
+    }
 }
 
 void RenderGUI::Render(ID3D12GraphicsCommandList* commandList)

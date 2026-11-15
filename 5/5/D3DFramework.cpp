@@ -109,6 +109,8 @@ bool D3DFramework::Initialize()
 	_gui = std::make_unique<RenderGUI>();
 	_gui->Initialize(_hMainWnd, _d3dDevice.Get(), _cmdQueue.Get(), _srvAlloc.get(), _backBufferFormat, _renderSettings.SwapChainBufferCount);
 
+	_gui->AddPanel<InfoPanel>(_frameStats, _frameHistory);
+
 	ThrowIfFailed(_cmdList->Close());
 	ID3D12CommandList* cmdsLists[] = { _cmdList.Get() };
 	_cmdQueue->ExecuteCommandLists(_countof(cmdsLists), cmdsLists);
@@ -125,39 +127,6 @@ bool D3DFramework::Initialize()
 	}
 
 	return true;
-}
-
-std::wstring D3DFramework::GetWindowTitile()
-{
-	std::wstring title = BaseD3DApp::GetWindowTitile();
-
-	if (_isTerrainDegub)
-	{
-		title += L"   Tile Count = " + std::to_wstring(_terrain->GetVisibleTiles().size());
-	}
-	else if (_paintMode)
-	{
-		title += L"   Layer: " + std::to_wstring(_brushLayer + 1) +
-			(_brushMode == BrushMode::Draw ? L"  Draw" : L"  Erase") +
-			L"  R: " + std::to_wstring((int)_brushRadius) + L" m" +
-			L"  S: " + std::to_wstring((int)(_brushStrength * 100) / 100.0f).substr(0, 4);
-	}
-	else
-	{
-		title += L"   AA: ";
-		title += ToString(_currentAA->GetMode());
-
-		if (_currentAA->GetMode() == AAMode::DLAA)
-		{
-			title += L"   Preset: ";
-			title += ToString(_renderSettings.Preset);
-		}
-
-		title += L"   Render: " + std::to_wstring(_renderSettings.Render.Width) + L"x" + std::to_wstring(_renderSettings.Render.Height)
-			+ L" / " + std::to_wstring(_renderSettings.Display.Width) + L"x" + std::to_wstring(_renderSettings.Display.Height);
-	}
-
-	return title;
 }
 
 void D3DFramework::UpdateRenderResolution()
@@ -190,6 +159,16 @@ void D3DFramework::OnRenderResize()
 
 void D3DFramework::Update(const GameTimer& gt)
 {
+	_gui->NewFrame();
+
+	_frameHistory.Push(gt.DeltaTime() * 1000.0f);
+
+	_frameStats.ResetPerFrame();
+	_frameStats.SrvUsed = _srvAlloc->Used();
+	_frameStats.SrvCapacity = _srvAlloc->Capacity();
+	_frameStats.RtvUsed = _rtvAlloc->Used();
+	_frameStats.RtvCapacity = _rtvAlloc->Capacity();
+
 	OnKeyboardInput(gt);
 	UpdateCamera(gt);
 
@@ -235,20 +214,6 @@ void D3DFramework::Draw(const GameTimer& gt)
 
 	ID3D12DescriptorHeap* heaps[] = { _srvAlloc->Heap() };
 	_cmdList->SetDescriptorHeaps(1, heaps);
-
-	//GUI
-
-	_gui->BeginFrame();
-
-	ImGui::Begin("Graphics Debugger");
-
-	ImGui::Text("DirectX 12 Renderer");
-
-	ImGui::Separator();
-
-	ImGui::Text("FPS: %.1f", ImGui::GetIO().Framerate);
-
-	ImGui::End();
 
 	//TERRAIN DRAW MODE
 
@@ -938,6 +903,9 @@ void D3DFramework::UpdateInstanceData(const GameTimer& gt)
 	if (_octreeRoot)
 	{
 		_octreeRoot->Query(_camFrustum, visibleInstances);
+
+		_frameStats.VisibleInstances = (UINT)visibleInstances.size();
+		for (auto& ri : _allRitems) { _frameStats.TotalInstances += (UINT)ri->Instances.size(); }
 	}
 
 	for (auto& riPtr : _allRitems)
@@ -1743,6 +1711,9 @@ void D3DFramework::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std
 		cmdList->SetGraphicsRootShaderResourceView(10, instAddr);    // t3 space1
 
 		cmdList->DrawIndexedInstanced(ri->IndexCount, ri->VisibleInstanceCount, ri->StartIndexLocation, ri->BaseVertexLocation, 0);
+		
+		_frameStats.DrawCalls++;
+		_frameStats.Triangles += ri->IndexCount / 3 * ri->VisibleInstanceCount;
 	}
 }
 
@@ -1765,6 +1736,8 @@ void D3DFramework::DrawRenderItemsShadow(ID3D12GraphicsCommandList* cmdList, con
 		cmdList->SetGraphicsRootShaderResourceView(0, instAddress);
 
 		cmdList->DrawIndexedInstanced(ri->IndexCount, ri->ShadowInstanceCount, ri->StartIndexLocation, ri->BaseVertexLocation, 0);
+	
+		_frameStats.ShadowDraws++;
 	}
 }
 

@@ -184,6 +184,9 @@
     <ClInclude Include="DeferredReleaseQueue.h" />
     <ClInclude Include="DescriptorHeapAllocator.h" />
     <ClInclude Include="DLAA.h" />
+    <ClInclude Include="FrameStats.h" />
+    <ClInclude Include="InfoPanel.h" />
+    <ClInclude Include="IPanel.h" />
     <ClInclude Include="NGXManager.h" />
     <ClInclude Include="NoAA.h" />
     <ClInclude Include="RenderGUI.h" />

@@ -6,10 +6,12 @@
 #include <dxgi.h>
 
 #include <vector>
+#include <memory>
 
 #include "imgui.h"
 #include "backends/imgui_impl_dx12.h"
 #include "DescriptorHeapAllocator.h"
+#include "IPanel.h"
 
 class RenderGUI
 {
@@ -22,13 +24,28 @@ public:
 
     void Initialize(HWND hwnd, ID3D12Device* device, ID3D12CommandQueue* commandQueue, DescriptorAllocator* srvAlloc, DXGI_FORMAT rtvFormat, UINT frameCount);
 
-    void BeginFrame();
+    template<class T, class... Args>
+    T& AddPanel(Args&&... args)
+    {
+        auto panel = std::make_unique<T>(std::forward<Args>(args)...);
+        T& ref = *panel;
+        _panels.push_back(std::move(panel));
+        return ref;
+    }
 
+    void NewFrame();
     void Render(ID3D12GraphicsCommandList* commandList);
-
+    bool HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
     void Shutdown();
 
-    bool HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
+    bool Visible = true;
+
+private:
+    void DrawMenuBar();
+    void DrawPanels();
+
+    static void AllocateDescriptor(ImGui_ImplDX12_InitInfo* info, D3D12_CPU_DESCRIPTOR_HANDLE* cpuHandle, D3D12_GPU_DESCRIPTOR_HANDLE* gpuHandle);
+    static void FreeDescriptor(ImGui_ImplDX12_InitInfo* info, D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle, D3D12_GPU_DESCRIPTOR_HANDLE gpuHandle);
 
 private:
     bool _initialized = false;
@@ -36,12 +53,10 @@ private:
     bool _win32Initialized = false;
     bool _dx12Initialized = false;
 
-private:
-    static void AllocateDescriptor(ImGui_ImplDX12_InitInfo* info, D3D12_CPU_DESCRIPTOR_HANDLE* cpuHandle, D3D12_GPU_DESCRIPTOR_HANDLE* gpuHandle);
-    static void FreeDescriptor(ImGui_ImplDX12_InitInfo* info, D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle, D3D12_GPU_DESCRIPTOR_HANDLE gpuHandle);
-
     DescriptorAllocator* _srvAlloc = nullptr;
     std::vector<DescriptorRange> _imguiSrvs;
+
+    std::vector<std::unique_ptr<IPanel>> _panels;
 };
 
 #endif // !RENDER_GUI_HPP

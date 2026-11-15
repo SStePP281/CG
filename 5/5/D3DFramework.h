@@ -37,6 +37,8 @@
 #include "RenderGUI.h"
 #include "TextureManager.h"
 #include "DeferredReleaseQueue.h"
+#include "FrameStats.h"
+#include "InfoPanel.h"
 
 class TAA; 
 class DLAA;
@@ -214,7 +216,6 @@ public:
     ~D3DFramework();
 
     virtual bool Initialize() override;
-    virtual std::wstring GetWindowTitile() override;
 
 private:
     virtual void UpdateRenderResolution() override;
@@ -285,6 +286,11 @@ private:
     std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> GetStaticSamplers();
 
     AntiAliasing* GetAAByMode(AAMode mode);
+
+private:
+    DebugSettings  _debug;
+    BrushSettings  _brush;
+    CameraSettings _camera;
 
 private:
     std::vector<std::unique_ptr<FrameResource>> _frameResources;

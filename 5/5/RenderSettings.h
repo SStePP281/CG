@@ -32,6 +32,13 @@ struct RenderSettings
 
 	Resolution Display;
 	Resolution Render;
+
+	bool operator==(const RenderSettings& other) const
+	{
+		return Mode == other.Mode && Preset == other.Preset && RenderScale == other.RenderScale;
+	}
+
+	bool operator!=(const RenderSettings& other) { return !(*this == other); }
 };
 
 struct ShadowSettings

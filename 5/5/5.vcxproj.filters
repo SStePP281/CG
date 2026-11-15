@@ -48,6 +48,12 @@
     <Filter Include="Source Files\Core">
       <UniqueIdentifier>{afb18901-171d-4990-a314-7bc2251b8295}</UniqueIdentifier>
     </Filter>
+    <Filter Include="RenderUI\Panels\_Base">
+      <UniqueIdentifier>{afbca671-a97a-437e-9393-bdbcdefc7dd8}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="RenderUI\Panels\Header">
+      <UniqueIdentifier>{03d2115f-edd9-4838-8cd9-6880a96c0965}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="WindowMain.cpp">
@@ -290,6 +296,15 @@
     </ClInclude>
     <ClInclude Include="DeferredReleaseQueue.h">
       <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="FrameStats.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="IPanel.h">
+      <Filter>RenderUI\Panels\_Base</Filter>
+    </ClInclude>
+    <ClInclude Include="InfoPanel.h">
+      <Filter>RenderUI\Panels\Header</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>
