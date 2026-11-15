@@ -7,16 +7,16 @@
 #include <d3dx12.h>
 #include <DirectXMath.h>
 #include "RenderSettings.h"
-#include "DescriptorHeapAllocator.h"
+#include "GraphicsDevice.h"
 
-using namespace Microsoft::WRL;
+using Microsoft::WRL::ComPtr;
 
 class VelocityBuffers
 {
 public:
     static constexpr UINT SrvSlotCount = 2;
 
-    VelocityBuffers(ID3D12Device* device, DescriptorAllocator* srvAlloc, DescriptorAllocator* rtvAlloc);
+    VelocityBuffers(GraphicsDevice& device);
     void OnResize(ID3D12Device* device, Resolution res);
 
     void Swap() { _current = 1 - _current; }

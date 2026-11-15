@@ -6,13 +6,13 @@
 
 #include <wrl/client.h>
 
-using namespace Microsoft::WRL;
+using Microsoft::WRL::ComPtr;
 using namespace DirectX;
 
 class DLAA final : public AntiAliasing
 {
 public:
-    DLAA(ID3D12GraphicsCommandList* cmdList, NGXManager* ngxManager, const AAInitContext& context);
+    DLAA(NGXManager* ngxManager, const AAInitContext& context);
     ~DLAA() override;
 
     AAMode GetMode() const override { return AAMode::DLAA; }

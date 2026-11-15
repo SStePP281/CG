@@ -3,14 +3,14 @@
 
 // PASS
 
-PostProcessPass::PostProcessPass(ID3D12Device* device, const PassDesc& desc, DescriptorAllocator* srvAlloc, DescriptorAllocator* rtvAlloc)
+PostProcessPass::PostProcessPass(GraphicsDevice& device, const PassDesc& desc)
 {
 	Desc = desc;
 
-	OutputSRV = srvAlloc->Allocate(1);
-	OutputRTV = rtvAlloc->Allocate(1);
+	OutputSRV = device.Srv().Allocate(1);
+	OutputRTV = device.Rtv().Allocate(1);
 
-	CreateResources(device, srvAlloc, rtvAlloc);
+	CreateResources(device.Device());
 }
 
 void PostProcessPass::Build(ID3D12Device* device)
@@ -69,7 +69,7 @@ void PostProcessPass::OnResize(ID3D12Device* device, Resolution res)
 	device->CreateShaderResourceView(OutputBuffer.Get(), &srvDesc, OutputSRV.Cpu());
 }
 
-void PostProcessPass::CreateResources(ID3D12Device* device, DescriptorAllocator* srvAlloc, DescriptorAllocator* rtvAlloc)
+void PostProcessPass::CreateResources(ID3D12Device* device)
 {
 	CreateOutputBuffer(device);
 
@@ -217,7 +217,7 @@ void PostProcessPass::BuildPSO(ID3D12Device* device)
 
 // CHAIN
 
-void PostProcessChain::InitHDRBuffer(ID3D12Device* device, DescriptorAllocator* srvAlloc, DescriptorAllocator* rtvAlloc, Resolution res)
+void PostProcessChain::InitHDRBuffer(GraphicsDevice& device, Resolution res)
 {
 	D3D12_RESOURCE_DESC desc = CD3DX12_RESOURCE_DESC::Tex2D(HDR_FORMAT, res.Width, res.Height, 1, 1, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET);
 
@@ -226,16 +226,16 @@ void PostProcessChain::InitHDRBuffer(ID3D12Device* device, DescriptorAllocator* 
 	clear.Color[3] = 1.0f;
 
 	CD3DX12_HEAP_PROPERTIES heapProps(D3D12_HEAP_TYPE_DEFAULT);
-	ThrowIfFailed(device->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, &clear, IID_PPV_ARGS(&_hdrBuffer)));
+	ThrowIfFailed(device.Device()->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, &clear, IID_PPV_ARGS(&_hdrBuffer)));
 
-	_hdrSrv = srvAlloc->Allocate(1);
-	_hdrRtv = rtvAlloc->Allocate(1);
+	_hdrSrv = device.Srv().Allocate(1);
+	_hdrRtv = device.Rtv().Allocate(1);
 
 	D3D12_RENDER_TARGET_VIEW_DESC rtvDesc = {};
 	rtvDesc.Format = HDR_FORMAT;
 	rtvDesc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
 
-	device->CreateRenderTargetView(_hdrBuffer.Get(), &rtvDesc, _hdrRtv.Cpu());
+	device.Device()->CreateRenderTargetView(_hdrBuffer.Get(), &rtvDesc, _hdrRtv.Cpu());
 
 	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
 	srvDesc.Format = HDR_FORMAT;
@@ -243,10 +243,10 @@ void PostProcessChain::InitHDRBuffer(ID3D12Device* device, DescriptorAllocator* 
 	srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
 	srvDesc.Texture2D.MipLevels = 1;
 
-	device->CreateShaderResourceView(_hdrBuffer.Get(), &srvDesc, _hdrSrv.Cpu());
+	device.Device()->CreateShaderResourceView(_hdrBuffer.Get(), &srvDesc, _hdrSrv.Cpu());
 }
 
-DescriptorRange PostProcessChain::ReservePass(ID3D12Device* device, const PassDesc& desc, DescriptorAllocator* srvAlloc, DescriptorAllocator* rtvAlloc)
+DescriptorRange PostProcessChain::ReservePass(GraphicsDevice& device, const PassDesc& desc)
 {
 	if (desc.Stage == PostProcessStage::Tonemapping)
 	{
@@ -259,7 +259,7 @@ DescriptorRange PostProcessChain::ReservePass(ID3D12Device* device, const PassDe
 		}
 	}
 
-	_passes.push_back(std::make_unique<PostProcessPass>(device, desc, srvAlloc, rtvAlloc));
+	_passes.push_back(std::make_unique<PostProcessPass>(device, desc));
 
 	DescriptorRange out = _passes.back()->OutputSRV;
 	Sort();

@@ -14,7 +14,7 @@
 #include "ModelStruct.h"
 #include "Terrain.h"
 
-using namespace Microsoft::WRL;
+using Microsoft::WRL::ComPtr;
 
 struct PassConstants
 {
@@ -124,8 +124,6 @@ public:
     FrameResource& operator=(const FrameResource& rhs) = delete;
     ~FrameResource() {}
 
-    ComPtr<ID3D12CommandAllocator> CmdListAlloc;
-
     std::unique_ptr<UploadBuffer<PassConstants>> PassCB = nullptr;
     std::unique_ptr<UploadBuffer<MaterialConstants>> MaterialCB = nullptr;
     std::unique_ptr<UploadBuffer<LightConstants>> LightSB = nullptr;
@@ -138,8 +136,6 @@ public:
 
     std::unique_ptr<UploadBuffer<ShadowConstant>> ShadowCB = nullptr;
     std::unique_ptr<UploadBuffer<TerrainConstant>> TerrainCB = nullptr;
-
-    UINT64 Fence = 0;
 };
 
 #endif // !FRAME_RESOURCE_HPP

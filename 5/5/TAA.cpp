@@ -5,8 +5,8 @@
 
 TAA::TAA(const AAInitContext& ctx)
 {
-    _srvRange = ctx.srvAlloc->Allocate(2);
-    _rtvRange = ctx.rtvAlloc->Allocate(2);
+    _srvRange = ctx.device.Srv().Allocate(2);
+    _rtvRange = ctx.device.Rtv().Allocate(2);
 
     CreateRootsignature(ctx);
     CreatePSO(ctx);
@@ -93,7 +93,7 @@ void TAA::CreateRootsignature(const AAInitContext& ctx)
 
     ThrowIfFailed(hr);
 
-    ThrowIfFailed(ctx.device->CreateRootSignature(0,
+    ThrowIfFailed(ctx.device.Device()->CreateRootSignature(0,
         serializedRootSig->GetBufferPointer(),
         serializedRootSig->GetBufferSize(),
         IID_PPV_ARGS(&_rootSignature)
@@ -141,7 +141,7 @@ void TAA::CreatePSO(const AAInitContext& ctx)
 
     psoDesc.DSVFormat = DXGI_FORMAT_UNKNOWN;
 
-    ThrowIfFailed(ctx.device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&_pso)));
+    ThrowIfFailed(ctx.device.Device()->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&_pso)));
 }
 
 void TAA::CreateResources(ID3D12Device* device)

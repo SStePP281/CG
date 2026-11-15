@@ -7,6 +7,8 @@
 #include <utility>
 #include <cassert>
 
+using Microsoft::WRL::ComPtr;
+
 class DescriptorRange
 {
 public:
@@ -72,7 +74,7 @@ public:
     UINT Used()     const { return _used; }
 
 private:
-    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> _heap;
+    ComPtr<ID3D12DescriptorHeap> _heap;
     D3D12_CPU_DESCRIPTOR_HANDLE _cpuStart{};
     D3D12_GPU_DESCRIPTOR_HANDLE _gpuStart{};
     UINT _descSize = 0;

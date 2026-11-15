@@ -14,7 +14,7 @@
 #include <d3dx12.h>
 
 using namespace DirectX;
-using namespace Microsoft::WRL;
+using Microsoft::WRL::ComPtr;
 
 class TAA final : public AntiAliasing
 {

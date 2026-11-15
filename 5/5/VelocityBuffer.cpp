@@ -1,10 +1,10 @@
 #include "VelocityBuffers.h"
 #include "ThrowIfFaild.h"
 
-VelocityBuffers::VelocityBuffers(ID3D12Device* device, DescriptorAllocator* srvAlloc, DescriptorAllocator* rtvAlloc)
+VelocityBuffers::VelocityBuffers(GraphicsDevice& device)
 {
-    _srvRange = srvAlloc->Allocate(2);
-    _rtvRange = rtvAlloc->Allocate(2);
+    _srvRange = device.Srv().Allocate(2);
+    _rtvRange = device.Rtv().Allocate(2);
 }
 
 void VelocityBuffers::OnResize(ID3D12Device* d, Resolution res)

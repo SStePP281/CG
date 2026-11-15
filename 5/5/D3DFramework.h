@@ -19,7 +19,6 @@
 #include <DirectXColors.h>
 #include <DDSTextureLoader.h>
 
-#include "BaseD3DApp.h"
 #include "FrameResource.h"
 #include "UploadBuffer.h"
 #include "D3DUtil.h"
@@ -39,28 +38,32 @@
 #include "DeferredReleaseQueue.h"
 #include "FrameStats.h"
 #include "InfoPanel.h"
+#include "SlotPool.h"
+#include "Material.h"
+#include "GameTimer.h"
+#include "Window.h"
+#include "Input.h"
 
 class TAA; 
 class DLAA;
 class NoAA;
 
-using namespace Microsoft::WRL;
+using Microsoft::WRL::ComPtr;
 using namespace DirectX;
 
-constexpr int NUM_FRAME_RECOURCES = 3;
 constexpr int MAX_DEBUG_LAYER_COUNT = 9;
 
 struct RenderItem
 {
     MeshGeometry* Geo;
-    Material* Mat;
+    MaterialHandle Material;
     BoundingBox Bounds;
 
-    std::string SubmeshName;
+    uint32_t SubmeshIndex;
 
     std::string UsedPso;
 
-    int NumFramesDirty = NUM_FRAME_RECOURCES;
+    int NumFramesDirty = GraphicsDevice::FRAME_COUNT;
 
     UINT IndexCount;
     UINT StartIndexLocation;
@@ -207,37 +210,22 @@ public:
     }
 };
 
-class D3DFramework : public BaseD3DApp
+class D3DFramework
 {
 public:
-    D3DFramework(HINSTANCE hInstance);
-    D3DFramework(const D3DFramework& rhs) = delete;
-    D3DFramework& operator=(const D3DFramework& rhs) = delete;
+    D3DFramework(Window& window, Input& input, GraphicsDevice& device);
     ~D3DFramework();
 
-    virtual bool Initialize() override;
+    bool Initialize();
+    void Update(const GameTimer& gt);
+    void Draw(const GameTimer& gt);
+    void OnDisplayResize(Resolution display);
 
 private:
-    virtual void UpdateRenderResolution() override;
-    virtual void OnDisplayResize() override;
-    virtual void OnRenderResize() override;
-    virtual void Update(const GameTimer& gt) override;
-    virtual void Draw(const GameTimer& gt) override;
-
-    virtual LRESULT HandleMsg(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) override;
-    virtual void OnMouseDown(WPARAM btnState, int x, int y) override;
-    virtual void OnMouseUp(WPARAM btnState, int x, int y) override;
-    virtual void OnMouseMove(WPARAM btnState, int x, int y) override;
-    virtual void OnMouseWheel(int delta) override;
+    void UpdateRenderResolution();
+    void OnRenderResize();
 
     void OnKeyboardInput(const GameTimer& gt);
-    bool KeyPressed(int vk)
-    {
-        bool down = (GetAsyncKeyState(vk) & 0x8000) != 0;
-        bool pressed = down && !_prevKeys[vk];
-        _prevKeys[vk] = down;
-        return pressed;
-    }
     void UpdateCamera(const GameTimer& gt);
 
     void ComputeSceneBounds();
@@ -277,9 +265,9 @@ private:
     void DrawTerrain(ID3D12GraphicsCommandList* cmdList);
 
 private:
-    void ParseMesh(const ModelParse::MeshInfo& meshData);
+    void ParseMesh(const ModelParse::MeshInfo& meshData, const std::unordered_map<std::string, MaterialHandle>& matByName);
     void LoadTextures(const ModelParse::MeshInfo& meshData);
-    void ParseMaterials(const ModelParse::MeshInfo& meshData);
+    std::unordered_map<std::string, MaterialHandle> ParseMaterials(const ModelParse::MeshInfo& meshData);
 
     void LoadIBLTextures();
 
@@ -288,24 +276,39 @@ private:
     AntiAliasing* GetAAByMode(AAMode mode);
 
 private:
+    Window* _window;
+    Input& _input;
+    GraphicsDevice* _device;
+
+    FrameStats _frameStats;
+    FrameTimeHistory _frameHistory;
+
+    RenderSettings _renderSettings;
+    ShadowSettings _shadowSettings;
     DebugSettings  _debug;
     BrushSettings  _brush;
     CameraSettings _camera;
 
+    D3D12_VIEWPORT _screenViewport;
+    D3D12_RECT _scissorRect;
+
+    D3D12_VIEWPORT _renderViewport;
+    D3D12_RECT _renderScissor;
+
 private:
     std::vector<std::unique_ptr<FrameResource>> _frameResources;
     FrameResource* _currFrameResource = nullptr;
-    int _currFrameResourceIndex = 0;
-
-    std::unique_ptr<DeferredReleaseQueue> _releaseQueue;
 
     ComPtr<ID3D12RootSignature> _rootSignatureGBuffer = nullptr;
     ComPtr<ID3D12RootSignature> _rootSignatureLightPass = nullptr;
     ComPtr<ID3D12RootSignature> _rootSignatureShadowPass = nullptr;
     ComPtr<ID3D12RootSignature> _rootSignatureTerrainPass = nullptr;
 
-    std::unordered_map<std::string, std::unique_ptr<MeshGeometry>> _geometries;
-    std::unordered_map<std::string, std::unique_ptr<Material>> _materials;
+    static constexpr UINT MAX_MATERIALS = 256;
+
+    SlotPool<Material> _materials;
+    MaterialHandle _defaultMaterial;
+
     std::vector<Light> _lights;
 
     std::unique_ptr<TextureManager> _textures;
@@ -360,8 +363,6 @@ private:
 
     BoundingBox _sceneBounds;
 
-    POINT _lastMousePos;
-
 private:
     std::unique_ptr<RenderGUI> _gui;
 
@@ -371,7 +372,6 @@ private:
     bool _isUseBeckmann = false;
 
     bool _renderSettingsDirty = false;
-    bool _prevKeys[256] = {};
 
     enum class BrushMode { Draw, Erase };
 

@@ -23,25 +23,29 @@
 
 using namespace DirectX;
 
-D3DFramework::D3DFramework(HINSTANCE hInstance) : BaseD3DApp(hInstance) {}
+D3DFramework::D3DFramework(Window& window, Input& input, GraphicsDevice& device) :
+	_window(&window), _input(input), _device(&device)
+{
+	UpdateRenderResolution();
+}
 
-D3DFramework::~D3DFramework() { if (_d3dDevice != nullptr) { FlushCommandQueue(); } }
+D3DFramework::~D3DFramework() { if (_device) { _device->Flush(); } }
 
 bool D3DFramework::Initialize()
 {
-	if (!BaseD3DApp::Initialize()) { return false; }
-	ThrowIfFailed(_cmdList->Reset(_directCmdListAlloc.Get(), nullptr));
+	OnDisplayResize(_window->Size());
 
-	_releaseQueue = std::make_unique<DeferredReleaseQueue>();
+	_device->BeginImmediate();
 
-	_textures = std::make_unique<TextureManager>();
-	_textures->Initialize(_d3dDevice.Get(), _cmdQueue.Get(), _cmdList.Get(), _srvAlloc.get(), _releaseQueue.get(), GetNextFence());
+	_textures = std::make_unique<TextureManager>(*_device);
 
-	_ngxManager = std::make_unique<NGXManager>(_d3dDevice.Get());
+	_ngxManager = std::make_unique<NGXManager>(_device->Device());
 	if (!_ngxManager->IsInitialized())
 	{
 		MessageBox(0, L"RegisterNGXManager Failed.", 0, 0);
 	}
+
+	_defaultMaterial = _materials.Add(std::make_unique<Material>());
 
 	LoadModel(LOCAL_PATH + "Models/Model.obj");
 	LoadModel(LOCAL_PATH + "Models/IBL_TEST.obj");
@@ -53,35 +57,30 @@ bool D3DFramework::Initialize()
 	{
 		auto sampler = GetStaticSamplers();
 
-		AAInitContext ctx = {};
-		ctx.device = _d3dDevice.Get();
-		ctx.srvAlloc = _srvAlloc.get();
-		ctx.rtvAlloc = _rtvAlloc.get();
-		ctx.samplerCount = (UINT)sampler.size();
-		ctx.samplers = sampler.data();
+		AAInitContext ctx = { *_device, sampler.data(), (UINT)sampler.size() };
 
 		_noAA = std::make_unique<NoAA>();
 		_TAA = std::make_unique<TAA>(ctx);
-		_DLAA = std::make_unique<DLAA>(_cmdList.Get(), _ngxManager.get(), ctx);
+		_DLAA = std::make_unique<DLAA>(_ngxManager.get(), ctx);
 
 		_currentAA = GetAAByMode(_renderSettings.Mode);
 
 		UpdateRenderResolution();
-		BaseD3DApp::OnRenderResize();
+		OnRenderResize();
 
-		_noAA->OnResize(_d3dDevice.Get(), _cmdList.Get(), _renderSettings);
-		_TAA->OnResize(_d3dDevice.Get(), _cmdList.Get(), _renderSettings);
-		_DLAA->OnResize(_d3dDevice.Get(), _cmdList.Get(), _renderSettings);
+		_noAA->OnResize(_device->Device(), _device->CommandList(), _renderSettings);
+		_TAA->OnResize(_device->Device(), _device->CommandList(), _renderSettings);
+		_DLAA->OnResize(_device->Device(), _device->CommandList(), _renderSettings);
 	}
 
-	_gBuffer = std::make_unique<GBuffer>(_d3dDevice.Get(), _renderSettings.Render, _srvAlloc.get(), _rtvAlloc.get(), _dsvAlloc.get());
+	_gBuffer = std::make_unique<GBuffer>(*_device, _renderSettings.Render);
 
-	_shadowMap = std::make_unique<ShadowMap>(_d3dDevice.Get(), _shadowSettings, _srvAlloc.get(), _dsvAlloc.get());
+	_shadowMap = std::make_unique<ShadowMap>(*_device, _shadowSettings);
 
-	_terrain = std::make_unique<Terrain>(_d3dDevice.Get(), _cmdQueue.Get(), _cmdList.Get(), _srvAlloc.get());
+	_terrain = std::make_unique<Terrain>(*_device);
 
-	_velocityBuffer = std::make_unique<VelocityBuffers>(_d3dDevice.Get(), _srvAlloc.get(), _rtvAlloc.get());
-	_velocityBuffer->OnResize(_d3dDevice.Get(), _renderSettings.Render);
+	_velocityBuffer = std::make_unique<VelocityBuffers>(*_device);
+	_velocityBuffer->OnResize(_device->Device(), _renderSettings.Render);
 
 	_ppChain = std::make_unique<PostProcessChain>();
 	CreatePPS();
@@ -106,15 +105,15 @@ bool D3DFramework::Initialize()
 	BuildShadowPassPSO();
 	BuildTerrainPassPSO();
 
-	_gui = std::make_unique<RenderGUI>();
-	_gui->Initialize(_hMainWnd, _d3dDevice.Get(), _cmdQueue.Get(), _srvAlloc.get(), _backBufferFormat, _renderSettings.SwapChainBufferCount);
+	_gui = std::make_unique<RenderGUI>(_window->Handle(), *_device, _renderSettings.SwapChainBufferCount);
+	_window->MessageHook = [this](HWND h, UINT m, WPARAM w, LPARAM l)
+		{
+			return _gui && _gui->HandleMessage(h, m, w, l);
+		};
 
 	_gui->AddPanel<InfoPanel>(_frameStats, _frameHistory);
 
-	ThrowIfFailed(_cmdList->Close());
-	ID3D12CommandList* cmdsLists[] = { _cmdList.Get() };
-	_cmdQueue->ExecuteCommandLists(_countof(cmdsLists), cmdsLists);
-	FlushCommandQueue();
+	_device->EndImmediate();
 
 	_octreeRoot = std::make_unique<OctreeNode>(_sceneBounds);
 
@@ -134,57 +133,64 @@ void D3DFramework::UpdateRenderResolution()
 	_renderSettings.Render = _currentAA ? _currentAA->ComputeRenderResolution(_renderSettings) : _renderSettings.Display;
 }
 
-void D3DFramework::OnDisplayResize()
+void D3DFramework::OnDisplayResize(Resolution display)
 {
-	BaseD3DApp::OnDisplayResize();
+	_renderSettings.Display = display;
 
-	XMMATRIX P = XMMatrixPerspectiveFovLH(0.25f * MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
+	_screenViewport = { 0.0f, 0.0f, (float)display.Width, (float)display.Height, 0.0f, 1.0f };
+	_scissorRect = { 0, 0, (LONG)display.Width, (LONG)display.Height };
+
+	float aspect = (float)_renderSettings.Display.Width / _renderSettings.Display.Height;
+
+	XMMATRIX P = XMMatrixPerspectiveFovLH(0.25f * MathHelper::Pi, aspect, 1.0f, 1000.0f);
 	XMStoreFloat4x4(&_proj, P);
+
+	UpdateRenderResolution();
+	OnRenderResize();
 }
 
 void D3DFramework::OnRenderResize()
 {
-	FlushCommandQueue();
+	_renderViewport = _screenViewport;
+	_renderViewport.Width = (float)_renderSettings.Render.Width;
+	_renderViewport.Height = (float)_renderSettings.Render.Height;
 
-	BaseD3DApp::OnRenderResize();
+	_renderScissor = { 0, 0, (LONG)_renderSettings.Render.Width, (LONG)_renderSettings.Render.Height };
 
-	if (_gBuffer.get() != nullptr) { _gBuffer->OnResize(_d3dDevice.Get(), _renderSettings.Render); }
-	if (_ppChain.get() != nullptr) { _ppChain->OnResize(_d3dDevice.Get(), _renderSettings.Render, _renderSettings.Display); }
-	if (_velocityBuffer.get() != nullptr) { _velocityBuffer->OnResize(_d3dDevice.Get(), _renderSettings.Render); }
+	_device->Flush();
 
-	if (_TAA != nullptr) { _TAA->OnResize(_d3dDevice.Get(), _cmdList.Get(), _renderSettings); }
-	if (_DLAA != nullptr) { _DLAA->OnResize(_d3dDevice.Get(), _cmdList.Get(), _renderSettings); }
+	ID3D12Device* d = _device->Device();
+	ID3D12GraphicsCommandList* l = _device->CommandList();
+
+	if (_gBuffer.get() != nullptr) { _gBuffer->OnResize(d, _renderSettings.Render); }
+	if (_ppChain.get() != nullptr) { _ppChain->OnResize(d, _renderSettings.Render, _renderSettings.Display); }
+	if (_velocityBuffer.get() != nullptr) { _velocityBuffer->OnResize(d, _renderSettings.Render); }
+
+	if (_TAA != nullptr) { _TAA->OnResize(d, l, _renderSettings); }
+	if (_DLAA != nullptr) { _DLAA->OnResize(d, l, _renderSettings); }
 	if (_currentAA != nullptr) { _currentAA->ResetHistory(); }
 }
 
 void D3DFramework::Update(const GameTimer& gt)
 {
+	_device->BeginFrame();
+	_currFrameResource = _frameResources[_device->FrameIndex()].get();
+
 	_gui->NewFrame();
+
+	_input.MouseCaptured = ImGui::GetIO().WantCaptureMouse;
+	_input.KeyboardCaptured = ImGui::GetIO().WantCaptureKeyboard;
 
 	_frameHistory.Push(gt.DeltaTime() * 1000.0f);
 
 	_frameStats.ResetPerFrame();
-	_frameStats.SrvUsed = _srvAlloc->Used();
-	_frameStats.SrvCapacity = _srvAlloc->Capacity();
-	_frameStats.RtvUsed = _rtvAlloc->Used();
-	_frameStats.RtvCapacity = _rtvAlloc->Capacity();
+	_frameStats.SrvUsed = _device->Srv().Used();
+	_frameStats.SrvCapacity = _device->Srv().Capacity();
+	_frameStats.RtvUsed = _device->Rtv().Used();
+	_frameStats.RtvCapacity = _device->Rtv().Capacity();
 
 	OnKeyboardInput(gt);
 	UpdateCamera(gt);
-
-	_currFrameResourceIndex = (_currFrameResourceIndex + 1) % NUM_FRAME_RECOURCES;
-	_currFrameResource = _frameResources[_currFrameResourceIndex].get();
-
-	if (_currFrameResource->Fence != 0 && _fence->GetCompletedValue() < _currFrameResource->Fence)
-	{
-		HANDLE eventHandle = CreateEvent(nullptr, FALSE, FALSE, nullptr);
-		ThrowIfFailed(_fence->SetEventOnCompletion(_currFrameResource->Fence, eventHandle));
-		WaitForSingleObject(eventHandle, INFINITE);
-
-		_releaseQueue->Process(_fence->GetCompletedValue());
-
-		CloseHandle(eventHandle);
-	}
 
 	if (_renderSettingsDirty)
 	{
@@ -208,56 +214,52 @@ void D3DFramework::Update(const GameTimer& gt)
 
 void D3DFramework::Draw(const GameTimer& gt)
 {
-	auto cmdListAlloc = _currFrameResource->CmdListAlloc;
-	ThrowIfFailed(cmdListAlloc->Reset());
-	ThrowIfFailed(_cmdList->Reset(cmdListAlloc.Get(), nullptr));
-
-	ID3D12DescriptorHeap* heaps[] = { _srvAlloc->Heap() };
-	_cmdList->SetDescriptorHeaps(1, heaps);
+	ID3D12GraphicsCommandList* l = _device->CommandList();
 
 	//TERRAIN DRAW MODE
 
-	_terrain->TransitHitToWrite(_cmdList.Get());
+	_terrain->TransitHitToWrite(l);
 	if (_paintMode)
 	{
-		float mouseX = 2.0f * _lastMousePos.x / _renderSettings.Display.Width - 1.0f;
-		float mouseY = 1.0f - 2.0f * _lastMousePos.y / _renderSettings.Display.Height;
+		POINT m = _input.MousePos();
+		float mouseX = 2.0f * m.x / _renderSettings.Display.Width - 1.0f;
+		float mouseY = 1.0f - 2.0f * m.y / _renderSettings.Display.Height;
 
-		_terrain->DoPick(_cmdList.Get(), _currFrameResource->PassCB->Resource()->GetGPUVirtualAddress(), mouseX, mouseY, 1000.0f);
+		_terrain->DoPick(l, _currFrameResource->PassCB->Resource()->GetGPUVirtualAddress(), mouseX, mouseY, 1000.0f);
 
 		if (GetAsyncKeyState(VK_LBUTTON) & 0x8000)
 		{
-			_terrain->DoBrush(_cmdList.Get(), _brushLayer, _brushMode == BrushMode::Erase, _brushRadius, _brushStrength * gt.DeltaTime());
+			_terrain->DoBrush(l, _brushLayer, _brushMode == BrushMode::Erase, _brushRadius, _brushStrength * gt.DeltaTime());
 		}
 	}
-	_terrain->TransitHitToRead(_cmdList.Get());
+	_terrain->TransitHitToRead(l);
 
 	//SHADOW PASS
 
-	_cmdList->SetPipelineState(_psos["shadowPass"].Get());
-	_cmdList->SetGraphicsRootSignature(_rootSignatureShadowPass.Get());
-	_cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	l->SetPipelineState(_psos["shadowPass"].Get());
+	l->SetGraphicsRootSignature(_rootSignatureShadowPass.Get());
+	l->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
 	auto shadowCB = _currFrameResource->ShadowCB->Resource();
 	UINT shadowStride = D3DUtil::CalcConstantBufferSize(sizeof(ShadowConstant));
 
-	_shadowMap->Render(_cmdList.Get(), [&](UINT k)
+	_shadowMap->Render(l, [&](UINT k)
 		{
-			_cmdList->SetGraphicsRootConstantBufferView(1, shadowCB->GetGPUVirtualAddress() + k * shadowStride);
+			l->SetGraphicsRootConstantBufferView(1, shadowCB->GetGPUVirtualAddress() + k * shadowStride);
 
-			DrawRenderItemsShadow(_cmdList.Get(), _shadowRitems);
+			DrawRenderItemsShadow(l, _shadowRitems);
 		});
 
 	//GEOMETRY PASS (GBuffer)
 
-	_cmdList->RSSetViewports(1, &_renderViewport);
-	_cmdList->RSSetScissorRects(1, &_renderScissor);
+	l->RSSetViewports(1, &_renderViewport);
+	l->RSSetScissorRects(1, &_renderScissor);
 
-	_gBuffer->TransitToOpaqueRenderingState(_cmdList.Get());
-	_gBuffer->ClearView(_cmdList.Get());
+	_gBuffer->TransitToOpaqueRenderingState(l);
+	_gBuffer->ClearView(l);
 
-	_velocityBuffer->TransitCurrentToWrite(_cmdList.Get());
-	_velocityBuffer->ClearCurrent(_cmdList.Get());
+	_velocityBuffer->TransitCurrentToWrite(l);
+	_velocityBuffer->ClearCurrent(l);
 
 	std::array<D3D12_CPU_DESCRIPTOR_HANDLE, 4> rtvs =
 	{
@@ -268,60 +270,60 @@ void D3DFramework::Draw(const GameTimer& gt)
 	};
 
 	auto dsv = _gBuffer->Textures[(UINT)GBufferIndex::Depth].DSV.Cpu();
-	_cmdList->OMSetRenderTargets((UINT)rtvs.size(), rtvs.data(), FALSE, &dsv);
+	l->OMSetRenderTargets((UINT)rtvs.size(), rtvs.data(), FALSE, &dsv);
 	
-	DrawRenderItems(_cmdList.Get(), _opaqueRitems);
-	DrawTerrain(_cmdList.Get());
+	DrawRenderItems(l, _opaqueRitems);
+	DrawTerrain(l);
 
-	_gBuffer->TransitToLightRenderingState(_cmdList.Get());
+	_gBuffer->TransitToLightRenderingState(l);
 	
-	_velocityBuffer->TransitCurrentToRead(_cmdList.Get());
+	_velocityBuffer->TransitCurrentToRead(l);
 
 	//LIGHTING PASS
 
 	auto toRT = CD3DX12_RESOURCE_BARRIER::Transition(_ppChain->GetHDRBuffer(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
-	_cmdList->ResourceBarrier(1, &toRT);
+	l->ResourceBarrier(1, &toRT);
 
-	auto backBufferToRT = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
-	_cmdList->ResourceBarrier(1, &backBufferToRT);
+	auto backBufferToRT = CD3DX12_RESOURCE_BARRIER::Transition(_device->BackBuffer(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
+	l->ResourceBarrier(1, &backBufferToRT);
 
 	float clearColor[4] = { 0, 0, 0, 1 };
-	auto hdrRTV = _isDebugMode ? CurrentBackBufferRtv().Cpu() : _ppChain->GetHDRRtv().Cpu();
-	_cmdList->ClearRenderTargetView(hdrRTV, clearColor, 0, nullptr);
+	auto hdrRTV = _isDebugMode ? _device->BackBufferRtv().Cpu() : _ppChain->GetHDRRtv().Cpu();
+	l->ClearRenderTargetView(hdrRTV, clearColor, 0, nullptr);
 
 	D3D12_CPU_DESCRIPTOR_HANDLE depth = _gBuffer->Textures[(UINT)GBufferIndex::Depth].DSV.Cpu();
-	_cmdList->OMSetRenderTargets(1, &hdrRTV, FALSE, &depth);
+	l->OMSetRenderTargets(1, &hdrRTV, FALSE, &depth);
 
-	_cmdList->SetPipelineState(_psos["lightPass"].Get());
-	_cmdList->SetGraphicsRootSignature(_rootSignatureLightPass.Get());
+	l->SetPipelineState(_psos[_isDebugMode ? "lightPassDebug" : "lightPass"].Get());
+	l->SetGraphicsRootSignature(_rootSignatureLightPass.Get());
 
 	auto& gb = _gBuffer->Textures;
-	_cmdList->SetGraphicsRootDescriptorTable(0, gb[(UINT)GBufferIndex::Albedo].SRV.Gpu());  // t0 Albedo
-	_cmdList->SetGraphicsRootDescriptorTable(1, gb[(UINT)GBufferIndex::Normal].SRV.Gpu());  // t1 Normal
-	_cmdList->SetGraphicsRootDescriptorTable(2, gb[(UINT)GBufferIndex::MatData].SRV.Gpu()); // t2 MatData
-	_cmdList->SetGraphicsRootDescriptorTable(3, gb[(UINT)GBufferIndex::Depth].SRV.Gpu());   // t3 Depth
+	l->SetGraphicsRootDescriptorTable(0, gb[(UINT)GBufferIndex::Albedo].SRV.Gpu());  // t0 Albedo
+	l->SetGraphicsRootDescriptorTable(1, gb[(UINT)GBufferIndex::Normal].SRV.Gpu());  // t1 Normal
+	l->SetGraphicsRootDescriptorTable(2, gb[(UINT)GBufferIndex::MatData].SRV.Gpu()); // t2 MatData
+	l->SetGraphicsRootDescriptorTable(3, gb[(UINT)GBufferIndex::Depth].SRV.Gpu());   // t3 Depth
 
-	_cmdList->SetGraphicsRootDescriptorTable(9, _iblSrv.Gpu(0));		                // t6 DefHDRI
-	_cmdList->SetGraphicsRootDescriptorTable(10, _iblSrv.Gpu(1));		                // t7 SpecHDRI
-	_cmdList->SetGraphicsRootDescriptorTable(11, _iblSrv.Gpu(2));                       // t8 TableHDRI
-	_cmdList->SetGraphicsRootDescriptorTable(12, _velocityBuffer->Current().srv.Gpu()); // t9 Velocity
+	l->SetGraphicsRootDescriptorTable(9, _iblSrv.Gpu(0));		                // t6 DefHDRI
+	l->SetGraphicsRootDescriptorTable(10, _iblSrv.Gpu(1));		                // t7 SpecHDRI
+	l->SetGraphicsRootDescriptorTable(11, _iblSrv.Gpu(2));                       // t8 TableHDRI
+	l->SetGraphicsRootDescriptorTable(12, _velocityBuffer->Current().srv.Gpu()); // t9 Velocity
 
-	_cmdList->SetGraphicsRootShaderResourceView(4, _currFrameResource->LightSB->Resource()->GetGPUVirtualAddress());	  // t4 LightSB
-	_cmdList->SetGraphicsRootConstantBufferView(5, _currFrameResource->PassCB->Resource()->GetGPUVirtualAddress());		  // b0 PassCB
-	_cmdList->SetGraphicsRootConstantBufferView(6, _currFrameResource->LightInfoCB->Resource()->GetGPUVirtualAddress());  // b1 LightInfoCB
-	_cmdList->SetGraphicsRootConstantBufferView(7, _currFrameResource->ShadowCB->Resource()->GetGPUVirtualAddress());     // b2 ShadowCB
+	l->SetGraphicsRootShaderResourceView(4, _currFrameResource->LightSB->Resource()->GetGPUVirtualAddress());	  // t4 LightSB
+	l->SetGraphicsRootConstantBufferView(5, _currFrameResource->PassCB->Resource()->GetGPUVirtualAddress());		  // b0 PassCB
+	l->SetGraphicsRootConstantBufferView(6, _currFrameResource->LightInfoCB->Resource()->GetGPUVirtualAddress());  // b1 LightInfoCB
+	l->SetGraphicsRootConstantBufferView(7, _currFrameResource->ShadowCB->Resource()->GetGPUVirtualAddress());     // b2 ShadowCB
 
-	_cmdList->SetGraphicsRootDescriptorTable(8, _shadowMap->SrvRange.Gpu());   // t5 ShadowMap
+	l->SetGraphicsRootDescriptorTable(8, _shadowMap->SrvRange.Gpu());   // t5 ShadowMap
 
 	// Fullscreen quad
-	_cmdList->IASetVertexBuffers(0, 0, nullptr);
-	_cmdList->IASetIndexBuffer(nullptr);
-	_cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	l->IASetVertexBuffers(0, 0, nullptr);
+	l->IASetIndexBuffer(nullptr);
+	l->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
 	if (_isDebugMode)
 	{
 		// Debug пишет прямо в backbuffer (Display)
-		_cmdList->RSSetViewports(1, &_screenViewport);
+		l->RSSetViewports(1, &_screenViewport);
 
 		std::vector<D3D12_RECT> scissorRects = BuildScissorRects(MAX_DEBUG_LAYER_COUNT, _renderSettings.Display);
 
@@ -335,26 +337,26 @@ void D3DFramework::Draw(const GameTimer& gt)
 
 			_currFrameResource->PassCB->CopyData(i, debugCB);
 
-			_cmdList->SetGraphicsRootConstantBufferView(5, _currFrameResource->PassCB->Resource()->GetGPUVirtualAddress() + i * passElementSize);
-			_cmdList->RSSetScissorRects(1, &scissorRects[i]);
-			_cmdList->DrawInstanced(3, 1, 0, 0);
+			l->SetGraphicsRootConstantBufferView(5, _currFrameResource->PassCB->Resource()->GetGPUVirtualAddress() + i * passElementSize);
+			l->RSSetScissorRects(1, &scissorRects[i]);
+			l->DrawInstanced(3, 1, 0, 0);
 		}
 	}
 	else
 	{
-		_cmdList->RSSetViewports(1, &_renderViewport);
-		_cmdList->RSSetScissorRects(1, &_renderScissor);
+		l->RSSetViewports(1, &_renderViewport);
+		l->RSSetScissorRects(1, &_renderScissor);
 
 		_mainPassCB.DebugMode = 0;
 		_currFrameResource->PassCB->CopyData(0, _mainPassCB);
 
-		_cmdList->SetGraphicsRootConstantBufferView(5, _currFrameResource->PassCB->Resource()->GetGPUVirtualAddress());
+		l->SetGraphicsRootConstantBufferView(5, _currFrameResource->PassCB->Resource()->GetGPUVirtualAddress());
 
-		_cmdList->DrawInstanced(3, 1, 0, 0);
+		l->DrawInstanced(3, 1, 0, 0);
 	}
 
 	auto toSRV = CD3DX12_RESOURCE_BARRIER::Transition(_ppChain->GetHDRBuffer(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-	_cmdList->ResourceBarrier(1, &toSRV);
+	l->ResourceBarrier(1, &toSRV);
 
 	// TAA PASS
 
@@ -364,111 +366,66 @@ void D3DFramework::Draw(const GameTimer& gt)
 	in.prevVelocity = _velocityBuffer->Previous();
 	in.velocity = _velocityBuffer->Current();
 
-	_currentAA->Resolve(_cmdList.Get(), in);
+	_currentAA->Resolve(l, in);
 
-	ID3D12DescriptorHeap* heapsAfterAA[] = { _srvAlloc->Heap() };
-	_cmdList->SetDescriptorHeaps(1, heapsAfterAA);
+	ID3D12DescriptorHeap* heapsAfterAA[] = { _device->Srv().Heap() };
+	l->SetDescriptorHeaps(1, heapsAfterAA);
 
 	////POST_PROCESS
 
 	if (!_isDebugMode)
 	{
-		_cmdList->RSSetViewports(1, &_screenViewport);
-		_cmdList->RSSetScissorRects(1, &_scissorRect);
+		l->RSSetViewports(1, &_screenViewport);
+		l->RSSetScissorRects(1, &_scissorRect);
 
-		_ppChain->ExecuteAll(_cmdList.Get(), _currentAA->OutputSrv(), CurrentBackBufferRtv());
+		_ppChain->ExecuteAll(l, _currentAA->OutputSrv(), _device->BackBufferRtv());
 	}
 
 	//GUI
 
-	auto backBuffer =  CurrentBackBufferRtv().Cpu();
-	_cmdList->OMSetRenderTargets(1, &backBuffer, TRUE, nullptr);
+	auto backBuffer = _device->BackBufferRtv().Cpu();
+	l->OMSetRenderTargets(1, &backBuffer, TRUE, nullptr);
 
-	_gui->Render(_cmdList.Get());
+	_gui->Render(l);
 
-	auto backBufferToPresent = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
-	_cmdList->ResourceBarrier(1, &backBufferToPresent);
+	auto backBufferToPresent = CD3DX12_RESOURCE_BARRIER::Transition(_device->BackBuffer(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
+	l->ResourceBarrier(1, &backBufferToPresent);
 
 	//PRESENT
 
 	_velocityBuffer->Swap();
-
-	ThrowIfFailed(_cmdList->Close());
-	ID3D12CommandList* cmdsLists[] = { _cmdList.Get() };
-	_cmdQueue->ExecuteCommandLists(_countof(cmdsLists), cmdsLists);
-
-	ThrowIfFailed(_swapChain->Present(0, 0));
-	_currBackBuffer = (_currBackBuffer + 1) % _renderSettings.SwapChainBufferCount;
-
-	_currFrameResource->Fence = ++_currFence;
-	_cmdQueue->Signal(_fence.Get(), _currFence);
-}
-
-LRESULT D3DFramework::HandleMsg(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
-{
-	if (_gui && _gui->HandleMessage(hwnd, msg, wParam, lParam)) { return 1; }
-
-	return BaseD3DApp::HandleMsg(hwnd, msg, wParam, lParam);
-}
-
-void D3DFramework::OnMouseDown(WPARAM btnState, int x, int y)
-{
-	_lastMousePos.x = x;
-	_lastMousePos.y = y;
-
-	SetCapture(_hMainWnd);
-}
-
-void D3DFramework::OnMouseUp(WPARAM btnState, int x, int y)
-{
-	ReleaseCapture();
-}
-
-void D3DFramework::OnMouseMove(WPARAM btnState, int x, int y)
-{
-	if (!_paintMode && (btnState & MK_LBUTTON) != 0)
-	{
-		float dx = XMConvertToRadians(_rotateSpeed * (x - _lastMousePos.x));
-		float dy = XMConvertToRadians(_rotateSpeed * (y - _lastMousePos.y));
-
-		_yaw += dx;
-		_pitch -= dy;
-
-		_pitch = MathHelper::Clamp(_pitch, -XM_PIDIV2 + 0.1f, XM_PIDIV2 - 0.1f);
-	}
-
-	_lastMousePos.x = x;
-	_lastMousePos.y = y;
-}
-
-void D3DFramework::OnMouseWheel(int delta)
-{
-	float notches = delta / 120.0f;
-	bool ctrl = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
-	bool shift = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
-
-	if (_paintMode)
-	{
-		if (ctrl)
-		{
-			_brushRadius *= powf(1.15f, notches);
-			_brushRadius = MathHelper::Clamp(_brushRadius, (float)BRUSH_RADIUS_MIN, (float)BRUSH_RADIUS_MAX);
-		}
-		else if (shift)
-		{
-			_brushStrength *= powf(1.15f, notches);
-			_brushStrength = MathHelper::Clamp(_brushStrength, BRUSH_STRENGTH_MIN, BRUSH_STRENGTH_MAX);
-		}
-	}
-	else
-	{
-		_moveSpeed *= powf(1.15f, notches);
-		_moveSpeed = MathHelper::Clamp(_moveSpeed, 0.5f, 5000.0f);
-	}
+	_device->EndFrame();
 }
 
 void D3DFramework::OnKeyboardInput(const GameTimer& gt)
 {
+	float notches = _input.Wheel();
+
+	if (notches != 0.0f && !_input.MouseCaptured)
+	{
+		bool ctrl = _input.IsDown(VK_CONTROL);
+		bool shift = _input.IsDown(VK_SHIFT);
+
+		if (_paintMode)
+		{
+			if (ctrl)
+			{
+				_brushRadius *= powf(1.15f, notches);
+				_brushRadius = MathHelper::Clamp(_brushRadius, (float)BRUSH_RADIUS_MIN, (float)BRUSH_RADIUS_MAX);
+			}
+			else if (shift)
+			{
+				_brushStrength *= powf(1.15f, notches);
+				_brushStrength = MathHelper::Clamp(_brushStrength, BRUSH_STRENGTH_MIN, BRUSH_STRENGTH_MAX);
+			}
+		}
+		else
+		{
+			_moveSpeed *= powf(1.15f, notches);
+			_moveSpeed = MathHelper::Clamp(_moveSpeed, 0.5f, 5000.0f);
+		}
+	}
+
 	float dt = gt.DeltaTime();
 	float speed = _moveSpeed * dt;
 
@@ -476,47 +433,39 @@ void D3DFramework::OnKeyboardInput(const GameTimer& gt)
 	XMVECTOR forward = XMLoadFloat3(&_forward);
 	XMVECTOR right = XMLoadFloat3(&_right);
 
-	if (GetAsyncKeyState('W') & 0x8000)
-		pos += speed * forward;
+	if (_input.IsDown('W')) { pos += speed * forward; }
 
-	if (GetAsyncKeyState('S') & 0x8000)
-		pos -= speed * forward;
+	if (_input.IsDown('S')) { pos -= speed * forward; }
 
-	if (GetAsyncKeyState('A') & 0x8000)
-		pos -= speed * right;
+	if (_input.IsDown('A')) { pos -= speed * right; }
 
-	if (GetAsyncKeyState('D') & 0x8000)
-		pos += speed * right;
+	if (_input.IsDown('D')) { pos += speed * right; }
 
-	if (GetAsyncKeyState(VK_F1) & 0x8000)
+	if (_input.WasPressed(VK_F1))
 	{
 		_isDebugMode = !_isDebugMode;
-
 		Sleep(200);
 	}
 
-	if (GetAsyncKeyState(VK_F2) & 0x8000)
+	if (_input.WasPressed(VK_F2))
 	{
 		_isUseBeckmann = !_isUseBeckmann;
-
 		Sleep(200);
 	}
 
-	if (GetAsyncKeyState(VK_F3) & 0x8000)
+	if (_input.WasPressed(VK_F3))
 	{
 		_isTerrainDegub = !_isTerrainDegub;
-
 		Sleep(200);
 	}
 
-	if (GetAsyncKeyState(VK_F4) & 0x8000)
+	if (_input.WasPressed(VK_F4))
 	{
 		_paintMode = !_paintMode;
-
 		Sleep(200);
 	}
 
-	if (GetAsyncKeyState(VK_F5) & 0x8000)
+	if (_input.WasPressed(VK_F5))
 	{
 		_renderSettings.Mode = (AAMode)(((int)_renderSettings.Mode + 1) % 3);
 
@@ -526,7 +475,7 @@ void D3DFramework::OnKeyboardInput(const GameTimer& gt)
 		Sleep(200);
 	}
 
-	if (GetAsyncKeyState(VK_F6) & 0x8000)
+	if (_input.WasPressed(VK_F6))
 	{
 		int next = ((int)_renderSettings.Preset + 1) % (int)UpscalePreset::Custom;
 		_renderSettings.Preset = (UpscalePreset)next;
@@ -534,7 +483,7 @@ void D3DFramework::OnKeyboardInput(const GameTimer& gt)
 		Sleep(200);
 	}
 
-	if (GetAsyncKeyState(VK_F7) & 0x8000)
+	if (_input.WasPressed(VK_F7))
 	{
 		_renderSettings.Preset = UpscalePreset::Custom;
 		_renderSettings.RenderScale = std::max(0.33f, _renderSettings.RenderScale - 0.05f);
@@ -543,7 +492,7 @@ void D3DFramework::OnKeyboardInput(const GameTimer& gt)
 		Sleep(200);
 	}
 
-	if (GetAsyncKeyState(VK_F8) & 0x8000)
+	if (_input.WasPressed(VK_F8))
 	{
 		_renderSettings.Preset = UpscalePreset::Custom;
 		_renderSettings.RenderScale = std::min(1.0f, _renderSettings.RenderScale + 0.05f);
@@ -554,23 +503,30 @@ void D3DFramework::OnKeyboardInput(const GameTimer& gt)
 
 	for (int vk = '1'; vk <= '9'; vk++)
 	{
-		if (KeyPressed(vk))
+		if (_input.WasPressed(vk))
 		{
 			UINT layer = vk - '1';
 			if (layer < _terrain->GetLayerCount()) { _brushLayer = layer; }
 		}
 	}
 
-	bool ctrl = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
-
-	if (KeyPressed(VK_OEM_PLUS) && ctrl) { _brushMode = BrushMode::Draw; }
-	if (KeyPressed(VK_OEM_MINUS) && ctrl) { _brushMode = BrushMode::Erase; }
+	if (_input.WasPressed(VK_OEM_PLUS) && _input.WasPressed(VK_CONTROL)) { _brushMode = BrushMode::Draw; }
+	if (_input.WasPressed(VK_OEM_MINUS) && _input.WasPressed(VK_CONTROL)) { _brushMode = BrushMode::Erase; }
 
 	XMStoreFloat3(&_eyePos, pos);
 }
 
 void D3DFramework::UpdateCamera(const GameTimer& gt)
 {
+	if (!_paintMode && !_input.MouseCaptured && _input.IsDown(VK_LBUTTON))
+	{
+		XMFLOAT2 d = _input.MouseDelta();
+
+		_yaw += XMConvertToRadians(_rotateSpeed * d.x);
+		_pitch -= XMConvertToRadians(_rotateSpeed * d.y);
+		_pitch = MathHelper::Clamp(_pitch, -XM_PIDIV2 + 0.1f, XM_PIDIV2 - 0.1f);
+	}
+
 	XMVECTOR forward = XMVectorSet(
 		cosf(_pitch) * sinf(_yaw),
 		sinf(_pitch),
@@ -641,16 +597,20 @@ void D3DFramework::AnimateLight(const GameTimer& gt)
 void D3DFramework::UpdateMaterialCBs(const GameTimer& gt)
 {
 	auto currMaterialCB = _currFrameResource->MaterialCB.get();
-	for (auto& e : _materials)
-	{
-		Material* mat = e.second.get();
-		if (mat->NumFramesDirty > 0)
-		{
-			currMaterialCB->CopyData(mat->MatCBIndex, mat->Data);
 
-			mat->NumFramesDirty--;
-		}
-	}
+	_materials.ForEach([&](MaterialHandle h, Material& m)
+		{
+			if (m.NumFramesDirty <= 0) { return; }
+
+			MaterialConstants c;
+			c.DiffuseAlbedo = m.DiffuseAlbedo;
+			c.Roughness = m.Roughness;
+			c.Metallic = m.Metallic;
+			c.NormalIntencity = m.NormalIntensity;
+
+			currMaterialCB->CopyData(h.Index, c);
+			m.NumFramesDirty--;
+		});
 }
 
 void D3DFramework::UpdateMainPassCB(const GameTimer& gt)
@@ -762,12 +722,14 @@ void D3DFramework::UpdateShadowCB(const GameTimer& gt)
 		XMVECTOR up = XMVectorSet(0, 1, 0, 0);
 		if (fabsf(XMVectorGetY(lightDir)) > 0.99f) { up = XMVectorSet(1, 0, 0, 0); }
 
-		for (int cascade = 0; cascade < _shadowSettings.CascadeCount; cascade++)
+		for (UINT cascade = 0; cascade < _shadowSettings.CascadeCount; cascade++)
 		{
 			float nearZ = cascadeNears[cascade];
 			float farZ = cascadeFars[cascade];
 
-			XMMATRIX cascadeProj = XMMatrixPerspectiveFovLH(0.25f * MathHelper::Pi, AspectRatio(), nearZ, farZ);
+			float aspect = (float)_renderSettings.Display.Width / _renderSettings.Display.Height;
+
+			XMMATRIX cascadeProj = XMMatrixPerspectiveFovLH(0.25f * MathHelper::Pi, aspect, nearZ, farZ);
 
 			XMMATRIX invVP = XMMatrixInverse(nullptr, XMMatrixMultiply(view, cascadeProj));
 
@@ -998,7 +960,7 @@ void D3DFramework::BuildRootSignatureGBuffer()
 
 	ThrowIfFailed(hr);
 
-	ThrowIfFailed(_d3dDevice->CreateRootSignature(0,
+	ThrowIfFailed(_device->Device()->CreateRootSignature(0,
 		serializedRootSig->GetBufferPointer(),
 		serializedRootSig->GetBufferSize(),
 		IID_PPV_ARGS(&_rootSignatureGBuffer)
@@ -1061,7 +1023,7 @@ void D3DFramework::BuildRootSignatureLightPass()
 		OutputDebugStringA((char*)errorBlob->GetBufferPointer());
 
 	ThrowIfFailed(hr);
-	ThrowIfFailed(_d3dDevice->CreateRootSignature(0,
+	ThrowIfFailed(_device->Device()->CreateRootSignature(0,
 		serializedRootSig->GetBufferPointer(),
 		serializedRootSig->GetBufferSize(),
 		IID_PPV_ARGS(&_rootSignatureLightPass)));
@@ -1086,7 +1048,7 @@ void D3DFramework::BuildRootSignatureShadowPass()
 
 	ThrowIfFailed(hr);
 
-	ThrowIfFailed(_d3dDevice->CreateRootSignature(0,
+	ThrowIfFailed(_device->Device()->CreateRootSignature(0,
 		serializedRootSig->GetBufferPointer(),
 		serializedRootSig->GetBufferSize(),
 		IID_PPV_ARGS(&_rootSignatureShadowPass)
@@ -1122,7 +1084,7 @@ void D3DFramework::BuildRootSignatureTerrainPass()
 
 	ThrowIfFailed(hr);
 
-	ThrowIfFailed(_d3dDevice->CreateRootSignature(0,
+	ThrowIfFailed(_device->Device()->CreateRootSignature(0,
 		serializedRootSig->GetBufferPointer(),
 		serializedRootSig->GetBufferSize(),
 		IID_PPV_ARGS(&_rootSignatureTerrainPass)
@@ -1165,8 +1127,8 @@ void D3DFramework::BuildGBufferPSO()
 	psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
 
 	psoDesc.SampleMask = UINT_MAX;
-	psoDesc.SampleDesc.Count = _4xMsaaState ? 4 : 1;
-	psoDesc.SampleDesc.Quality = _4xMsaaState ? (_4xMsaaQuality - 1) : 0;
+	psoDesc.SampleDesc.Count = 1;
+	psoDesc.SampleDesc.Quality = 0;
 
 	psoDesc.NumRenderTargets = 4;
 	psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;       // Albedo
@@ -1176,7 +1138,7 @@ void D3DFramework::BuildGBufferPSO()
 
 	psoDesc.DSVFormat = GBuffer::DEPTH_DSV_FORMAT;
 
-	ThrowIfFailed(_d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&_psos["gbuffer"])));
+	ThrowIfFailed(_device->Device()->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&_psos["gbuffer"])));
 }
 
 void D3DFramework::BuildLightPassPSO()
@@ -1213,13 +1175,16 @@ void D3DFramework::BuildLightPassPSO()
 	psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
 
 	psoDesc.NumRenderTargets = 1;
-	psoDesc.SampleDesc.Count = _4xMsaaState ? 4 : 1;
-	psoDesc.SampleDesc.Quality = _4xMsaaState ? (_4xMsaaQuality - 1) : 0;
+	psoDesc.SampleDesc.Count = 1;
+	psoDesc.SampleDesc.Quality = 0;
 
 	psoDesc.RTVFormats[0] = HDR_FORMAT;
 	psoDesc.DSVFormat = GBuffer::DEPTH_DSV_FORMAT;
 
-	ThrowIfFailed(_d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&_psos["lightPass"])));
+	ThrowIfFailed(_device->Device()->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&_psos["lightPass"])));
+	
+	psoDesc.RTVFormats[0] = _device->BackBufferFormat();
+	ThrowIfFailed(_device->Device()->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&_psos["lightPassDebug"])));
 }
 
 void D3DFramework::BuildShadowPassPSO()
@@ -1245,13 +1210,13 @@ void D3DFramework::BuildShadowPassPSO()
 	psoDesc.RasterizerState.DepthBiasClamp = 0.0f;
 
 	psoDesc.NumRenderTargets = 0;
-	psoDesc.SampleDesc.Count = _4xMsaaState ? 4 : 1;
-	psoDesc.SampleDesc.Quality = _4xMsaaState ? (_4xMsaaQuality - 1) : 0;
+	psoDesc.SampleDesc.Count = 1;
+	psoDesc.SampleDesc.Quality = 0;
 
 	psoDesc.RTVFormats[0] = DXGI_FORMAT_UNKNOWN;
 	psoDesc.DSVFormat = ShadowMap::DEPTH_DSV_FORMAT;
 
-	ThrowIfFailed(_d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&_psos["shadowPass"])));
+	ThrowIfFailed(_device->Device()->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&_psos["shadowPass"])));
 }
 
 void D3DFramework::BuildTerrainPassPSO()
@@ -1280,8 +1245,8 @@ void D3DFramework::BuildTerrainPassPSO()
 	psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
 
 	psoDesc.SampleMask = UINT_MAX;
-	psoDesc.SampleDesc.Count = _4xMsaaState ? 4 : 1;
-	psoDesc.SampleDesc.Quality = _4xMsaaState ? (_4xMsaaQuality - 1) : 0;
+	psoDesc.SampleDesc.Count = 1;
+	psoDesc.SampleDesc.Quality = 0;
 
 	psoDesc.NumRenderTargets = 4;
 	psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;       // Albedo
@@ -1291,10 +1256,10 @@ void D3DFramework::BuildTerrainPassPSO()
 
 	psoDesc.DSVFormat = GBuffer::DEPTH_DSV_FORMAT;
 
-	ThrowIfFailed(_d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&_psos["terrain"])));
+	ThrowIfFailed(_device->Device()->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&_psos["terrain"])));
 
 	psoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
-	ThrowIfFailed(_d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&_psos["terrainWire"])));
+	ThrowIfFailed(_device->Device()->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&_psos["terrainWire"])));
 }
 
 void D3DFramework::BuildShadersAndInputLayout()
@@ -1378,14 +1343,14 @@ void D3DFramework::CreatePPS()
 	toneDesc.Name = "ToneMapping";
 	toneDesc.ShaderPath = LOCAL_PATH + "Shaders/" + POST_PROCESS_FOLDER + "ToneMapping.hlsl";
 	toneDesc.Stage = PostProcessStage::Tonemapping;
-	toneDesc.OutputFormat = _backBufferFormat;
+	toneDesc.OutputFormat = _device->BackBufferFormat();
 	toneDesc.Res = _renderSettings.Display;
 
-	_ppChain->ReservePass(_d3dDevice.Get(), toneDesc, _srvAlloc.get(), _rtvAlloc.get());
+	_ppChain->ReservePass(*_device, toneDesc);
 
-	_ppChain->InitHDRBuffer(_d3dDevice.Get(), _srvAlloc.get(), _rtvAlloc.get(), _renderSettings.Render);
+	_ppChain->InitHDRBuffer(*_device, _renderSettings.Render);
 
-	_ppChain->CommitAll(_d3dDevice.Get());
+	_ppChain->CommitAll(_device->Device());
 }
 
 //void D3DFramework::CreatePPS()
@@ -1436,13 +1401,13 @@ void D3DFramework::CreatePPS()
 //	toneDesc.OutputFormat = _backBufferFormat;
 //	toneDesc.Res = _renderSettings.Display;
 //
-//	_ppChain->ReservePass(_d3dDevice.Get(), cellDesc, _srvAlloc.get());
-//	_ppChain->ReservePass(_d3dDevice.Get(), outlineDesc, _srvAlloc.get());
-//	_ppChain->ReservePass(_d3dDevice.Get(), toneDesc, _srvAlloc.get());
+//	_ppChain->ReservePass(*_device, cellDesc);
+//	_ppChain->ReservePass(*_device, outlineDesc);
+//	_ppChain->ReservePass(*_device, toneDesc);
 //
-//	_ppChain->InitHDRBuffer(_d3dDevice.Get(), _srvAlloc.get(), _renderSettings.Display);
+//	_ppChain->InitHDRBuffer(*_device, _renderSettings.Display);
 //
-//	_ppChain->CommitAll(_d3dDevice.Get());
+//	_ppChain->CommitAll(_device->Device());
 //}
 
 void D3DFramework::CreateLight()
@@ -1477,7 +1442,7 @@ void D3DFramework::CreateLight()
 		dirLight.Data.Pad[2] = 0;
 
 		dirLight.IsActive = true;
-		dirLight.NumFramesDirty = NUM_FRAME_RECOURCES;
+		dirLight.NumFramesDirty = GraphicsDevice::FRAME_COUNT;
 		dirLight.LightIndex = (int)_lights.size();
 
 		_lights.push_back(dirLight);
@@ -1523,7 +1488,7 @@ void D3DFramework::CreateLight()
 		light.Data.Pad[1] = 0;
 		light.Data.Pad[2] = 0;
 		light.IsActive = true;
-		light.NumFramesDirty = NUM_FRAME_RECOURCES;
+		light.NumFramesDirty = GraphicsDevice::FRAME_COUNT;
 		light.LightIndex = (int)_lights.size();
 
 		_lights.push_back(light);
@@ -1535,9 +1500,10 @@ void D3DFramework::LoadModel(std::string path)
 	ModelParse geoGen;
 	ModelParse::MeshInfo meshData = geoGen.LoadOBJ(path);
 
-	ParseMesh(meshData);
 	LoadTextures(meshData);
-	ParseMaterials(meshData);
+	auto matByName = ParseMaterials(meshData);
+
+	ParseMesh(meshData, matByName);
 }
 
 void D3DFramework::CreateSceneObjects()
@@ -1546,7 +1512,7 @@ void D3DFramework::CreateSceneObjects()
 
 	for (auto& model : _models)
 	{
-		if (model.second->Mesh->Name == LOCAL_PATH + "Models / A_LOT_OF_POLYGONS.obj")
+		if (model.second->Mesh->Name == LOCAL_PATH + "Models/A_LOT_OF_POLYGONS.obj")
 		{
 			XMINT3 gridInstanceCount = XMINT3(10, 10, 10);
 			float spacing = 1.0f;
@@ -1598,9 +1564,9 @@ void D3DFramework::BuildFrameResources()
 		}
 	}
 
-	for (int i = 0; i < NUM_FRAME_RECOURCES; ++i)
+	for (UINT i = 0; i < GraphicsDevice::FRAME_COUNT; ++i)
 	{
-		_frameResources.push_back(std::make_unique<FrameResource>(_d3dDevice.Get(), (UINT)MAX_DEBUG_LAYER_COUNT, (UINT)_materials.size(), (UINT)_lights.size(), dirLightCount * _shadowSettings.CascadeCount));
+		_frameResources.push_back(std::make_unique<FrameResource>(_device->Device(), (UINT)MAX_DEBUG_LAYER_COUNT, MAX_MATERIALS, (UINT)_lights.size(), dirLightCount * _shadowSettings.CascadeCount));
 	}
 }
 
@@ -1620,32 +1586,23 @@ void D3DFramework::BuildRenderItems()
 
 		for (const Model::Part& part : model->Parts)
 		{
-			std::string matName = part.MaterialName.empty() ? "DefaultMat" : part.MaterialName;
-			std::string key = model->Mesh->Name + "_" + part.SubmeshName + "_" + matName;
+			std::string key = model->Mesh->Name + "_" + std::to_string(part.Submesh);
 
 			if (ritemsMap.find(key) == ritemsMap.end())
 			{
-				auto ri = std::make_unique<RenderItem>();
-				auto& sub = model->Mesh->DrawArgs[part.SubmeshName];
+				std::unique_ptr<RenderItem> ri = std::make_unique<RenderItem>();
+				Submesh& sub = model->Mesh->Submeshes[part.Submesh];
 
-				ri->Geo = model->Mesh;
-				ri->SubmeshName = part.SubmeshName;
+				ri->Geo = model->Mesh.get();
+				ri->SubmeshIndex = part.Submesh;
+				ri->Material = part.Material;
+
 				ri->Bounds = BoundingBox(sub.Bounds);
-
-				if (_materials.count(matName))
-				{
-					ri->Mat = _materials[matName].get();
-				}
-				else if (!_materials.empty())
-				{
-					ri->Mat = _materials.begin()->second.get();
-				}
-
 				ri->IndexCount = sub.IndexCount;
 				ri->StartIndexLocation = sub.StartIndexLocation;
 				ri->BaseVertexLocation = sub.BaseVertexLocation;
 
-				ri->UsedPso = (part.SubmeshName == "opaque") ? "opaque" : "opaque";
+				ri->UsedPso = "opaque";
 
 				ritemsMap[key] = std::move(ri);
 			}
@@ -1689,7 +1646,10 @@ void D3DFramework::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std
 
 	for (RenderItem* ri : ritems)
 	{
-		if (!ri || !ri->Mat || ri->VisibleInstanceCount == 0) { continue; }
+		if (!ri || ri->VisibleInstanceCount == 0) { continue; }
+
+		const Material* mat = _materials.Get(ri->Material);
+		if (!mat) { continue; }
 
 		auto vertexBuffer = ri->Geo->VertexBufferView();
 		cmdList->IASetVertexBuffers(0, 1, &vertexBuffer);
@@ -1697,14 +1657,14 @@ void D3DFramework::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std
 		auto indexBuffer = ri->Geo->IndexBufferView();
 		cmdList->IASetIndexBuffer(&indexBuffer);
 
-		cmdList->SetGraphicsRootDescriptorTable(0, _textures->Srv(ri->Mat->Albedo, DefaultTex::Albedo));                  // t0 albedo
-		cmdList->SetGraphicsRootDescriptorTable(1, _textures->Srv(ri->Mat->Normal, DefaultTex::Normal));                  // t1 normal
-		cmdList->SetGraphicsRootDescriptorTable(2, _textures->Srv(ri->Mat->Metallic, DefaultTex::Metallic));              // t2 metallic
-		cmdList->SetGraphicsRootDescriptorTable(3, _textures->Srv(ri->Mat->Roughness, DefaultTex::Roughness));            // t3 roughness
-		cmdList->SetGraphicsRootDescriptorTable(4, _textures->Srv(ri->Mat->AO, DefaultTex::AO));                          // t4 ao
-		cmdList->SetGraphicsRootDescriptorTable(5, _textures->Srv(ri->Mat->Displacement, DefaultTex::Displacement));      // t5 displacement
+		cmdList->SetGraphicsRootDescriptorTable(0, _textures->Srv(mat->AlbedoMap, DefaultTex::Albedo));                  // t0 albedo
+		cmdList->SetGraphicsRootDescriptorTable(1, _textures->Srv(mat->NormalMap, DefaultTex::Normal));                  // t1 normal
+		cmdList->SetGraphicsRootDescriptorTable(2, _textures->Srv(mat->MetallicMap, DefaultTex::Metallic));              // t2 metallic
+		cmdList->SetGraphicsRootDescriptorTable(3, _textures->Srv(mat->RoughnessMap, DefaultTex::Roughness));            // t3 roughness
+		cmdList->SetGraphicsRootDescriptorTable(4, _textures->Srv(mat->AOMap, DefaultTex::AO));                          // t4 ao
+		cmdList->SetGraphicsRootDescriptorTable(5, _textures->Srv(mat->DisplacementMap, DefaultTex::Displacement));      // t5 displacement
 
-		D3D12_GPU_VIRTUAL_ADDRESS matCBAddr = matCB->GetGPUVirtualAddress() + ri->Mat->MatCBIndex * matCBByteSize;
+		D3D12_GPU_VIRTUAL_ADDRESS matCBAddr = matCB->GetGPUVirtualAddress() + ri->Material.Index * matCBByteSize;
 		cmdList->SetGraphicsRootConstantBufferView(7, matCBAddr);    // b1 cbMaterial
 
 		D3D12_GPU_VIRTUAL_ADDRESS instAddr = instanceBuffer->GetGPUVirtualAddress() + ri->InstanceOffset * instanceByteSize;
@@ -1767,103 +1727,94 @@ void D3DFramework::DrawTerrain(ID3D12GraphicsCommandList* cmdList)
 	{
 		cmdList->SetGraphicsRootConstantBufferView(2, terrainCB->GetGPUVirtualAddress() + tileIndex * tileCbSize); // b4
 
-		cmdList->DrawIndexedInstanced(mesh->DrawArgs.at("tile").IndexCount, 1, 0, 0, 0);
+		cmdList->DrawIndexedInstanced(mesh->Submeshes[0].IndexCount, 1, 0, 0, 0);
+
+		_frameStats.TerrainTiles++;
 	}
 }
 
-void D3DFramework::ParseMesh(const ModelParse::MeshInfo& meshData)
+void D3DFramework::ParseMesh(const ModelParse::MeshInfo& meshData, const std::unordered_map<std::string, MaterialHandle>& matByName)
 {
 	auto geo = std::make_unique<MeshGeometry>();
 	geo->Name = meshData.MeshName;
 
 	UINT vbByteSize = (UINT)meshData.Vertices.size() * sizeof(Vertex);
 	UINT ibByteSize = (UINT)meshData.Indices32.size() * sizeof(uint32_t);
+	
+	ComPtr<ID3D12Resource> vbUpload;
+	ComPtr<ID3D12Resource> ibUpload;
 
-	ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
-	CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), meshData.Vertices.data(), vbByteSize);
+	geo->VertexBufferGPU = D3DUtil::CreateDefaultBuffer(_device->Device(), _device->CommandList(), meshData.Vertices.data(), vbByteSize, vbUpload);
+	geo->IndexBufferGPU = D3DUtil::CreateDefaultBuffer(_device->Device(), _device->CommandList(), meshData.Indices32.data(), ibByteSize, ibUpload);
 
-	ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
-	CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), meshData.Indices32.data(), ibByteSize);
-
-	geo->VertexBufferGPU = D3DUtil::CreateDefaultBuffer
-	(
-		_d3dDevice.Get(),
-		_cmdList.Get(),
-		meshData.Vertices.data(),
-		vbByteSize,
-		geo->VertexBufferUploader
-	);
-
-	geo->IndexBufferGPU = D3DUtil::CreateDefaultBuffer
-	(
-		_d3dDevice.Get(),
-		_cmdList.Get(),
-		meshData.Indices32.data(),
-		ibByteSize,
-		geo->IndexBufferUploader
-	);
+	_device->Release().Push(vbUpload);
+	_device->Release().Push(ibUpload);
 
 	geo->VertexByteStride = sizeof(Vertex);
 	geo->VertexBufferByteSize = vbByteSize;
 	geo->IndexBufferByteSize = ibByteSize;
 	geo->IndexFormat = DXGI_FORMAT_R32_UINT;
 
+	geo->Submeshes.reserve(meshData.Submeshes.size());
 	for (const auto& sub : meshData.Submeshes)
 	{
-		SubmeshGeometry subGeo;
-		subGeo.IndexCount = sub.IndexCount;
-		subGeo.StartIndexLocation = sub.IndexOffset;
-		subGeo.BaseVertexLocation = sub.VertexOffset;
-		subGeo.Bounds = sub.Bounds;
+		Submesh s;
+		s.Name = sub.Name;
+		s.IndexCount = sub.IndexCount;
+		s.StartIndexLocation = sub.IndexOffset;
+		s.BaseVertexLocation = (INT)sub.VertexOffset;
+		s.Bounds = sub.Bounds;
 
-		geo->DrawArgs[sub.Name] = subGeo;
+		geo->Submeshes.push_back(s);
 	}
-
-	_geometries[geo->Name] = std::move(geo);
 
 	auto model = std::make_unique<Model>();
-	model->Mesh = _geometries[meshData.MeshName].get();
+	model->Name = meshData.MeshName;
+	model->Mesh = std::move(geo);
 
-	for (const auto& sub : meshData.Submeshes)
+	model->Parts.reserve(meshData.Submeshes.size());
+	for (uint32_t i = 0; i < (uint32_t)meshData.Submeshes.size(); i++)
 	{
-		Model::Part p;
-		p.SubmeshName = sub.Name;
-		p.MaterialName = sub.MaterialName;
-		model->Parts.push_back(std::move(p));
+		auto it = matByName.find(meshData.Submeshes[i].MaterialName);
+		MaterialHandle mat = (it != matByName.end()) ? it->second : _defaultMaterial;
+
+		model->Parts.push_back({ i, mat });
 	}
 
-	_models[meshData.MeshName] = std::move(model);
+	model->Materials.reserve(matByName.size());
+	for (const auto& [name, h] : matByName) { model->Materials.push_back(h); }
+
+	_models[model->Name] = std::move(model);
 }
 
-void D3DFramework::ParseMaterials(const ModelParse::MeshInfo& meshData)
+std::unordered_map<std::string, MaterialHandle> D3DFramework::ParseMaterials(const ModelParse::MeshInfo& meshData)
 {
-	for (auto& kv : meshData.Materials)
+	std::unordered_map<std::string, MaterialHandle> result;
+
+	for (const auto& [name, mi] : meshData.Materials)
 	{
-		std::string matName = kv.first;
-		auto& mi = kv.second;
-
-		if (_materials.count(matName)) { continue; }
-
 		auto mat = std::make_unique<Material>();
-		mat->Name = matName;
-		mat->MatCBIndex = (int)_materials.size();
+		mat->Name = name;
 
-		mat->Albedo = _textures->Find(mi.DiffuseTextureName);
-		mat->Normal = _textures->Find(mi.NormalTextureName);
-		mat->Metallic = _textures->Find(mi.MetallicTextureName);
-		mat->Roughness = _textures->Find(mi.RoughnessTextureName);
-		mat->AO = _textures->Find(mi.AOTextureName);
-		mat->Displacement = _textures->Find(mi.DisplacementTextureName);
+		mat->AlbedoMap = _textures->Find(mi.DiffuseTextureName);
+		mat->NormalMap = _textures->Find(mi.NormalTextureName);
+		mat->MetallicMap = _textures->Find(mi.MetallicTextureName);
+		mat->RoughnessMap = _textures->Find(mi.RoughnessTextureName);
+		mat->AOMap = _textures->Find(mi.AOTextureName);
+		mat->DisplacementMap = _textures->Find(mi.DisplacementTextureName);
 
-		MaterialConstants data;
-		data.DiffuseAlbedo = mi.DiffuseColor;
-		data.Roughness = mi.Roughness;
-		data.Metallic = mi.Metallic;
-		data.NormalIntencity = 1.0f;
+		mat->DiffuseAlbedo = mi.DiffuseColor;
+		mat->Roughness = mi.Roughness;
+		mat->Metallic = mi.Metallic;
 
-		mat->Data = std::move(data);
-		_materials[matName] = std::move(mat);
+		MaterialHandle h = _materials.Add(std::move(mat));
+
+		assert(h.Index < MAX_MATERIALS);
+
+		result[name] = h;
 	}
+
+	return result;
 }
 
 void D3DFramework::LoadTextures(const ModelParse::MeshInfo& meshData)
@@ -1896,11 +1847,11 @@ void D3DFramework::LoadIBLTextures()
 	std::vector<ComPtr<ID3D12Resource>> uploadHeaps;
 	uploadHeaps.resize(3);
 
-	_iblSrv = _srvAlloc->Allocate(3);
+	_iblSrv = _device->Srv().Allocate(3);
 
 	auto LoadDDS = [&](const std::wstring& path, ComPtr<ID3D12Resource>& resource, bool isCubemap, int idx)
 	{
-		ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(_d3dDevice.Get(), _cmdList.Get(), path.c_str(), resource, uploadHeaps[idx]));
+		ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(_device->Device(), _device->CommandList(), path.c_str(), resource, uploadHeaps[idx]));
 
 		D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
 		srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
@@ -1921,7 +1872,7 @@ void D3DFramework::LoadIBLTextures()
 			srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
 		}
 
-		_d3dDevice->CreateShaderResourceView(resource.Get(), &srvDesc, _iblSrv.Cpu(idx));
+		_device->Device()->CreateShaderResourceView(resource.Get(), &srvDesc, _iblSrv.Cpu(idx));
 	};
 
 	std::wstring hdriPath = LOCAL_PATH_W + L"HDRI/";
@@ -1930,12 +1881,10 @@ void D3DFramework::LoadIBLTextures()
 	LoadDDS(hdriPath + L"SpecularHDR.dds", _iblSpecular, true, 1);
 	LoadDDS(hdriPath + L"Brdf.dds", _iblBrdf, false, 2);
 
-	ThrowIfFailed(_cmdList->Close());
-	ID3D12CommandList* cmds[] = { _cmdList.Get() };
-	_cmdQueue->ExecuteCommandLists(1, cmds);
-	FlushCommandQueue();
-
-	ThrowIfFailed(_cmdList->Reset(_directCmdListAlloc.Get(), nullptr));
+	for (auto& upload : uploadHeaps)
+	{
+		_device->Release().Push(upload);
+	}
 }
 
 std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> D3DFramework::GetStaticSamplers()

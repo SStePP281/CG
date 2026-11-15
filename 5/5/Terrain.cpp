@@ -12,30 +12,30 @@
 
 using namespace DirectX;
 
-Terrain::Terrain(ID3D12Device* device, ID3D12CommandQueue* cmdQueue, ID3D12GraphicsCommandList* cmdList, DescriptorAllocator* srvAlloc)
+Terrain::Terrain(GraphicsDevice& device)
 {
-	_descRange = srvAlloc->Allocate(6);
+	_descRange = device.Srv().Allocate(6);
 
 	_texSrvSubRange = _descRange.Sub(0, 3);
 	_brushUavSubRange = _descRange.Sub(3, 2);
 	_hitSrvSubRange = _descRange.Sub(5);
 
-	CreateHitBuffer(device);
-	BuildPickPipeline(device);
-	BuildBrushPipeline(device);
+	CreateHitBuffer(device.Device());
+	BuildPickPipeline(device.Device());
+	BuildBrushPipeline(device.Device());
 
-	LoadTextures(device, cmdQueue);
+	LoadTextures(device.Device(), device.Queue());
 
-	CreateLayerArray(device, cmdList);
-	CreateMaskTexture(device, cmdQueue);
-	CreateSRVAndUAV(device);
+	CreateLayerArray(device.Device(), device.CommandList());
+	CreateMaskTexture(device.Device(), device.Queue());
+	CreateSRVAndUAV(device.Device());
 
-	BuildTileMesh(device, cmdList);
+	BuildTileMesh(device.Device(), device.CommandList());
 
 	_root = BuildNode({ 0,0 }, TERRAIN_WORLD_SIZE, 0);
 
 	auto barrier = CD3DX12_RESOURCE_BARRIER::Transition(_heightMap.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-	cmdList->ResourceBarrier(1, &barrier);
+	device.CommandList()->ResourceBarrier(1, &barrier);
 }
 
 void Terrain::DoPick(ID3D12GraphicsCommandList* cmdList, D3D12_GPU_VIRTUAL_ADDRESS passCB, float mouseNdcX, float mouseNdcY, float maxDist)
@@ -350,32 +350,18 @@ void Terrain::BuildTileMesh(ID3D12Device* device, ID3D12GraphicsCommandList* cmd
 	UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
 	UINT ibByteSize = (UINT)indices.size() * sizeof(uint32_t);
 
-	_tileMesh->VertexBufferGPU = D3DUtil::CreateDefaultBuffer
-	(
-		device,
-		cmdList,
-		vertices.data(),
-		vbByteSize,
-		_tileMesh->VertexBufferUploader
-	);
+	_tileMesh->VertexBufferGPU = D3DUtil::CreateDefaultBuffer(device, cmdList, vertices.data(), vbByteSize, _tileVbUpload);
 
-	_tileMesh->IndexBufferGPU = D3DUtil::CreateDefaultBuffer
-	(
-		device,
-		cmdList,
-		indices.data(),
-		ibByteSize,
-		_tileMesh->IndexBufferUploader
-	);
+	_tileMesh->IndexBufferGPU = D3DUtil::CreateDefaultBuffer(device, cmdList, indices.data(), ibByteSize, _tileIbUpload);
 
 	_tileMesh->VertexByteStride = sizeof(Vertex);
 	_tileMesh->VertexBufferByteSize = vbByteSize;
 	_tileMesh->IndexBufferByteSize = ibByteSize;
 	_tileMesh->IndexFormat = DXGI_FORMAT_R32_UINT;
 
-	SubmeshGeometry sub;
+	Submesh sub;
 	sub.IndexCount = (UINT)indices.size();
-	_tileMesh->DrawArgs["tile"] = sub;
+	_tileMesh->Submeshes.push_back(sub);
 }
 
 std::unique_ptr<QuadNode> Terrain::BuildNode(XMFLOAT2 origin, float size, UINT depth)

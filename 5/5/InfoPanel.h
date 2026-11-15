@@ -35,6 +35,7 @@ public:
         ImGui::Text("Draw calls: %u (shadow %u)", _stats.DrawCalls, _stats.ShadowDraws);
         ImGui::Text("Triangles: %u", _stats.Triangles);
         ImGui::Text("Instances: %u / %u", _stats.VisibleInstances, _stats.TotalInstances);
+        ImGui::Text("Terrain Cells: %u", _stats.TerrainTiles);
         ImGui::Text("SRV: %u / %u", _stats.SrvUsed, _stats.SrvCapacity);
         ImGui::Text("RTV: %u / %u", _stats.RtvUsed, _stats.RtvCapacity);
     }

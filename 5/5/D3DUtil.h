@@ -14,7 +14,7 @@
 
 #include "MathHelper.h"
 
-using namespace Microsoft::WRL;
+using Microsoft::WRL::ComPtr;
 using namespace DirectX;
 
 class D3DUtil

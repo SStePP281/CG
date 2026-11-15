@@ -2,9 +2,7 @@
 #define FRAME_STATS_HPP
 
 #include <windows.h>
-#include <algorithm>
-
-#define NOMINMAX
+#include <cmath>
 
 struct FrameStats
 {
@@ -51,7 +49,7 @@ public:
     float Max() const
     {
         float m = 0.0f;
-        for (int i = 0; i < _count; i++) { m = max(m, _values[i]); }
+        for (int i = 0; i < _count; i++) { m = fmax(m, _values[i]); }
         return m;
     }
 

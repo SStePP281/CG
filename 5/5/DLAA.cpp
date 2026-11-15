@@ -4,9 +4,9 @@
 #include "nvsdk_ngx_helpers.h"
 #include "nvsdk_ngx_params.h"
 
-DLAA::DLAA(ID3D12GraphicsCommandList* cmdList, NGXManager* ngxManager, const AAInitContext& ctx) : _ngxManager(ngxManager)
+DLAA::DLAA(NGXManager* ngxManager, const AAInitContext& ctx) : _ngxManager(ngxManager)
 {
-    _srvRange = ctx.srvAlloc->Allocate(1);
+    _srvRange = ctx.device.Srv().Allocate(1);
 }
 
 void DLAA::InitializeFeature(ID3D12GraphicsCommandList* cmdList)

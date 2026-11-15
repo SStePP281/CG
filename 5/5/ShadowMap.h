@@ -9,10 +9,10 @@
 #include <dxgiformat.h>
 #include <DirectXMath.h>
 #include <functional>
-#include "DescriptorHeapAllocator.h"
 #include "RenderSettings.h"
+#include "GraphicsDevice.h"
 
-using namespace Microsoft::WRL;
+using Microsoft::WRL::ComPtr;
 using namespace DirectX;
 
 class ShadowMap
@@ -22,7 +22,7 @@ public:
     static constexpr DXGI_FORMAT DEPTH_DSV_FORMAT = DXGI_FORMAT_D24_UNORM_S8_UINT;
     static constexpr DXGI_FORMAT DEPTH_SRV_FORMAT = DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
 
-    ShadowMap(ID3D12Device* device, ShadowSettings& settings, DescriptorAllocator* srvAlloc, DescriptorAllocator* dsvAlloc);
+    ShadowMap(GraphicsDevice& device, ShadowSettings& settings);
 
     void Render(ID3D12GraphicsCommandList* cmdList, const std::function<void(UINT cascade)>& drawCascade);
 

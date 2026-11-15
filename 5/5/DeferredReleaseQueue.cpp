@@ -1,12 +1,24 @@
 #include "DeferredReleaseQueue.h"
-#include <assert.h>
+#include <cassert>
 
-void DeferredReleaseQueue::Push(UINT64 fenceValue, ComPtr<ID3D12Resource> res, DescriptorAllocator* alloc, DescriptorRange range)
+void DeferredReleaseQueue::Push(ComPtr<ID3D12Resource> res, DescriptorAllocator* alloc, DescriptorRange range)
 {
-    assert(_entries.empty() || _entries.back().Fence <= fenceValue);
     assert(!range.Valid() || alloc);
 
-    _entries.push_back({ fenceValue, std::move(res), alloc, range });
+    _pending.push_back({ 0, std::move(res), alloc, range });
+}
+
+void DeferredReleaseQueue::Submit(UINT64 fenceValue)
+{
+    assert(_entries.empty() || _entries.back().Fence <= fenceValue);
+
+    for (Entry& e : _pending)
+    {
+        e.Fence = fenceValue;
+        _entries.push_back(std::move(e));
+    }
+
+    _pending.clear();
 }
 
 void DeferredReleaseQueue::Process(UINT64 completedFence)

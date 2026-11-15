@@ -4,6 +4,7 @@
 #include <d3d12.h>
 #include <wrl/client.h>
 #include <deque>
+#include <vector>
 #include "DescriptorHeapAllocator.h"
 
 using Microsoft::WRL::ComPtr;
@@ -11,11 +12,12 @@ using Microsoft::WRL::ComPtr;
 class DeferredReleaseQueue
 {
 public:
-    void Push(UINT64 fenceValue, ComPtr<ID3D12Resource> res, DescriptorAllocator* alloc = nullptr, DescriptorRange range = {});
+    void Push(ComPtr<ID3D12Resource> res, DescriptorAllocator* alloc = nullptr, DescriptorRange range = {});
 
+    void Submit(UINT64 fenceValue);
     void Process(UINT64 completedFence);
 
-    size_t Size() const { return _entries.size(); }
+    size_t Size() const { return _pending.size() + _entries.size(); }
 
 private:
     struct Entry
@@ -26,6 +28,7 @@ private:
         DescriptorRange Range;
     };
 
+    std::vector<Entry> _pending;
     std::deque<Entry> _entries;
 };
 

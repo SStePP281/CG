@@ -1,23 +1,14 @@
-#include <cstdio>
-#include <fcntl.h>
-#include <io.h>
+#include "Application.h"
 
-#include <Windows.h>
-
-#include "D3DFramework.h" 
-
-int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine, int nShowCmd)
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, int)
 {
-	AllocConsole();
-	FILE* dummy;
-	freopen_s(&dummy, "CONOUT$", "w", stdout);
-	freopen_s(&dummy, "CONOUT$", "w", stderr);
+    AllocConsole();
+    FILE* dummy;
+    freopen_s(&dummy, "CONOUT$", "w", stdout);
+    freopen_s(&dummy, "CONOUT$", "w", stderr);
 
-	D3DFramework framework(hInstance);
-	if (!framework.Initialize())
-	{
-		return 0;
-	}
+    Application app(hInstance);
+    if (!app.Initialize()) { return 0; }
 
-	return framework.Run();
+    return app.Run();
 }

@@ -145,7 +145,7 @@
     <ClCompile Include="..\..\ThirdParty\imgui\imgui_draw.cpp" />
     <ClCompile Include="..\..\ThirdParty\imgui\imgui_tables.cpp" />
     <ClCompile Include="..\..\ThirdParty\imgui\imgui_widgets.cpp" />
-    <ClCompile Include="BaseD3DApp.cpp" />
+    <ClCompile Include="Application.cpp" />
     <ClCompile Include="D3DFramework.cpp" />
     <ClCompile Include="D3DUtil.cpp" />
     <ClCompile Include="DeferredReleaseQueue.cpp" />
@@ -154,6 +154,8 @@
     <ClCompile Include="FrameResource.cpp" />
     <ClCompile Include="GameTimer.cpp" />
     <ClCompile Include="GBuffer.cpp" />
+    <ClCompile Include="GraphicsDevice.cpp" />
+    <ClCompile Include="Input.cpp" />
     <ClCompile Include="ModelParse.cpp" />
     <ClCompile Include="LunaDDSTextureLoader.cpp" />
     <ClCompile Include="MathHelper.cpp" />
@@ -165,6 +167,7 @@
     <ClCompile Include="Terrain.cpp" />
     <ClCompile Include="TextureManager.cpp" />
     <ClCompile Include="VelocityBuffer.cpp" />
+    <ClCompile Include="Window.cpp" />
     <ClCompile Include="WindowMain.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -180,17 +183,25 @@
     <ClInclude Include="..\..\ThirdParty\imgui\imstb_textedit.h" />
     <ClInclude Include="..\..\ThirdParty\imgui\imstb_truetype.h" />
     <ClInclude Include="AntiAliasing.h" />
-    <ClInclude Include="BaseD3DApp.h" />
+    <ClInclude Include="Application.h" />
     <ClInclude Include="DeferredReleaseQueue.h" />
     <ClInclude Include="DescriptorHeapAllocator.h" />
     <ClInclude Include="DLAA.h" />
     <ClInclude Include="FrameStats.h" />
+    <ClInclude Include="GraphicsDevice.h" />
+    <ClInclude Include="Input.h" />
+    <ClInclude Include="Material.h" />
+    <ClInclude Include="Mesh.h" />
+    <ClInclude Include="Model.h" />
+    <ClInclude Include="ShaderTypes.h" />
+    <ClInclude Include="SlotHandle.h" />
     <ClInclude Include="InfoPanel.h" />
     <ClInclude Include="IPanel.h" />
     <ClInclude Include="NGXManager.h" />
     <ClInclude Include="NoAA.h" />
     <ClInclude Include="RenderGUI.h" />
     <ClInclude Include="RenderSettings.h" />
+    <ClInclude Include="SlotPool.h" />
     <ClInclude Include="TAA.h" />
     <ClInclude Include="D3DFramework.h" />
     <ClInclude Include="D3DUtil.h" />
@@ -205,10 +216,12 @@
     <ClInclude Include="PostProcess.h" />
     <ClInclude Include="ShadowMap.h" />
     <ClInclude Include="Terrain.h" />
+    <ClInclude Include="Texture.h" />
     <ClInclude Include="TextureManager.h" />
     <ClInclude Include="UploadBuffer.h" />
     <ClInclude Include="ThrowIfFaild.h" />
     <ClInclude Include="VelocityBuffers.h" />
+    <ClInclude Include="Window.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="..\Shaders\GBuffer.hlsl">

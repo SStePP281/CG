@@ -16,9 +16,9 @@
 #include "D3DUtil.h"
 
 #include "RenderSettings.h"
-#include "DescriptorHeapAllocator.h"
+#include "GraphicsDevice.h"
 
-using namespace Microsoft::WRL;
+using Microsoft::WRL::ComPtr;
 
 constexpr DXGI_FORMAT HDR_FORMAT = DXGI_FORMAT_R16G16B16A16_FLOAT;
 
@@ -54,7 +54,7 @@ struct PassDesc
 class PostProcessPass
 {
 public:
-    PostProcessPass(ID3D12Device* device, const PassDesc& desc, DescriptorAllocator* srvAlloc, DescriptorAllocator* rtvAlloc);
+    PostProcessPass(GraphicsDevice& device, const PassDesc& desc);
     void Build(ID3D12Device* device);
     void Execute(ID3D12GraphicsCommandList* cmdList, DescriptorRange input, D3D12_CPU_DESCRIPTOR_HANDLE rtv);
 
@@ -71,7 +71,7 @@ public:
 
 private:
 
-    void CreateResources(ID3D12Device* device, DescriptorAllocator* srvAlloc, DescriptorAllocator* rtvAlloc);
+    void CreateResources(ID3D12Device* device);
     void CreateOutputBuffer(ID3D12Device* device);
     void BuildRootSignature(ID3D12Device* device);
     void BuildPSO(ID3D12Device* device);
@@ -82,9 +82,9 @@ private:
 class PostProcessChain
 {
 public:
-    void InitHDRBuffer(ID3D12Device* device, DescriptorAllocator* srvAlloc, DescriptorAllocator* rtvAlloc, Resolution res);
+    void InitHDRBuffer(GraphicsDevice& device, Resolution res);
 
-    DescriptorRange ReservePass(ID3D12Device* device, const PassDesc& desc, DescriptorAllocator* srvAlloc, DescriptorAllocator* rtvAlloc);
+    DescriptorRange ReservePass(GraphicsDevice& device, const PassDesc& desc);
     void CommitAll(ID3D12Device* device);
     void ExecuteAll(ID3D12GraphicsCommandList* cmdList, DescriptorRange firstInput, DescriptorRange backBufferRTV);
 

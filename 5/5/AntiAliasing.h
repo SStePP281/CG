@@ -5,7 +5,7 @@
 #include <d3dx12.h>
 #include <DirectXMath.h>
 #include "RenderSettings.h"
-#include "DescriptorHeapAllocator.h"
+#include "GraphicsDevice.h"
 
 constexpr UINT JITTER_COUNT = 8;
 
@@ -25,9 +25,7 @@ struct AAInputs
 
 struct AAInitContext
 {
-    ID3D12Device* device;
-    DescriptorAllocator* srvAlloc;
-    DescriptorAllocator* rtvAlloc;
+    GraphicsDevice& device;
     const D3D12_STATIC_SAMPLER_DESC* samplers;
     UINT samplerCount;
 };

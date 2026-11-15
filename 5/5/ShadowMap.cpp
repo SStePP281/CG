@@ -2,14 +2,13 @@
 #include "ThrowIfFaild.h"
 #include <d3dx12.h>
 
-ShadowMap::ShadowMap(ID3D12Device* device, ShadowSettings& settings, DescriptorAllocator* srvAlloc, DescriptorAllocator* dsvAlloc) :
-	_settings(settings)
+ShadowMap::ShadowMap(GraphicsDevice& device, ShadowSettings& settings) : _settings(settings)
 {
-	SrvRange = srvAlloc->Allocate(1);
-	DsvRange = dsvAlloc->Allocate(settings.CascadeCount);
+	SrvRange = device.Srv().Allocate(1);
+	DsvRange = device.Dsv().Allocate(settings.CascadeCount);
 
-	CreateTexture(device);
-	CreateSRVAndDSV(device);
+	CreateTexture(device.Device());
+	CreateSRVAndDSV(device.Device());
 }
 
 void ShadowMap::Render(ID3D12GraphicsCommandList* cmdList, const std::function<void(UINT cascade)>& drawCascade)
@@ -56,7 +55,7 @@ void ShadowMap::CreateSRVAndDSV(ID3D12Device* device)
 	dsvDesc.Texture2DArray.MipSlice = 0;
 	dsvDesc.Texture2DArray.ArraySize = 1;
 
-	for (int i = 0; i < _settings.CascadeCount; i++)
+	for (UINT i = 0; i < _settings.CascadeCount; i++)
 	{
 		dsvDesc.Texture2DArray.FirstArraySlice = i;
 		device->CreateDepthStencilView(Resource.Get(), &dsvDesc, DsvRange.Cpu(i));
@@ -98,7 +97,7 @@ void ShadowMap::TransitToLightRenderingState(ID3D12GraphicsCommandList* cmdList)
 
 void ShadowMap::ClearView(ID3D12GraphicsCommandList* cmdList)
 {
-	for (int i = 0; i < _settings.CascadeCount; i++)
+	for (UINT i = 0; i < _settings.CascadeCount; i++)
 	{
 		cmdList->ClearDepthStencilView(DsvRange.Cpu(i), D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
 	}

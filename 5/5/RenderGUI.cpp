@@ -9,17 +9,9 @@
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
-void RenderGUI::Initialize(HWND hwnd, ID3D12Device* device, ID3D12CommandQueue* commandQueue, DescriptorAllocator* srvAlloc, DXGI_FORMAT rtvFormat, UINT frameCount)
+RenderGUI::RenderGUI(HWND hwnd, GraphicsDevice& device, UINT frameCount) : _srvAlloc(device.Srv())
 {
     if (_initialized) { return; }
-
-    if (!hwnd || !device || !commandQueue || !srvAlloc || frameCount == 0)
-    {
-        std::cout << "[GUI] Initialize: invalid arguments, GUI disabled" << std::endl;
-        return;
-    }
-
-    _srvAlloc = srvAlloc;
 
     IMGUI_CHECKVERSION();
 
@@ -42,12 +34,12 @@ void RenderGUI::Initialize(HWND hwnd, ID3D12Device* device, ID3D12CommandQueue* 
 
     ImGui_ImplDX12_InitInfo initInfo = {};
 
-    initInfo.Device = device;
-    initInfo.CommandQueue = commandQueue;
+    initInfo.Device = device.Device();
+    initInfo.CommandQueue = device.Queue();
     initInfo.NumFramesInFlight = frameCount;
-    initInfo.RTVFormat = rtvFormat;
+    initInfo.RTVFormat = device.BackBufferFormat();
     initInfo.DSVFormat = DXGI_FORMAT_UNKNOWN;
-    initInfo.SrvDescriptorHeap = srvAlloc->Heap();
+    initInfo.SrvDescriptorHeap = _srvAlloc.Heap();
     initInfo.UserData = this;
     initInfo.SrvDescriptorAllocFn = AllocateDescriptor;
     initInfo.SrvDescriptorFreeFn = FreeDescriptor;
@@ -154,7 +146,7 @@ void RenderGUI::AllocateDescriptor(ImGui_ImplDX12_InitInfo* info, D3D12_CPU_DESC
 {
     auto* gui = static_cast<RenderGUI*>(info->UserData);
 
-    DescriptorRange r = gui->_srvAlloc->Allocate(1);
+    DescriptorRange r = gui->_srvAlloc.Allocate(1);
     gui->_imguiSrvs.push_back(r);
 
     *cpuHandle = r.Cpu();
@@ -169,6 +161,6 @@ void RenderGUI::FreeDescriptor(ImGui_ImplDX12_InitInfo* info, D3D12_CPU_DESCRIPT
     auto it = std::find_if(v.begin(), v.end(), [&](const DescriptorRange& r) { return r.Cpu().ptr == cpuHandle.ptr; });
     assert(it != v.end() && "ImGui freed a descriptor it never allocated");
 
-    gui->_srvAlloc->Free(*it);
+    gui->_srvAlloc.Free(*it);
     v.erase(it);
 }

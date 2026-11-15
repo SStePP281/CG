@@ -21,9 +21,6 @@
     <Filter Include="Header Files\DLSS">
       <UniqueIdentifier>{3b9eab21-787c-498b-b200-b9ab56fbd1d4}</UniqueIdentifier>
     </Filter>
-    <Filter Include="Source Files\DLSS">
-      <UniqueIdentifier>{9bc2fab3-1bba-4ab8-b8db-0f2ef36d2826}</UniqueIdentifier>
-    </Filter>
     <Filter Include="RenderUI">
       <UniqueIdentifier>{c7aa017b-55df-4791-a8ce-1c4b1d539f06}</UniqueIdentifier>
     </Filter>
@@ -54,15 +51,36 @@
     <Filter Include="RenderUI\Panels\Header">
       <UniqueIdentifier>{03d2115f-edd9-4838-8cd9-6880a96c0965}</UniqueIdentifier>
     </Filter>
+    <Filter Include="App">
+      <UniqueIdentifier>{f9ffb450-c210-4e1f-b652-22e70a172f01}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Core">
+      <UniqueIdentifier>{8b8fd8cb-b42b-4360-9c08-31479d050aa7}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Assets">
+      <UniqueIdentifier>{ba155179-d052-4752-ab1a-c35e2824aca9}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="RHI">
+      <UniqueIdentifier>{aa1ddb29-a051-4a56-bb5f-83e2b59f352a}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Scene">
+      <UniqueIdentifier>{026609ee-adab-45d9-a8a0-4717c4040325}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Renderer">
+      <UniqueIdentifier>{93476141-f6cb-4590-9a9e-af53816b3791}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Editor">
+      <UniqueIdentifier>{48fc2ab2-5efb-4a2d-9cca-8c2172c8ea23}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Core\DLSS">
+      <UniqueIdentifier>{9bc2fab3-1bba-4ab8-b8db-0f2ef36d2826}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Platform">
+      <UniqueIdentifier>{a6ea10ed-0bed-4562-8ad6-e683c12b3247}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="WindowMain.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="GameTimer.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="BaseD3DApp.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="D3DFramework.cpp">
@@ -102,7 +120,7 @@
       <Filter>Source Files\AntiAliasing</Filter>
     </ClCompile>
     <ClCompile Include="NGXManager.cpp">
-      <Filter>Source Files\DLSS</Filter>
+      <Filter>Source Files\Core\DLSS</Filter>
     </ClCompile>
     <ClCompile Include="DLAA.cpp">
       <Filter>Source Files\AntiAliasing</Filter>
@@ -134,11 +152,26 @@
     <ClCompile Include="DescriptorHeapAllocator.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="TextureManager.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="DeferredReleaseQueue.cpp">
       <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="GraphicsDevice.cpp">
+      <Filter>RHI</Filter>
+    </ClCompile>
+    <ClCompile Include="TextureManager.cpp">
+      <Filter>Assets</Filter>
+    </ClCompile>
+    <ClCompile Include="Window.cpp">
+      <Filter>Platform</Filter>
+    </ClCompile>
+    <ClCompile Include="Input.cpp">
+      <Filter>Platform</Filter>
+    </ClCompile>
+    <ClCompile Include="Application.cpp">
+      <Filter>App</Filter>
+    </ClCompile>
+    <ClCompile Include="WindowMain.cpp">
+      <Filter>App</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -193,9 +226,6 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="GameTimer.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="BaseD3DApp.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="D3DFramework.h">
@@ -291,9 +321,6 @@
     <ClInclude Include="DescriptorHeapAllocator.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="TextureManager.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="DeferredReleaseQueue.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -305,6 +332,42 @@
     </ClInclude>
     <ClInclude Include="InfoPanel.h">
       <Filter>RenderUI\Panels\Header</Filter>
+    </ClInclude>
+    <ClInclude Include="SlotHandle.h">
+      <Filter>Core</Filter>
+    </ClInclude>
+    <ClInclude Include="SlotPool.h">
+      <Filter>Core</Filter>
+    </ClInclude>
+    <ClInclude Include="Mesh.h">
+      <Filter>Assets</Filter>
+    </ClInclude>
+    <ClInclude Include="Model.h">
+      <Filter>Assets</Filter>
+    </ClInclude>
+    <ClInclude Include="Material.h">
+      <Filter>Assets</Filter>
+    </ClInclude>
+    <ClInclude Include="Texture.h">
+      <Filter>Assets</Filter>
+    </ClInclude>
+    <ClInclude Include="TextureManager.h">
+      <Filter>Assets</Filter>
+    </ClInclude>
+    <ClInclude Include="ShaderTypes.h">
+      <Filter>Renderer</Filter>
+    </ClInclude>
+    <ClInclude Include="GraphicsDevice.h">
+      <Filter>RHI</Filter>
+    </ClInclude>
+    <ClInclude Include="Window.h">
+      <Filter>Platform</Filter>
+    </ClInclude>
+    <ClInclude Include="Input.h">
+      <Filter>Platform</Filter>
+    </ClInclude>
+    <ClInclude Include="Application.h">
+      <Filter>App</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

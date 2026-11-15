@@ -10,19 +10,17 @@
 
 #include "imgui.h"
 #include "backends/imgui_impl_dx12.h"
-#include "DescriptorHeapAllocator.h"
+#include "GraphicsDevice.h"
 #include "IPanel.h"
 
 class RenderGUI
 {
 public:
-    RenderGUI() = default;
+    RenderGUI(HWND hwnd, GraphicsDevice& device, UINT frameCount);
     ~RenderGUI() { Shutdown(); }
 
     RenderGUI(const RenderGUI&) = delete;
     RenderGUI& operator=(const RenderGUI&) = delete;
-
-    void Initialize(HWND hwnd, ID3D12Device* device, ID3D12CommandQueue* commandQueue, DescriptorAllocator* srvAlloc, DXGI_FORMAT rtvFormat, UINT frameCount);
 
     template<class T, class... Args>
     T& AddPanel(Args&&... args)
@@ -53,7 +51,7 @@ private:
     bool _win32Initialized = false;
     bool _dx12Initialized = false;
 
-    DescriptorAllocator* _srvAlloc = nullptr;
+    DescriptorAllocator& _srvAlloc;
     std::vector<DescriptorRange> _imguiSrvs;
 
     std::vector<std::unique_ptr<IPanel>> _panels;

@@ -13,9 +13,9 @@
 #include <DirectXMath.h>
 #include <DirectXColors.h>
 #include "RenderSettings.h"
-#include "DescriptorHeapAllocator.h"
+#include "GraphicsDevice.h"
 
-using namespace Microsoft::WRL;
+using Microsoft::WRL::ComPtr;
 using namespace DirectX;
 
 enum class GBufferIndex : UINT
@@ -52,7 +52,7 @@ public:
     };
 
 public:
-    GBuffer(ID3D12Device* device, Resolution res, DescriptorAllocator* srvAlloc, DescriptorAllocator* rtvAlloc, DescriptorAllocator* dsvAlloc);
+    GBuffer(GraphicsDevice& device, Resolution res);
 
     void TransitToOpaqueRenderingState(ID3D12GraphicsCommandList* cmdList);
     void TransitToLightRenderingState(ID3D12GraphicsCommandList* cmdList);

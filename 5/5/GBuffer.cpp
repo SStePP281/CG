@@ -2,17 +2,17 @@
 #include "ThrowIfFaild.h"
 #include <d3dx12.h>
 
-GBuffer::GBuffer(ID3D12Device* device, Resolution res, DescriptorAllocator* srvAlloc, DescriptorAllocator* rtvAlloc, DescriptorAllocator* dsvAlloc)
+GBuffer::GBuffer(GraphicsDevice& device, Resolution res)
 {
-    _srvRange = srvAlloc->Allocate((UINT)GBufferIndex::Count);
-    _rtvRange = rtvAlloc->Allocate((UINT)GBufferIndex::Count - 1);
-    _dsvRange = dsvAlloc->Allocate(1);
+    _srvRange = device.Srv().Allocate((UINT)GBufferIndex::Count);
+    _rtvRange = device.Rtv().Allocate((UINT)GBufferIndex::Count - 1);
+    _dsvRange = device.Dsv().Allocate(1);
 
     Textures.resize((UINT)GBufferIndex::Count);
 
-    CreateTextures(device, res);
-    CreateRTVandDSV(device);
-    CreateSRV(device);
+    CreateTextures(device.Device(), res);
+    CreateRTVandDSV(device.Device());
+    CreateSRV(device.Device());
 }
 
 void GBuffer::CreateTextures(ID3D12Device* device, Resolution res)

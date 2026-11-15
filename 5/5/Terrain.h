@@ -10,9 +10,9 @@
 #include <d3dx12.h>
 
 #include "ModelStruct.h"
-#include "DescriptorHeapAllocator.h"
+#include "GraphicsDevice.h"
 
-using namespace Microsoft::WRL;
+using Microsoft::WRL::ComPtr;
 
 constexpr float TERRAIN_WORLD_SIZE = 1024.0f;
 constexpr float TERRAIN_HEIGHT_SCALE = 200.0f;
@@ -72,7 +72,7 @@ struct QuadNode
 class Terrain
 {
 public:
-	Terrain(ID3D12Device* device, ID3D12CommandQueue* cmdQueue, ID3D12GraphicsCommandList* cmdList, DescriptorAllocator* srvAlloc);
+	Terrain(GraphicsDevice& device);
 
 	Terrain(const Terrain& rhs) = delete;
 	Terrain& operator=(const Terrain& rhs) = delete;
@@ -121,6 +121,9 @@ private:
 
 private:
 	std::unique_ptr<MeshGeometry> _tileMesh;
+
+	ComPtr<ID3D12Resource> _tileVbUpload;
+	ComPtr<ID3D12Resource> _tileIbUpload;
 
 	std::unique_ptr<QuadNode> _root;
 	std::vector<TerrainTile> _visibleTiles;
