@@ -8,33 +8,38 @@
 #include <d3dx12.h>
 #include <dxgiformat.h>
 #include <DirectXMath.h>
+#include <functional>
 #include "DescriptorHeapAllocator.h"
+#include "RenderSettings.h"
 
 using namespace Microsoft::WRL;
 using namespace DirectX;
 
-constexpr int SHADOW_MAP_TEXTURE_DEFAULT_SIZE = 1024;
-constexpr int CASCADES_COUNT = 3;
-
 class ShadowMap
 {
 public:
-    ShadowMap(ID3D12Device* device, DescriptorAllocator* srvAlloc);
+    static constexpr DXGI_FORMAT DEPTH_RESOURCE_FORMAT = DXGI_FORMAT_R24G8_TYPELESS;
+    static constexpr DXGI_FORMAT DEPTH_DSV_FORMAT = DXGI_FORMAT_D24_UNORM_S8_UINT;
+    static constexpr DXGI_FORMAT DEPTH_SRV_FORMAT = DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
+
+    ShadowMap(ID3D12Device* device, ShadowSettings& settings, DescriptorAllocator* srvAlloc, DescriptorAllocator* dsvAlloc);
+
+    void Render(ID3D12GraphicsCommandList* cmdList, const std::function<void(UINT cascade)>& drawCascade);
+
+    ComPtr<ID3D12Resource> Resource;
+    DescriptorRange SrvRange;
+    DescriptorRange DsvRange;
+
+private:
+    void CreateTexture(ID3D12Device* device);
+    void CreateSRVAndDSV(ID3D12Device* device);
 
     void TransitToOpaqueRenderingState(ID3D12GraphicsCommandList* cmdList);
     void TransitToLightRenderingState(ID3D12GraphicsCommandList* cmdList);
 
     void ClearView(ID3D12GraphicsCommandList* cmdList);
 
-    ComPtr<ID3D12Resource> Resource;
-    DescriptorRange SrvRange;
-    D3D12_CPU_DESCRIPTOR_HANDLE DSVs[CASCADES_COUNT] = {};
-
-    ComPtr<ID3D12DescriptorHeap> DSVHeap;
-
-private:
-    void CreateTexture(ID3D12Device* device);
-    void CreateSRVAndDSV(ID3D12Device* device);
+    ShadowSettings& _settings;
 };
 
 #endif // !SHADOW_MAP_HPP

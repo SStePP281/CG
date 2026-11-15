@@ -17,8 +17,6 @@
 
 using namespace Microsoft::WRL;
 
-constexpr int SWAP_CHAIN_BUFFER_COUNT = 2;
-
 class BaseD3DApp
 {
 protected:
@@ -66,14 +64,14 @@ protected:
 	void FlushCommandQueue();
 
 	ID3D12Resource* CurrentBackBuffer() const { return _swapChainBuffer[_currBackBuffer].Get(); }
-	D3D12_CPU_DESCRIPTOR_HANDLE CurrentBackBufferView() const { return CD3DX12_CPU_DESCRIPTOR_HANDLE(_rtvHeap->GetCPUDescriptorHandleForHeapStart(), _currBackBuffer, _rtvDescriptorSize); }
-	D3D12_CPU_DESCRIPTOR_HANDLE DepthStencilView() const { return _dsvHeap->GetCPUDescriptorHandleForHeapStart(); }
+	DescriptorRange CurrentBackBufferRtv() const { return _swapChainRtv.Sub(_currBackBuffer); }
 	
 	void CalculateFrameStats();
 	virtual std::wstring GetWindowTitile() { return L""; }
 
 protected:
 	RenderSettings _renderSettings;
+	ShadowSettings _shadowSettings;
 
 	static BaseD3DApp* _app;
 	HINSTANCE _hInstance = nullptr;
@@ -99,15 +97,12 @@ protected:
 	ComPtr<ID3D12GraphicsCommandList> _cmdList;
 
 	int _currBackBuffer = 0;
-	ComPtr<ID3D12Resource> _swapChainBuffer[SWAP_CHAIN_BUFFER_COUNT];
-	ComPtr<ID3D12Resource> _depthStencilBuffer;
+	DescriptorRange _swapChainRtv;
+	std::vector<ComPtr<ID3D12Resource>> _swapChainBuffer;
 
 	std::unique_ptr<DescriptorAllocator> _srvAlloc;
-	ComPtr<ID3D12DescriptorHeap> _rtvHeap;
-	ComPtr<ID3D12DescriptorHeap> _dsvHeap;
-
-	UINT _rtvDescriptorSize = 0;
-	UINT _dsvDescriptorSize = 0;
+	std::unique_ptr<DescriptorAllocator> _rtvAlloc;
+	std::unique_ptr<DescriptorAllocator> _dsvAlloc;
 
 	D3D12_VIEWPORT _screenViewport;
 	D3D12_RECT _scissorRect;
@@ -115,10 +110,9 @@ protected:
 	D3D12_VIEWPORT _renderViewport;
 	D3D12_RECT _renderScissor;
 
-	std::wstring _mainWndCaption = L"D3D App";
+	std::wstring _mainWndCaption = L"SStePP281";
 	D3D_DRIVER_TYPE _d3dDriverType = D3D_DRIVER_TYPE_HARDWARE;
 	DXGI_FORMAT _backBufferFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
-	DXGI_FORMAT _depthStencilFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
 };
 
 #endif // !D3DAPP_HPP

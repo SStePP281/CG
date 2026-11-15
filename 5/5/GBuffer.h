@@ -31,24 +31,28 @@ struct GBufferTexture
 {
     ComPtr<ID3D12Resource> Resource = nullptr;
 
-    D3D12_CPU_DESCRIPTOR_HANDLE RTV = {};
+    DescriptorRange RTV = {};
     DescriptorRange SRV = {};
-    D3D12_CPU_DESCRIPTOR_HANDLE DSV = {};
+    DescriptorRange DSV = {};
 };
 
 class GBuffer
 {
-private:
-    static constexpr DXGI_FORMAT INFO_FORMATS[(int)GBufferIndex::Count] =
+public:
+    static constexpr DXGI_FORMAT DEPTH_RESOURCE_FORMAT = DXGI_FORMAT_R24G8_TYPELESS;
+    static constexpr DXGI_FORMAT DEPTH_DSV_FORMAT = DXGI_FORMAT_D24_UNORM_S8_UINT;
+    static constexpr DXGI_FORMAT DEPTH_SRV_FORMAT = DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
+
+    static constexpr DXGI_FORMAT INFO_FORMATS[(UINT)GBufferIndex::Count] =
     {
         DXGI_FORMAT_R8G8B8A8_UNORM,         // Albedo
         DXGI_FORMAT_R32G32B32A32_FLOAT,     // Normal
         DXGI_FORMAT_R8G8B8A8_UNORM,         // MatData (metallic, roughness, AO)
-        DXGI_FORMAT_R24_UNORM_X8_TYPELESS   // Depth (SRV формат)
+        DEPTH_SRV_FORMAT                    // Depth (SRV формат)
     };
 
 public:
-    GBuffer(ID3D12Device* device, Resolution res, DescriptorAllocator* srvAlloc);
+    GBuffer(ID3D12Device* device, Resolution res, DescriptorAllocator* srvAlloc, DescriptorAllocator* rtvAlloc, DescriptorAllocator* dsvAlloc);
 
     void TransitToOpaqueRenderingState(ID3D12GraphicsCommandList* cmdList);
     void TransitToLightRenderingState(ID3D12GraphicsCommandList* cmdList);
@@ -59,15 +63,14 @@ public:
 
     std::vector<GBufferTexture> Textures;
 
-    ComPtr<ID3D12DescriptorHeap> RTVHeap;
-    ComPtr<ID3D12DescriptorHeap> DSVHeap;
-
 private:
     void CreateTextures(ID3D12Device* device, Resolution res);
     void CreateSRV(ID3D12Device* device);
     void CreateRTVandDSV(ID3D12Device* device);
 
     DescriptorRange _srvRange;
+    DescriptorRange _rtvRange;
+    DescriptorRange _dsvRange;
 };
 
 #endif // !G_BUFFER_HPP

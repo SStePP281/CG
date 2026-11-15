@@ -7,14 +7,6 @@
 DLAA::DLAA(ID3D12GraphicsCommandList* cmdList, NGXManager* ngxManager, const AAInitContext& ctx) : _ngxManager(ngxManager)
 {
     _srvRange = ctx.srvAlloc->Allocate(1);
-
-    _rtvDescriptorSize = ctx.device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
-
-    D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc = {};
-    rtvHeapDesc.NumDescriptors = 1;
-    rtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
-    rtvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-    ThrowIfFailed(ctx.device->CreateDescriptorHeap(&rtvHeapDesc, IID_PPV_ARGS(&_rtvHeap)));
 }
 
 void DLAA::InitializeFeature(ID3D12GraphicsCommandList* cmdList)
@@ -187,30 +179,16 @@ void DLAA::CreateResources(ID3D12Device* device)
 
 void DLAA::CreateSRVAndRTV(ID3D12Device* device)
 {
-
     const D3D12_RESOURCE_DESC colorDesc = _output.Get()->GetDesc();
 
-    {
-        D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
-        srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-        srvDesc.Format = colorDesc.Format;
-        srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-        srvDesc.Texture2D.MostDetailedMip = 0;
-        srvDesc.Texture2D.MipLevels = colorDesc.MipLevels;
-        srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
+    D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+    srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc.Format = colorDesc.Format;
+    srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc.Texture2D.MostDetailedMip = 0;
+    srvDesc.Texture2D.MipLevels = colorDesc.MipLevels;
+    srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
 
-        device->CreateShaderResourceView(_output.Get(), &srvDesc, _srvRange.Cpu());
-    }
-
-    {
-        CD3DX12_CPU_DESCRIPTOR_HANDLE rtvStart(_rtvHeap->GetCPUDescriptorHandleForHeapStart());
-
-        D3D12_RENDER_TARGET_VIEW_DESC colorRTVDesc = {};
-        colorRTVDesc.Format = colorDesc.Format;
-        colorRTVDesc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
-
-        _rtv = CD3DX12_CPU_DESCRIPTOR_HANDLE(rtvStart, 0, _rtvDescriptorSize);
-        device->CreateRenderTargetView(_output.Get(), &colorRTVDesc, _rtv);
-    }
+    device->CreateShaderResourceView(_output.Get(), &srvDesc, _srvRange.Cpu());
 }
 

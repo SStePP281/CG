@@ -56,6 +56,7 @@ bool D3DFramework::Initialize()
 		AAInitContext ctx = {};
 		ctx.device = _d3dDevice.Get();
 		ctx.srvAlloc = _srvAlloc.get();
+		ctx.rtvAlloc = _rtvAlloc.get();
 		ctx.samplerCount = (UINT)sampler.size();
 		ctx.samplers = sampler.data();
 
@@ -73,13 +74,13 @@ bool D3DFramework::Initialize()
 		_DLAA->OnResize(_d3dDevice.Get(), _cmdList.Get(), _renderSettings);
 	}
 
-	_gBuffer = std::make_unique<GBuffer>(_d3dDevice.Get(), _renderSettings.Render, _srvAlloc.get());
+	_gBuffer = std::make_unique<GBuffer>(_d3dDevice.Get(), _renderSettings.Render, _srvAlloc.get(), _rtvAlloc.get(), _dsvAlloc.get());
 
-	_shadowMap = std::make_unique<ShadowMap>(_d3dDevice.Get(), _srvAlloc.get());
+	_shadowMap = std::make_unique<ShadowMap>(_d3dDevice.Get(), _shadowSettings, _srvAlloc.get(), _dsvAlloc.get());
 
 	_terrain = std::make_unique<Terrain>(_d3dDevice.Get(), _cmdQueue.Get(), _cmdList.Get(), _srvAlloc.get());
 
-	_velocityBuffer = std::make_unique<VelocityBuffers>(_d3dDevice.Get(), _srvAlloc.get());
+	_velocityBuffer = std::make_unique<VelocityBuffers>(_d3dDevice.Get(), _srvAlloc.get(), _rtvAlloc.get());
 	_velocityBuffer->OnResize(_d3dDevice.Get(), _renderSettings.Render);
 
 	_ppChain = std::make_unique<PostProcessChain>();
@@ -106,7 +107,7 @@ bool D3DFramework::Initialize()
 	BuildTerrainPassPSO();
 
 	_gui = std::make_unique<RenderGUI>();
-	_gui->Initialize(_hMainWnd, _d3dDevice.Get(), _cmdQueue.Get(), _srvAlloc.get(), _backBufferFormat, SWAP_CHAIN_BUFFER_COUNT);
+	_gui->Initialize(_hMainWnd, _d3dDevice.Get(), _cmdQueue.Get(), _srvAlloc.get(), _backBufferFormat, _renderSettings.SwapChainBufferCount);
 
 	ThrowIfFailed(_cmdList->Close());
 	ID3D12CommandList* cmdsLists[] = { _cmdList.Get() };
@@ -268,34 +269,19 @@ void D3DFramework::Draw(const GameTimer& gt)
 
 	//SHADOW PASS
 
-	D3D12_VIEWPORT shadowViewport = { 0, 0, SHADOW_MAP_TEXTURE_DEFAULT_SIZE, SHADOW_MAP_TEXTURE_DEFAULT_SIZE, 0.0f, 1.0f };
-	D3D12_RECT shadowScissor = { 0, 0, SHADOW_MAP_TEXTURE_DEFAULT_SIZE, SHADOW_MAP_TEXTURE_DEFAULT_SIZE };
-	
-	_cmdList->RSSetViewports(1, &shadowViewport);
-	_cmdList->RSSetScissorRects(1, &shadowScissor);
-
-	_shadowMap->TransitToOpaqueRenderingState(_cmdList.Get());
-	_shadowMap->ClearView(_cmdList.Get());
-
 	_cmdList->SetPipelineState(_psos["shadowPass"].Get());
 	_cmdList->SetGraphicsRootSignature(_rootSignatureShadowPass.Get());
-
 	_cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
 	auto shadowCB = _currFrameResource->ShadowCB->Resource();
-	UINT shadowElementSize = D3DUtil::CalcConstantBufferSize(sizeof(ShadowConstant));
-	for (int k = 0; k < CASCADES_COUNT; k++)
-	{
-		D3D12_GPU_VIRTUAL_ADDRESS shadowAddr = shadowCB->GetGPUVirtualAddress() + k * shadowElementSize;
-		_cmdList->SetGraphicsRootConstantBufferView(1, shadowAddr);
+	UINT shadowStride = D3DUtil::CalcConstantBufferSize(sizeof(ShadowConstant));
 
-		auto dsv = _shadowMap->DSVs[k];
-		_cmdList->OMSetRenderTargets(0, nullptr, FALSE, &dsv);
+	_shadowMap->Render(_cmdList.Get(), [&](UINT k)
+		{
+			_cmdList->SetGraphicsRootConstantBufferView(1, shadowCB->GetGPUVirtualAddress() + k * shadowStride);
 
-		DrawRenderItemsShadow(_cmdList.Get(), _shadowRitems);
-	}
-
-	_shadowMap->TransitToLightRenderingState(_cmdList.Get());
+			DrawRenderItemsShadow(_cmdList.Get(), _shadowRitems);
+		});
 
 	//GEOMETRY PASS (GBuffer)
 
@@ -310,13 +296,13 @@ void D3DFramework::Draw(const GameTimer& gt)
 
 	std::array<D3D12_CPU_DESCRIPTOR_HANDLE, 4> rtvs =
 	{
-       _gBuffer->Textures[(UINT)GBufferIndex::Albedo].RTV,
-       _gBuffer->Textures[(UINT)GBufferIndex::Normal].RTV,
-       _gBuffer->Textures[(UINT)GBufferIndex::MatData].RTV,
-	   _velocityBuffer->CurrentRTV()
+       _gBuffer->Textures[(UINT)GBufferIndex::Albedo].RTV.Cpu(),
+       _gBuffer->Textures[(UINT)GBufferIndex::Normal].RTV.Cpu(),
+       _gBuffer->Textures[(UINT)GBufferIndex::MatData].RTV.Cpu(),
+	   _velocityBuffer->CurrentRTV().Cpu()
 	};
 
-	auto dsv = _gBuffer->Textures[(UINT)GBufferIndex::Depth].DSV;
+	auto dsv = _gBuffer->Textures[(UINT)GBufferIndex::Depth].DSV.Cpu();
 	_cmdList->OMSetRenderTargets((UINT)rtvs.size(), rtvs.data(), FALSE, &dsv);
 	
 	DrawRenderItems(_cmdList.Get(), _opaqueRitems);
@@ -335,10 +321,10 @@ void D3DFramework::Draw(const GameTimer& gt)
 	_cmdList->ResourceBarrier(1, &backBufferToRT);
 
 	float clearColor[4] = { 0, 0, 0, 1 };
-	auto hdrRTV = _isDebugMode ? CurrentBackBufferView() : _ppChain->GetLightPassRTV();
+	auto hdrRTV = _isDebugMode ? CurrentBackBufferRtv().Cpu() : _ppChain->GetHDRRtv().Cpu();
 	_cmdList->ClearRenderTargetView(hdrRTV, clearColor, 0, nullptr);
 
-	D3D12_CPU_DESCRIPTOR_HANDLE depth = _gBuffer->Textures[(UINT)GBufferIndex::Depth].DSV;
+	D3D12_CPU_DESCRIPTOR_HANDLE depth = _gBuffer->Textures[(UINT)GBufferIndex::Depth].DSV.Cpu();
 	_cmdList->OMSetRenderTargets(1, &hdrRTV, FALSE, &depth);
 
 	_cmdList->SetPipelineState(_psos["lightPass"].Get());
@@ -425,12 +411,12 @@ void D3DFramework::Draw(const GameTimer& gt)
 		_cmdList->RSSetViewports(1, &_screenViewport);
 		_cmdList->RSSetScissorRects(1, &_scissorRect);
 
-		_ppChain->ExecuteAll(_cmdList.Get(), _currentAA->OutputSrv(), CurrentBackBufferView());
+		_ppChain->ExecuteAll(_cmdList.Get(), _currentAA->OutputSrv(), CurrentBackBufferRtv());
 	}
 
 	//GUI
 
-	auto backBuffer =  CurrentBackBufferView();
+	auto backBuffer =  CurrentBackBufferRtv().Cpu();
 	_cmdList->OMSetRenderTargets(1, &backBuffer, TRUE, nullptr);
 
 	_gui->Render(_cmdList.Get());
@@ -447,7 +433,7 @@ void D3DFramework::Draw(const GameTimer& gt)
 	_cmdQueue->ExecuteCommandLists(_countof(cmdsLists), cmdsLists);
 
 	ThrowIfFailed(_swapChain->Present(0, 0));
-	_currBackBuffer = (_currBackBuffer + 1) % SWAP_CHAIN_BUFFER_COUNT;
+	_currBackBuffer = (_currBackBuffer + 1) % _renderSettings.SwapChainBufferCount;
 
 	_currFrameResource->Fence = ++_currFence;
 	_cmdQueue->Signal(_fence.Get(), _currFence);
@@ -811,7 +797,7 @@ void D3DFramework::UpdateShadowCB(const GameTimer& gt)
 		XMVECTOR up = XMVectorSet(0, 1, 0, 0);
 		if (fabsf(XMVectorGetY(lightDir)) > 0.99f) { up = XMVectorSet(1, 0, 0, 0); }
 
-		for (int cascade = 0; cascade < CASCADES_COUNT; cascade++)
+		for (int cascade = 0; cascade < _shadowSettings.CascadeCount; cascade++)
 		{
 			float nearZ = cascadeNears[cascade];
 			float farZ = cascadeFars[cascade];
@@ -858,8 +844,8 @@ void D3DFramework::UpdateShadowCB(const GameTimer& gt)
 			minZ = (minZ < 0) ? minZ * zMult : minZ / zMult;
 			maxZ = (maxZ < 0) ? maxZ / zMult : maxZ * zMult;
 
-			float worldTexelSizeX = (maxX - minX) / SHADOW_MAP_TEXTURE_DEFAULT_SIZE;
-			float worldTexelSizeY = (maxY - minY) / SHADOW_MAP_TEXTURE_DEFAULT_SIZE;
+			float worldTexelSizeX = (maxX - minX) / _shadowSettings.ShadowTextureSize;
+			float worldTexelSizeY = (maxY - minY) / _shadowSettings.ShadowTextureSize;
 			minX = floorf(minX / worldTexelSizeX) * worldTexelSizeX;
 			maxX = floorf(maxX / worldTexelSizeX) * worldTexelSizeX;
 			minY = floorf(minY / worldTexelSizeY) * worldTexelSizeY;
@@ -870,7 +856,7 @@ void D3DFramework::UpdateShadowCB(const GameTimer& gt)
 			XMMATRIX lightViewProj = XMMatrixMultiply(lightView, lightProj);
 
 			XMVECTOR originNDC = XMVector3TransformCoord(XMVectorZero(), lightViewProj);
-			float texelSizeNDC = 2.0f / SHADOW_MAP_TEXTURE_DEFAULT_SIZE;
+			float texelSizeNDC = 2.0f / _shadowSettings.ShadowTextureSize;
 			float snapX = floorf(XMVectorGetX(originNDC) / texelSizeNDC) * texelSizeNDC;
 			float snapY = floorf(XMVectorGetY(originNDC) / texelSizeNDC) * texelSizeNDC;
 			float dx = XMVectorGetX(originNDC) - snapX;
@@ -1220,7 +1206,7 @@ void D3DFramework::BuildGBufferPSO()
 	psoDesc.RTVFormats[2] = DXGI_FORMAT_R8G8B8A8_UNORM;       // MatData
 	psoDesc.RTVFormats[3] = DXGI_FORMAT_R16G16_FLOAT;         // Velocity 
 
-	psoDesc.DSVFormat = _depthStencilFormat;
+	psoDesc.DSVFormat = GBuffer::DEPTH_DSV_FORMAT;
 
 	ThrowIfFailed(_d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&_psos["gbuffer"])));
 }
@@ -1263,7 +1249,7 @@ void D3DFramework::BuildLightPassPSO()
 	psoDesc.SampleDesc.Quality = _4xMsaaState ? (_4xMsaaQuality - 1) : 0;
 
 	psoDesc.RTVFormats[0] = HDR_FORMAT;
-	psoDesc.DSVFormat = _depthStencilFormat;
+	psoDesc.DSVFormat = GBuffer::DEPTH_DSV_FORMAT;
 
 	ThrowIfFailed(_d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&_psos["lightPass"])));
 }
@@ -1295,7 +1281,7 @@ void D3DFramework::BuildShadowPassPSO()
 	psoDesc.SampleDesc.Quality = _4xMsaaState ? (_4xMsaaQuality - 1) : 0;
 
 	psoDesc.RTVFormats[0] = DXGI_FORMAT_UNKNOWN;
-	psoDesc.DSVFormat = _depthStencilFormat;
+	psoDesc.DSVFormat = ShadowMap::DEPTH_DSV_FORMAT;
 
 	ThrowIfFailed(_d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&_psos["shadowPass"])));
 }
@@ -1335,7 +1321,7 @@ void D3DFramework::BuildTerrainPassPSO()
 	psoDesc.RTVFormats[2] = DXGI_FORMAT_R8G8B8A8_UNORM;       // MatData
 	psoDesc.RTVFormats[3] = DXGI_FORMAT_R16G16_FLOAT;         // Velocity 
 
-	psoDesc.DSVFormat = _depthStencilFormat;
+	psoDesc.DSVFormat = GBuffer::DEPTH_DSV_FORMAT;
 
 	ThrowIfFailed(_d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&_psos["terrain"])));
 
@@ -1427,9 +1413,9 @@ void D3DFramework::CreatePPS()
 	toneDesc.OutputFormat = _backBufferFormat;
 	toneDesc.Res = _renderSettings.Display;
 
-	_ppChain->ReservePass(_d3dDevice.Get(), toneDesc, _srvAlloc.get());
+	_ppChain->ReservePass(_d3dDevice.Get(), toneDesc, _srvAlloc.get(), _rtvAlloc.get());
 
-	_ppChain->InitHDRBuffer(_d3dDevice.Get(), _srvAlloc.get(), _renderSettings.Render);
+	_ppChain->InitHDRBuffer(_d3dDevice.Get(), _srvAlloc.get(), _rtvAlloc.get(), _renderSettings.Render);
 
 	_ppChain->CommitAll(_d3dDevice.Get());
 }
@@ -1646,7 +1632,7 @@ void D3DFramework::BuildFrameResources()
 
 	for (int i = 0; i < NUM_FRAME_RECOURCES; ++i)
 	{
-		_frameResources.push_back(std::make_unique<FrameResource>(_d3dDevice.Get(), (UINT)MAX_DEBUG_LAYER_COUNT, (UINT)_materials.size(), (UINT)_lights.size(), dirLightCount * CASCADES_COUNT));
+		_frameResources.push_back(std::make_unique<FrameResource>(_d3dDevice.Get(), (UINT)MAX_DEBUG_LAYER_COUNT, (UINT)_materials.size(), (UINT)_lights.size(), dirLightCount * _shadowSettings.CascadeCount));
 	}
 }
 

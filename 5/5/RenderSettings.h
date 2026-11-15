@@ -28,8 +28,44 @@ struct RenderSettings
 	UpscalePreset Preset = UpscalePreset::DLAA;
 	float RenderScale = 1.0f;
 
+	UINT SwapChainBufferCount = 2;
+
 	Resolution Display;
 	Resolution Render;
+};
+
+struct ShadowSettings
+{
+	UINT CascadeCount = 3;
+	UINT ShadowTextureSize = 4096;
+};
+
+struct DebugSettings
+{
+	bool GBufferViews = false;
+	bool UseBeckmann = false;
+	bool TerrainWireframe = false;
+
+	bool ShowOctree = false;
+	bool ShowVisibleBounds = false;
+	bool FreezeFrustum = false;
+};
+
+enum class BrushMode { Draw, Erase };
+
+struct BrushSettings
+{
+	bool Enabled = false;
+	BrushMode Mode = BrushMode::Draw;
+	UINT Layer = 0;
+	float Radius = 20.0f;
+	float Strength = 1.0f;
+};
+
+struct CameraSettings
+{
+	float MoveSpeed = 10.0f;
+	float RotateSpeed = 0.15f;
 };
 
 inline const wchar_t* ToString(UpscalePreset p)

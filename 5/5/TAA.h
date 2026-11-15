@@ -78,11 +78,8 @@ private:
 	ComPtr<ID3D12Resource> _colorBuffer[2];
 	UINT _currentIndex = 0;
 
-	ComPtr<ID3D12DescriptorHeap> _taaRTVHeap;
-	D3D12_CPU_DESCRIPTOR_HANDLE _colorRTVs[2];
-	UINT _rtvDescriptorSize = 0;
-
 	DescriptorRange _srvRange;
+	DescriptorRange _rtvRange;
 
 	ComPtr<ID3D12RootSignature> _rootSignature;
 	ComPtr<ID3D12PipelineState> _pso;

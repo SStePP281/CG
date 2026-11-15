@@ -6,14 +6,7 @@
 TAA::TAA(const AAInitContext& ctx)
 {
     _srvRange = ctx.srvAlloc->Allocate(2);
-
-    _rtvDescriptorSize = ctx.device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
-
-    D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc = {};
-    rtvHeapDesc.NumDescriptors = 2;
-    rtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
-    rtvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-    ThrowIfFailed(ctx.device->CreateDescriptorHeap(&rtvHeapDesc, IID_PPV_ARGS(&_taaRTVHeap)));
+    _rtvRange = ctx.rtvAlloc->Allocate(2);
 
     CreateRootsignature(ctx);
     CreatePSO(ctx);
@@ -45,7 +38,8 @@ void TAA::Resolve(ID3D12GraphicsCommandList* cmdList, const AAInputs& in)
     cmdList->SetPipelineState(_pso.Get());
     cmdList->SetGraphicsRootSignature(_rootSignature.Get());
 
-    cmdList->OMSetRenderTargets(1, &_colorRTVs[_currentIndex], FALSE, nullptr);
+    auto rtv = _rtvRange.Cpu(_currentIndex);
+    cmdList->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
 
     cmdList->SetGraphicsRootDescriptorTable(0, _srvRange.Gpu(1 - _currentIndex));   // t0
     cmdList->SetGraphicsRootDescriptorTable(1, in.color.srv.Gpu());	                // t1 
@@ -185,16 +179,13 @@ void TAA::CreateSRVAndRTV(ID3D12Device* device)
     }
 
     {
-        CD3DX12_CPU_DESCRIPTOR_HANDLE rtvStart(_taaRTVHeap->GetCPUDescriptorHandleForHeapStart());
-
         D3D12_RENDER_TARGET_VIEW_DESC colorRTVDesc = {};
         colorRTVDesc.Format = colorDesc.Format;
         colorRTVDesc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
 
         for (int i = 0; i < 2; i++)
         {
-            _colorRTVs[i] = CD3DX12_CPU_DESCRIPTOR_HANDLE(rtvStart, i, _rtvDescriptorSize);
-            device->CreateRenderTargetView(_colorBuffer[i].Get(), &colorRTVDesc, _colorRTVs[i]);
+            device->CreateRenderTargetView(_colorBuffer[i].Get(), &colorRTVDesc, _rtvRange.Cpu(i));
         }
     }
 }

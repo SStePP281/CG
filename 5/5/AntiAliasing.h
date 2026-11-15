@@ -27,6 +27,7 @@ struct AAInitContext
 {
     ID3D12Device* device;
     DescriptorAllocator* srvAlloc;
+    DescriptorAllocator* rtvAlloc;
     const D3D12_STATIC_SAMPLER_DESC* samplers;
     UINT samplerCount;
 };

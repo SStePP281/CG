@@ -18,6 +18,8 @@ BaseD3DApp::BaseD3DApp(HINSTANCE hInstance) : _hInstance(hInstance)
     _renderSettings.Preset = UpscalePreset::DLAA;
     _renderSettings.RenderScale = 1.0f;
     UpdateRenderResolution();
+
+    _shadowSettings = {};
 }
 
 BaseD3DApp::~BaseD3DApp()
@@ -101,9 +103,6 @@ bool BaseD3DApp::InitDirect3D()
     ThrowIfFailed(D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(&_d3dDevice)));
     ThrowIfFailed(_d3dDevice->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&_fence)));
 
-    _rtvDescriptorSize = _d3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
-    _dsvDescriptorSize = _d3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
-
     D3D12_FEATURE_DATA_MULTISAMPLE_QUALITY_LEVELS msQualityLevels;
     msQualityLevels.Format = _backBufferFormat;
     msQualityLevels.SampleCount = 4;
@@ -115,8 +114,8 @@ bool BaseD3DApp::InitDirect3D()
     assert(_4xMsaaQuality > 0 && "Unexpected MSAA quality level.");
 
     CreateCommandObjects();
-    CreateSwapChain();
     CreateDescriptorHeaps();
+    CreateSwapChain();
 
     return true;
 }
@@ -141,6 +140,8 @@ void BaseD3DApp::CreateCommandObjects()
 
 void BaseD3DApp::CreateSwapChain()
 {
+    _swapChainBuffer.resize(_renderSettings.SwapChainBufferCount);
+    _rtvAlloc->Free(_swapChainRtv);
     _swapChain.Reset();
 
     DXGI_SWAP_CHAIN_DESC sd;
@@ -154,7 +155,7 @@ void BaseD3DApp::CreateSwapChain()
     sd.SampleDesc.Count = _4xMsaaState ? 4 : 1;
     sd.SampleDesc.Quality = _4xMsaaState ? (_4xMsaaQuality - 1) : 0;
     sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-    sd.BufferCount = SWAP_CHAIN_BUFFER_COUNT;
+    sd.BufferCount = _renderSettings.SwapChainBufferCount;
     sd.OutputWindow = _hMainWnd;
     sd.Windowed = true;
     sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
@@ -162,28 +163,21 @@ void BaseD3DApp::CreateSwapChain()
 
     ThrowIfFailed(_dxgiFactory->CreateSwapChain(_cmdQueue.Get(), &sd, _swapChain.GetAddressOf()));
 
+    _swapChainRtv = _rtvAlloc->Allocate(_renderSettings.SwapChainBufferCount);
+
 	std::cout << "Swap chain is created" << std::endl;
 }
 
 void BaseD3DApp::CreateDescriptorHeaps()
 {
-    D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc;
-    rtvHeapDesc.NumDescriptors = SWAP_CHAIN_BUFFER_COUNT;
-    rtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
-    rtvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-    rtvHeapDesc.NodeMask = 0;
-    ThrowIfFailed(_d3dDevice->CreateDescriptorHeap(&rtvHeapDesc, IID_PPV_ARGS(_rtvHeap.GetAddressOf())));
-
-
-    D3D12_DESCRIPTOR_HEAP_DESC dsvHeapDesc;
-    dsvHeapDesc.NumDescriptors = 1;
-    dsvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
-    dsvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-    dsvHeapDesc.NodeMask = 0;
-    ThrowIfFailed(_d3dDevice->CreateDescriptorHeap(&dsvHeapDesc, IID_PPV_ARGS(_dsvHeap.GetAddressOf())));
-
     _srvAlloc = std::make_unique<DescriptorAllocator>();
     _srvAlloc->Init(_d3dDevice.Get(), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1000, true);
+
+    _rtvAlloc = std::make_unique<DescriptorAllocator>();
+    _rtvAlloc->Init(_d3dDevice.Get(), D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 64, false);
+
+    _dsvAlloc = std::make_unique<DescriptorAllocator>();
+    _dsvAlloc->Init(_d3dDevice.Get(), D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 16, false);
 }
 
 void BaseD3DApp::UpdateRenderResolution()
@@ -200,65 +194,16 @@ void BaseD3DApp::OnDisplayResize()
 
     FlushCommandQueue();
 
-    ThrowIfFailed(_cmdList->Reset(_directCmdListAlloc.Get(), nullptr));
+    for (UINT i = 0; i < _renderSettings.SwapChainBufferCount; ++i) { _swapChainBuffer[i].Reset(); }
 
-    for (int i = 0; i < SWAP_CHAIN_BUFFER_COUNT; ++i) { _swapChainBuffer[i].Reset(); }
-    _depthStencilBuffer.Reset();
-
-    ThrowIfFailed(_swapChain->ResizeBuffers(SWAP_CHAIN_BUFFER_COUNT, _renderSettings.Display.Width, _renderSettings.Display.Height, _backBufferFormat, DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH));
+    ThrowIfFailed(_swapChain->ResizeBuffers(_renderSettings.SwapChainBufferCount, _renderSettings.Display.Width, _renderSettings.Display.Height, _backBufferFormat, DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH));
 
     _currBackBuffer = 0;
-
-    CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHeapHandle(_rtvHeap->GetCPUDescriptorHandleForHeapStart());
-    for (UINT i = 0; i < SWAP_CHAIN_BUFFER_COUNT; i++)
+    for (UINT i = 0; i < _renderSettings.SwapChainBufferCount; i++)
     {
         ThrowIfFailed(_swapChain->GetBuffer(i, IID_PPV_ARGS(&_swapChainBuffer[i])));
-        _d3dDevice->CreateRenderTargetView(_swapChainBuffer[i].Get(), nullptr, rtvHeapHandle);
-        rtvHeapHandle.Offset(1, _rtvDescriptorSize);
+        _d3dDevice->CreateRenderTargetView(_swapChainBuffer[i].Get(), nullptr, _swapChainRtv.Cpu(i));
     }
-
-    D3D12_RESOURCE_DESC depthStencilDesc;
-    depthStencilDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-    depthStencilDesc.Alignment = 0;
-    depthStencilDesc.Width = _renderSettings.Display.Width;
-    depthStencilDesc.Height = _renderSettings.Display.Height;
-    depthStencilDesc.DepthOrArraySize = 1;
-    depthStencilDesc.MipLevels = 1;
- 
-    depthStencilDesc.Format = DXGI_FORMAT_R24G8_TYPELESS;
-
-    depthStencilDesc.SampleDesc.Count = _4xMsaaState ? 4 : 1;
-    depthStencilDesc.SampleDesc.Quality = _4xMsaaState ? (_4xMsaaQuality - 1) : 0;
-    depthStencilDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-    depthStencilDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
-
-    D3D12_CLEAR_VALUE optClear;
-    optClear.Format = _depthStencilFormat;
-    optClear.DepthStencil.Depth = 1.0f;
-    optClear.DepthStencil.Stencil = 0;
-    auto propertie = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
-    ThrowIfFailed(_d3dDevice->CreateCommittedResource(
-        &propertie,
-        D3D12_HEAP_FLAG_NONE,
-        &depthStencilDesc,
-        D3D12_RESOURCE_STATE_COMMON,
-        &optClear,
-        IID_PPV_ARGS(_depthStencilBuffer.GetAddressOf())));
-
-    D3D12_DEPTH_STENCIL_VIEW_DESC dsvDesc;
-    dsvDesc.Flags = D3D12_DSV_FLAG_NONE;
-    dsvDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
-    dsvDesc.Format = _depthStencilFormat;
-    dsvDesc.Texture2D.MipSlice = 0;
-    _d3dDevice->CreateDepthStencilView(_depthStencilBuffer.Get(), &dsvDesc, DepthStencilView());
-
-    auto barrier = CD3DX12_RESOURCE_BARRIER::Transition(_depthStencilBuffer.Get(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_DEPTH_WRITE);
-    _cmdList->ResourceBarrier(1, &barrier);
-
-    ThrowIfFailed(_cmdList->Close());
-    ID3D12CommandList* cmdsLists[] = { _cmdList.Get() };
-    _cmdQueue->ExecuteCommandLists(_countof(cmdsLists), cmdsLists);
-    FlushCommandQueue();
 
     _screenViewport.TopLeftX = 0;
     _screenViewport.TopLeftY = 0;

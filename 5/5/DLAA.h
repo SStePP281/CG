@@ -80,10 +80,6 @@ private:
 private:
     ComPtr<ID3D12Resource> _output;
 
-    ComPtr<ID3D12DescriptorHeap> _rtvHeap;
-    D3D12_CPU_DESCRIPTOR_HANDLE _rtv;
-    UINT _rtvDescriptorSize = 0;
-
     DescriptorRange _srvRange;
 
 private:

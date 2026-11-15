@@ -2,21 +2,11 @@
 #include "ThrowIfFaild.h"
 #include <d3dx12.h>
 
-GBuffer::GBuffer(ID3D12Device* device, Resolution res, DescriptorAllocator* srvAlloc)
+GBuffer::GBuffer(ID3D12Device* device, Resolution res, DescriptorAllocator* srvAlloc, DescriptorAllocator* rtvAlloc, DescriptorAllocator* dsvAlloc)
 {
     _srvRange = srvAlloc->Allocate((UINT)GBufferIndex::Count);
-
-    D3D12_DESCRIPTOR_HEAP_DESC rtvDesc = {};
-    rtvDesc.NumDescriptors = 3;
-    rtvDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
-    rtvDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-    ThrowIfFailed(device->CreateDescriptorHeap(&rtvDesc, IID_PPV_ARGS(&RTVHeap)));
-
-    D3D12_DESCRIPTOR_HEAP_DESC dsvDesc = {};
-    dsvDesc.NumDescriptors = 1;
-    dsvDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
-    dsvDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-    ThrowIfFailed(device->CreateDescriptorHeap(&dsvDesc, IID_PPV_ARGS(&DSVHeap)));
+    _rtvRange = rtvAlloc->Allocate((UINT)GBufferIndex::Count - 1);
+    _dsvRange = dsvAlloc->Allocate(1);
 
     Textures.resize((UINT)GBufferIndex::Count);
 
@@ -41,10 +31,10 @@ void GBuffer::CreateTextures(ID3D12Device* device, Resolution res)
 
         if (i == (UINT)GBufferIndex::Depth)
         {
-            resDesc.Format = DXGI_FORMAT_R24G8_TYPELESS;
+            resDesc.Format = DEPTH_RESOURCE_FORMAT;
             resDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
 
-            clearValue.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+            clearValue.Format = DEPTH_DSV_FORMAT;
             clearValue.DepthStencil.Depth = 1.0f;
             clearValue.DepthStencil.Stencil = 0;
         }
@@ -89,31 +79,23 @@ void GBuffer::CreateRTVandDSV(ID3D12Device* device)
     rtvDesc.Texture2D.MipSlice = 0;
     rtvDesc.Texture2D.PlaneSlice = 0;
 
-    UINT rtvSize = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
-    CD3DX12_CPU_DESCRIPTOR_HANDLE hRtv(RTVHeap->GetCPUDescriptorHandleForHeapStart());
-
     D3D12_DEPTH_STENCIL_VIEW_DESC dsvDesc = {};
-    dsvDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+    dsvDesc.Format = DEPTH_DSV_FORMAT;
     dsvDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
     dsvDesc.Texture2D.MipSlice = 0;
-
-    UINT dsvSize = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
-    CD3DX12_CPU_DESCRIPTOR_HANDLE hDsv(DSVHeap->GetCPUDescriptorHandleForHeapStart());
 
     for (UINT i = 0; i < (UINT)GBufferIndex::Count; ++i)
     {
         if (i == (UINT)GBufferIndex::Depth)
         {
-            Textures[i].DSV = hDsv;
-            device->CreateDepthStencilView(Textures[i].Resource.Get(), &dsvDesc, hDsv);
-            hDsv.Offset(1, dsvSize);
+            Textures[i].DSV = _dsvRange;
+            device->CreateDepthStencilView(Textures[i].Resource.Get(), &dsvDesc, _dsvRange.Cpu());
         }
         else
         {
             rtvDesc.Format = INFO_FORMATS[i];
-            Textures[i].RTV = hRtv;
-            device->CreateRenderTargetView(Textures[i].Resource.Get(), &rtvDesc, hRtv);
-            hRtv.Offset(1, rtvSize);
+            Textures[i].RTV = _rtvRange.Sub(i);
+            device->CreateRenderTargetView(Textures[i].Resource.Get(), &rtvDesc, _rtvRange.Cpu(i));
         }
     }
 }
@@ -127,15 +109,13 @@ void GBuffer::TransitToOpaqueRenderingState(ID3D12GraphicsCommandList* cmdList)
         CD3DX12_RESOURCE_BARRIER barrier;
 
         if (i == (UINT)GBufferIndex::Depth)
-            barrier = CD3DX12_RESOURCE_BARRIER::Transition(
-                Textures[i].Resource.Get(),
-                D3D12_RESOURCE_STATE_DEPTH_READ | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
-                D3D12_RESOURCE_STATE_DEPTH_WRITE);
+        {
+            barrier = CD3DX12_RESOURCE_BARRIER::Transition(Textures[i].Resource.Get(), D3D12_RESOURCE_STATE_DEPTH_READ | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+        }
         else
-            barrier = CD3DX12_RESOURCE_BARRIER::Transition(
-                Textures[i].Resource.Get(),
-                D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE,
-                D3D12_RESOURCE_STATE_RENDER_TARGET);
+        {
+            barrier = CD3DX12_RESOURCE_BARRIER::Transition(Textures[i].Resource.Get(), D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+        }
 
         barriers.push_back(barrier);
     }
@@ -152,15 +132,13 @@ void GBuffer::TransitToLightRenderingState(ID3D12GraphicsCommandList* cmdList)
         CD3DX12_RESOURCE_BARRIER barrier;
 
         if (i == (UINT)GBufferIndex::Depth)
-            barrier = CD3DX12_RESOURCE_BARRIER::Transition(
-                Textures[i].Resource.Get(),
-                D3D12_RESOURCE_STATE_DEPTH_WRITE,
-                D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_DEPTH_READ);
+        {
+            barrier = CD3DX12_RESOURCE_BARRIER::Transition(Textures[i].Resource.Get(), D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_DEPTH_READ);
+        }
         else
-            barrier = CD3DX12_RESOURCE_BARRIER::Transition(
-                Textures[i].Resource.Get(),
-                D3D12_RESOURCE_STATE_RENDER_TARGET,
-                D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
+        {
+            barrier = CD3DX12_RESOURCE_BARRIER::Transition(Textures[i].Resource.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
+        }
 
         barriers.push_back(barrier);
     }
@@ -175,12 +153,13 @@ void GBuffer::ClearView(ID3D12GraphicsCommandList* cmdList)
     for (UINT i = 0; i < (UINT)GBufferIndex::Count; ++i)
     {
         if (i == (UINT)GBufferIndex::Depth)
-            cmdList->ClearDepthStencilView(
-                Textures[i].DSV,
-                D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL,
-                1.0f, 0, 0, nullptr);
+        {
+            cmdList->ClearDepthStencilView(Textures[i].DSV.Cpu(), D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
+        }
         else
-            cmdList->ClearRenderTargetView(Textures[i].RTV, clearColor, 0, nullptr);
+        {
+            cmdList->ClearRenderTargetView(Textures[i].RTV.Cpu(), clearColor, 0, nullptr);
+        }
     }
 }
 

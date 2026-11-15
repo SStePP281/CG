@@ -1,18 +1,10 @@
 #include "VelocityBuffers.h"
 #include "ThrowIfFaild.h"
 
-VelocityBuffers::VelocityBuffers(ID3D12Device* device, DescriptorAllocator* srvAlloc)
+VelocityBuffers::VelocityBuffers(ID3D12Device* device, DescriptorAllocator* srvAlloc, DescriptorAllocator* rtvAlloc)
 {
     _srvRange = srvAlloc->Allocate(2);
-
-    _rtvDescSize = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
-
-    D3D12_DESCRIPTOR_HEAP_DESC hd = {};
-    hd.NumDescriptors = 2;
-    hd.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
-    hd.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-
-    ThrowIfFailed(device->CreateDescriptorHeap(&hd, IID_PPV_ARGS(&_rtvHeap)));
+    _rtvRange = rtvAlloc->Allocate(2);
 }
 
 void VelocityBuffers::OnResize(ID3D12Device* d, Resolution res)
@@ -54,16 +46,13 @@ void VelocityBuffers::CreateViews(ID3D12Device* device)
     }
 
     {
-        CD3DX12_CPU_DESCRIPTOR_HANDLE rtvStart(_rtvHeap->GetCPUDescriptorHandleForHeapStart());
-
         D3D12_RENDER_TARGET_VIEW_DESC velRTVDesc = {};
         velRTVDesc.Format = velocityDesc.Format;
         velRTVDesc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
 
         for (int i = 0; i < 2; i++)
         {
-            _rtv[i] = CD3DX12_CPU_DESCRIPTOR_HANDLE(rtvStart, i, _rtvDescSize);
-            device->CreateRenderTargetView(_buffer[i].Get(), &velRTVDesc, _rtv[i]);
+            device->CreateRenderTargetView(_buffer[i].Get(), &velRTVDesc, _rtvRange.Cpu(i));
         }
     }
 }
@@ -72,7 +61,7 @@ void VelocityBuffers::ClearCurrent(ID3D12GraphicsCommandList* cmdList)
 {
 	const float clearColor[] = { 0.0f, 0.0f, 0.0f, 0.0f };
 
-	cmdList->ClearRenderTargetView(_rtv[_current], clearColor, 0, nullptr);
+	cmdList->ClearRenderTargetView(_rtvRange.Cpu(_current), clearColor, 0, nullptr);
 }
 
 void VelocityBuffers::TransitCurrentToWrite(ID3D12GraphicsCommandList* cmdList)
