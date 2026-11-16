@@ -393,17 +393,22 @@ std::unique_ptr<QuadNode> Terrain::BuildNode(XMFLOAT2 origin, float size, UINT d
 void Terrain::UpdateLOD(const XMFLOAT3& eyePosWorld, float fovY, float screenHeight, const BoundingFrustum& frustum)
 {
 	_visibleTiles.clear();
-	
 	float screenK = screenHeight / (2.0f * tanf(fovY * 0.5f));
-
-	SelectNode(_root.get(), eyePosWorld, screenK, frustum);
+	SelectNode(_root.get(), eyePosWorld, screenK, &frustum, _visibleTiles);
 }
 
-void Terrain::SelectNode(const QuadNode* node, const XMFLOAT3& eye, float screenK, const BoundingFrustum& frustum)
+void Terrain::UpdateShadowLOD(const XMFLOAT3& eye, float fovY, float screenHeight)
+{
+	_shadowTiles.clear();
+	float screenK = screenHeight / (2.0f * tanf(fovY * 0.5f));
+	SelectNode(_root.get(), eye, screenK * 4.0f, nullptr, _shadowTiles);
+}
+
+void Terrain::SelectNode(const QuadNode* node, const XMFLOAT3& eye, float screenK, const BoundingFrustum* frustum, std::vector<TerrainTile>& out)
 {
 	BoundingBox box = NodeBounds(node);
 
-	if (frustum.Contains(box) == DirectX::DISJOINT) { return; }
+	if (frustum && frustum->Contains(box) == DirectX::DISJOINT) { return; }
 
 	float dx = (std::max)(fabsf(eye.x - box.Center.x) - box.Extents.x, 0.0f);
 	float dy = (std::max)(fabsf(eye.y - box.Center.y) - box.Extents.y, 0.0f);
@@ -417,10 +422,10 @@ void Terrain::SelectNode(const QuadNode* node, const XMFLOAT3& eye, float screen
 	{
 		for (UINT i = 0; i < 4; i++)
 		{
-			SelectNode(node->Children[i].get(), eye, screenK, frustum);
+			SelectNode(node->Children[i].get(), eye, screenK, frustum, out);
 		}
 	}
-	else 
+	else
 	{
 		TerrainTile tile = {};
 		tile.Origin = node->Origin;
@@ -429,7 +434,7 @@ void Terrain::SelectNode(const QuadNode* node, const XMFLOAT3& eye, float screen
 		tile.MorphEnd = splitDist * 2.0f;
 		tile.Depth = node->Depth;
 
-		_visibleTiles.push_back(tile);
+		out.push_back(tile);
 	}
 }
 

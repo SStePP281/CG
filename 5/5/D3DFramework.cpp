@@ -20,11 +20,12 @@
 #include "DLAA.h"
 
 #include "PathManager.h"
+#include <map>
 
 using namespace DirectX;
 
-D3DFramework::D3DFramework(Window& window, Input& input, GraphicsDevice& device) :
-	_window(&window), _input(input), _device(&device)
+D3DFramework::D3DFramework(Window& window, Input& input, AssetManager& assets, World& world, GraphicsDevice& device) :
+	_window(&window), _input(input), _assets(&assets), _world(&world), _device(&device)
 {
 	UpdateRenderResolution();
 }
@@ -37,22 +38,11 @@ bool D3DFramework::Initialize()
 
 	_device->BeginImmediate();
 
-	_textures = std::make_unique<TextureManager>(*_device);
-
 	_ngxManager = std::make_unique<NGXManager>(_device->Device());
 	if (!_ngxManager->IsInitialized())
 	{
 		MessageBox(0, L"RegisterNGXManager Failed.", 0, 0);
 	}
-
-	_defaultMaterial = _materials.Add(std::make_unique<Material>());
-
-	LoadModel(LOCAL_PATH + "Models/Model.obj");
-	LoadModel(LOCAL_PATH + "Models/IBL_TEST.obj");
-	//LoadModel("C:/Users/Stepan/Desktop/CG/5/Models/A_LOT_OF_POLYGONS.obj");
-	//LoadModel("C:/Users/HUAWEI/Desktop/CG/5/Models/DispTest.obj");
-
-	CreateLight();
 
 	{
 		auto sampler = GetStaticSamplers();
@@ -87,10 +77,7 @@ bool D3DFramework::Initialize()
 
 	LoadIBLTextures();
 
-	CreateSceneObjects();
 	BuildRenderItems();
-	ComputeSceneBounds();
-
 	BuildFrameResources();
 
 	BuildRootSignatureGBuffer();
@@ -115,16 +102,6 @@ bool D3DFramework::Initialize()
 
 	_device->EndImmediate();
 
-	_octreeRoot = std::make_unique<OctreeNode>(_sceneBounds);
-
-	for (auto& ri : _allRitems)
-	{
-		for (uint32_t i = 0; i < (uint32_t)ri->Instances.size(); i++)
-		{
-			_octreeRoot->Insert(ri.get(), i);
-		}
-	}
-
 	return true;
 }
 
@@ -139,11 +116,6 @@ void D3DFramework::OnDisplayResize(Resolution display)
 
 	_screenViewport = { 0.0f, 0.0f, (float)display.Width, (float)display.Height, 0.0f, 1.0f };
 	_scissorRect = { 0, 0, (LONG)display.Width, (LONG)display.Height };
-
-	float aspect = (float)_renderSettings.Display.Width / _renderSettings.Display.Height;
-
-	XMMATRIX P = XMMatrixPerspectiveFovLH(0.25f * MathHelper::Pi, aspect, 1.0f, 1000.0f);
-	XMStoreFloat4x4(&_proj, P);
 
 	UpdateRenderResolution();
 	OnRenderResize();
@@ -199,7 +171,6 @@ void D3DFramework::Update(const GameTimer& gt)
 		_renderSettingsDirty = false;
 	}
 
-	AnimateObjects(gt);
 	AnimateMaterials(gt);
 	AnimateLight(gt);
 
@@ -236,20 +207,38 @@ void D3DFramework::Draw(const GameTimer& gt)
 
 	//SHADOW PASS
 
-	l->SetPipelineState(_psos["shadowPass"].Get());
-	l->SetGraphicsRootSignature(_rootSignatureShadowPass.Get());
-	l->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
-	auto shadowCB = _currFrameResource->ShadowCB->Resource();
-	UINT shadowStride = D3DUtil::CalcConstantBufferSize(sizeof(ShadowConstant));
-
-	_shadowMap->Render(l, [&](UINT k)
+	bool containsDirLight = false;
+	for (const auto& light : _world->Lights())
+	{
+		if (light.Active && light.Type == LightType::Directional)
 		{
-			l->SetGraphicsRootConstantBufferView(1, shadowCB->GetGPUVirtualAddress() + k * shadowStride);
+			containsDirLight = true;
+			break;
+		}
+	}
 
-			DrawRenderItemsShadow(l, _shadowRitems);
-		});
+	if (containsDirLight)
+	{
+		l->SetPipelineState(_psos["shadowPass"].Get());
+		l->SetGraphicsRootSignature(_rootSignatureShadowPass.Get());
+		l->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
+		auto shadowCB = _currFrameResource->ShadowCB->Resource();
+		UINT shadowStride = D3DUtil::CalcConstantBufferSize(sizeof(ShadowConstant));
+
+		_shadowMap->Render(l, [&](UINT k)
+			{
+				D3D12_GPU_VIRTUAL_ADDRESS cascadeCB = shadowCB->GetGPUVirtualAddress() + k * shadowStride;
+
+				l->SetPipelineState(_psos["shadowPass"].Get());
+				l->SetGraphicsRootSignature(_rootSignatureShadowPass.Get());
+				l->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+				l->SetGraphicsRootConstantBufferView(1, cascadeCB);
+
+				DrawRenderItemsShadow(l, _shadowRitems);
+				DrawTerrainShadow(l, cascadeCB);
+			});
+	}
 	//GEOMETRY PASS (GBuffer)
 
 	l->RSSetViewports(1, &_renderViewport);
@@ -429,9 +418,10 @@ void D3DFramework::OnKeyboardInput(const GameTimer& gt)
 	float dt = gt.DeltaTime();
 	float speed = _moveSpeed * dt;
 
-	XMVECTOR pos = DirectX::XMLoadFloat3(&_eyePos);
-	XMVECTOR forward = XMLoadFloat3(&_forward);
-	XMVECTOR right = XMLoadFloat3(&_right);
+	Camera& cam = _world->MainCamera();
+	XMVECTOR pos = XMLoadFloat3(&cam.Position);
+	XMVECTOR forward = cam.Forward();
+	XMVECTOR right = cam.Right();
 
 	if (_input.IsDown('W')) { pos += speed * forward; }
 
@@ -513,53 +503,20 @@ void D3DFramework::OnKeyboardInput(const GameTimer& gt)
 	if (_input.WasPressed(VK_OEM_PLUS) && _input.WasPressed(VK_CONTROL)) { _brushMode = BrushMode::Draw; }
 	if (_input.WasPressed(VK_OEM_MINUS) && _input.WasPressed(VK_CONTROL)) { _brushMode = BrushMode::Erase; }
 
-	XMStoreFloat3(&_eyePos, pos);
+	XMStoreFloat3(&cam.Position, pos);
 }
 
 void D3DFramework::UpdateCamera(const GameTimer& gt)
 {
+	Camera& cam = _world->MainCamera();
+
 	if (!_paintMode && !_input.MouseCaptured && _input.IsDown(VK_LBUTTON))
 	{
 		XMFLOAT2 d = _input.MouseDelta();
 
-		_yaw += XMConvertToRadians(_rotateSpeed * d.x);
-		_pitch -= XMConvertToRadians(_rotateSpeed * d.y);
-		_pitch = MathHelper::Clamp(_pitch, -XM_PIDIV2 + 0.1f, XM_PIDIV2 - 0.1f);
-	}
-
-	XMVECTOR forward = XMVectorSet(
-		cosf(_pitch) * sinf(_yaw),
-		sinf(_pitch),
-		cosf(_pitch) * cosf(_yaw),
-		0.0f);
-
-	forward = XMVector3Normalize(forward);
-
-	XMVECTOR right = XMVector3Normalize(XMVector3Cross(XMVectorSet(0, 1, 0, 0), forward));
-	XMVECTOR up = XMVector3Cross(forward, right);
-
-	XMStoreFloat3(&_forward, forward);
-	XMStoreFloat3(&_right, right);
-	XMStoreFloat3(&_up, up);
-
-	XMVECTOR pos = XMLoadFloat3(&_eyePos);
-	XMMATRIX view = XMMatrixLookToLH(pos, forward, up);
-
-	XMStoreFloat4x4(&_view, view);
-}
-
-void D3DFramework::AnimateObjects(const GameTimer& gt)
-{
-	for (const auto& r : _allRitems)
-	{
-		if (r->Geo->Name =="C:/Users/Stepan/Desktop/CG/5/Models/IBL_TEST.obj")
-		{
-			for (auto& i : r->Instances)
-			{
-				XMMATRIX rot = XMMatrixRotationY(gt.DeltaTime() * 1.0f);
-				XMStoreFloat4x4(&i.World, XMMatrixMultiply(rot, XMLoadFloat4x4(&i.World)));
-			}
-		}
+		cam.Yaw += XMConvertToRadians(_rotateSpeed * d.x);
+		cam.Pitch -= XMConvertToRadians(_rotateSpeed * d.y);
+		cam.Pitch = MathHelper::Clamp(cam.Pitch, -XM_PIDIV2 + 0.1f, XM_PIDIV2 - 0.1f);
 	}
 }
 
@@ -598,7 +555,7 @@ void D3DFramework::UpdateMaterialCBs(const GameTimer& gt)
 {
 	auto currMaterialCB = _currFrameResource->MaterialCB.get();
 
-	_materials.ForEach([&](MaterialHandle h, Material& m)
+	_assets->ForEachMaterial([&](MaterialHandle h, Material& m)
 		{
 			if (m.NumFramesDirty <= 0) { return; }
 
@@ -615,8 +572,12 @@ void D3DFramework::UpdateMaterialCBs(const GameTimer& gt)
 
 void D3DFramework::UpdateMainPassCB(const GameTimer& gt)
 {
-	XMMATRIX view = XMLoadFloat4x4(&_view);
-	XMMATRIX proj = XMLoadFloat4x4(&_proj);
+	Camera& cam = _world->MainCamera();
+
+	_camFrustum = cam.Frustum(AspectRatio());
+
+	XMMATRIX view = cam.View();
+	XMMATRIX proj = cam.Proj(AspectRatio());
 
 	XMMATRIX invView = XMMatrixInverse(nullptr, view);
 	XMMATRIX invProj = XMMatrixInverse(nullptr, proj);
@@ -643,7 +604,7 @@ void D3DFramework::UpdateMainPassCB(const GameTimer& gt)
 	XMStoreFloat4x4(&_mainPassCB.JitteredViewProj, XMMatrixTranspose(jitteredViewProj));
 	XMStoreFloat4x4(&_mainPassCB.InvViewProj, XMMatrixTranspose(invViewProj));
 
-	_mainPassCB.EyePosW = _eyePos;
+	_mainPassCB.EyePosW = cam.Position;
 	_mainPassCB.RenderTargetSize = _renderSettings.Render.ToFloat2();
 	_mainPassCB.InvRenderTargetSize = _renderSettings.Render.InvFloat2();
 	_mainPassCB.NearZ = 1.0f;
@@ -664,37 +625,33 @@ void D3DFramework::UpdateMainPassCB(const GameTimer& gt)
 	DisplacementConstant disp = DisplacementConstant();
 	auto dispCB = _currFrameResource->DisplacementCB.get();
 	dispCB->CopyData(0, disp);
-
-	if (!_mainPassCB.DebugMode)
-	{
-		BoundingFrustum::CreateFromMatrix(_camFrustum, proj);
-		_camFrustum.Transform(_camFrustum, invView);
-	}
 }
 
 void D3DFramework::UpdateLightSB(const GameTimer& gt)
 {
-	auto currLightSB = _currFrameResource->LightSB.get();
-	auto currLightInfo = _currFrameResource->LightInfoCB.get();
+	auto* sb = _currFrameResource->LightSB.get();
+	UINT count = 0;
 
-	int activeLight = 0;
-	for (size_t i = 0; i < _lights.size(); ++i)
+	for (const LightObject& l : _world->Lights())
 	{
-		if (_lights[i].IsActive)
-		{
-			activeLight++;
+		if (!l.Active) { continue; }
 
-			if (_lights[i].NumFramesDirty > 0)
-			{
-				currLightSB->CopyData((UINT)i, _lights[i].Data);
-				_lights[i].NumFramesDirty--;
-			}
-		}
+		LightConstants c = {};
+		c.Strength = l.Color;
+		c.FalloffStart = l.FalloffStart;
+		c.Direction = l.Direction;
+		c.FalloffEnd = l.FalloffEnd;
+		c.Position = l.Position;
+		c.SpotPower = l.SpotPower;
+		c.LightType = (int)l.Type;
+
+		sb->CopyData(count++, c);
 	}
 
-	LightInfoConstants lightInfo = {};
-	lightInfo.LightCount = activeLight;
-	currLightInfo->CopyData(0, lightInfo);
+	LightInfoConstants info = {};
+	info.LightCount = count;
+	info.IBLIntensity = 1.0f;
+	_currFrameResource->LightInfoCB->CopyData(0, info);
 }
 
 void D3DFramework::UpdateShadowCB(const GameTimer& gt)
@@ -702,7 +659,7 @@ void D3DFramework::UpdateShadowCB(const GameTimer& gt)
 	const float cascadeNears[] = { 1.0f,  50.0f,  200.0f };
 	const float cascadeFars[] = { 50.0f, 200.0f, 1000.0f };
 
-	XMMATRIX view = XMLoadFloat4x4(&_view);
+	XMMATRIX view = _world->MainCamera().View();
 
 	XMMATRIX T(
 		0.5f, 0.0f, 0.0f, 0.0f,
@@ -713,11 +670,11 @@ void D3DFramework::UpdateShadowCB(const GameTimer& gt)
 
 	auto currShadowCB = _currFrameResource->ShadowCB.get();
 
-	for (int lightIdx = 0; lightIdx < (int)_lights.size(); lightIdx++)
+	for (const auto& light : _world->Lights())
 	{
-		if (_lights[lightIdx].Data.LightType != (int)LightType::Directional) { continue; }
+		if (light.Type != LightType::Directional) { continue; }
 
-		XMVECTOR lightDir = XMVector3Normalize(XMLoadFloat3(&_lights[lightIdx].Data.Direction));
+		XMVECTOR lightDir = XMVector3Normalize(XMLoadFloat3(&light.Direction));
 
 		XMVECTOR up = XMVectorSet(0, 1, 0, 0);
 		if (fabsf(XMVectorGetY(lightDir)) > 0.99f) { up = XMVectorSet(1, 0, 0, 0); }
@@ -727,13 +684,12 @@ void D3DFramework::UpdateShadowCB(const GameTimer& gt)
 			float nearZ = cascadeNears[cascade];
 			float farZ = cascadeFars[cascade];
 
-			float aspect = (float)_renderSettings.Display.Width / _renderSettings.Display.Height;
-
-			XMMATRIX cascadeProj = XMMatrixPerspectiveFovLH(0.25f * MathHelper::Pi, aspect, nearZ, farZ);
+			XMMATRIX cascadeProj = XMMatrixPerspectiveFovLH(0.25f * MathHelper::Pi, AspectRatio(), nearZ, farZ);
 
 			XMMATRIX invVP = XMMatrixInverse(nullptr, XMMatrixMultiply(view, cascadeProj));
 
 			XMVECTOR corners[8];
+
 			int idx = 0;
 			for (int x = 0; x < 2; x++)
 			{
@@ -767,9 +723,19 @@ void D3DFramework::UpdateShadowCB(const GameTimer& gt)
 				minZ = std::min(minZ, vz); maxZ = std::max(maxZ, vz);
 			}
 
-			float zMult = 10.0f;
-			minZ = (minZ < 0) ? minZ * zMult : minZ / zMult;
-			maxZ = (maxZ < 0) ? maxZ / zMult : maxZ * zMult;
+			BoundingBox sceneBox = _world->Bounds();
+			BoundingBox terrainBox(XMFLOAT3(0.0f, TERRAIN_HEIGHT_OFFSET + TERRAIN_HEIGHT_SCALE * 0.5f, 0.0f), XMFLOAT3(TERRAIN_WORLD_SIZE * 0.5f, TERRAIN_HEIGHT_SCALE * 0.5f, TERRAIN_WORLD_SIZE * 0.5f));
+			BoundingBox::CreateMerged(sceneBox, sceneBox, terrainBox);
+
+			XMFLOAT3 sceneCorners[8];
+			sceneBox.GetCorners(sceneCorners);
+
+			for (const XMFLOAT3& c : sceneCorners)
+			{
+				float vz = XMVectorGetZ(XMVector3TransformCoord(XMLoadFloat3(&c), lightView));
+				minZ = std::min(minZ, vz);
+				maxZ = std::max(maxZ, vz);
+			}
 
 			float worldTexelSizeX = (maxX - minX) / _shadowSettings.ShadowTextureSize;
 			float worldTexelSizeY = (maxY - minY) / _shadowSettings.ShadowTextureSize;
@@ -804,110 +770,99 @@ void D3DFramework::UpdateShadowCB(const GameTimer& gt)
 
 void D3DFramework::UpdateTerrainCB(const GameTimer& gt)
 {
-	_terrain->UpdateLOD(_eyePos, 0.25f * MathHelper::Pi, (float)_renderSettings.Display.Height, _camFrustum);
+	const Camera& cam = _world->MainCamera();
+	const float screenH = (float)_renderSettings.Display.Height;
 
-	assert(_terrain->GetVisibleTiles().size() <= MAX_TERRAIN_TILES);
+	_terrain->UpdateLOD(cam.Position, cam.FovY, screenH, _camFrustum);
+	_terrain->UpdateShadowLOD(cam.Position, cam.FovY, screenH);
+
+	assert(_terrain->GetVisibleTiles().size() + _terrain->GetShadowTiles().size() <= MAX_TERRAIN_TILES);
 
 	TerrainConstant terrainBase = TerrainConstant();
 	terrainBase.MaskCount = _terrain->GetMaskCount();
 	terrainBase.LayerCount = _terrain->GetLayerCount();
-
+	terrainBase.BrushMode = (_brushMode == BrushMode::Erase) ? 1.0f : 0.0f;
+	terrainBase.BrushStrength = logf(_brushStrength / BRUSH_STRENGTH_MIN) / logf(BRUSH_STRENGTH_MAX / BRUSH_STRENGTH_MIN);
+	terrainBase.BrushRadius = _paintMode ? _brushRadius : 0.0f;
 	const auto& layerTileSizes = _terrain->GetLayerTileSizes();
+
 	float* layerTileDst = &terrainBase.LayerTile[0].x;
 	for (size_t k = 0; k < layerTileSizes.size(); k++) { layerTileDst[k] = layerTileSizes[k]; }
 
+	auto* cb = _currFrameResource->TerrainCB.get();
 	UINT i = 0;
-	for (const auto& t : _terrain->GetVisibleTiles())
-	{
-		TerrainConstant terrain = terrainBase;
-		terrain.TileOrigin = t.Origin;
-		terrain.TileSize = t.Size;
-		terrain.MorphStart = t.MorphStart;
-		terrain.MorphEnd = t.MorphEnd;
-		terrain.LodLevel = t.Depth;
-		terrain.BrushRadius = _paintMode ? _brushRadius : 0.0f;
-		terrainBase.BrushMode = (_brushMode == BrushMode::Erase) ? 1.0f : 0.0f;
-		terrainBase.BrushStrength = logf(_brushStrength / BRUSH_STRENGTH_MIN) / logf(BRUSH_STRENGTH_MAX / BRUSH_STRENGTH_MIN);
 
-		auto terraingCB = _currFrameResource->TerrainCB.get();
-		terraingCB->CopyData(i++, terrain);
-	}
+	auto writeTile = [&](const TerrainTile& t)
+		{
+			TerrainConstant c = terrainBase;
+			c.TileOrigin = t.Origin;
+			c.TileSize = t.Size;
+			c.MorphStart = t.MorphStart;
+			c.MorphEnd = t.MorphEnd;
+			c.LodLevel = t.Depth;
+			cb->CopyData(i++, c);
+		};
+
+	for (const auto& t : _terrain->GetVisibleTiles()) { writeTile(t); }
+	_terrainShadowCBOffset = i;
+	for (const auto& t : _terrain->GetShadowTiles()) { writeTile(t); }
 }
 
 void D3DFramework::UpdateInstanceData(const GameTimer& gt)
 {
+	if (_world->Version() != _builtWorldVersion) { BuildRenderItems(); }
+
 	_opaqueRitems.clear();
 	_shadowRitems.clear();
 
-	auto currInstanceBuffer = _currFrameResource->InstanceDataSB.get();
+	auto* sb = _currFrameResource->InstanceDataSB.get();
+	UINT offset = 0;
 
-	int shadowOffset = 0;
-
-	for (auto& riPtr : _allRitems)
-	{
-		RenderItem* ri = riPtr.get();
-		ri->ShadowInstanceOffset = (UINT)shadowOffset;
-		ri->ShadowInstanceCount = (UINT)ri->Instances.size();
-
-		for (const auto& inst : ri->Instances)
+	auto write = [&](const MeshObject& o)
 		{
-			InstanceData data;
-			XMStoreFloat4x4(&data.World, XMMatrixTranspose(XMLoadFloat4x4(&inst.World)));
-			XMStoreFloat4x4(&data.PrevWorld, XMMatrixTranspose(XMLoadFloat4x4(&inst.PrevWorld)));
-			XMStoreFloat4x4(&data.TexTransform, XMMatrixTranspose(XMLoadFloat4x4(&inst.TexTransform)));
-			currInstanceBuffer->CopyData(shadowOffset++, data);
-		}
+			InstanceData d;
+			XMStoreFloat4x4(&d.World, XMMatrixTranspose(XMLoadFloat4x4(&o.World)));
+			XMStoreFloat4x4(&d.PrevWorld, XMMatrixTranspose(XMLoadFloat4x4(&o.PrevWorld)));
+			XMStoreFloat4x4(&d.TexTransform, XMMatrixIdentity());
+			sb->CopyData(offset++, d);
+		};
 
-		if (ri->ShadowInstanceCount > 0) { _shadowRitems.push_back(ri); }
-	}
+	for (auto& ri : _allRitems) { ri->Scratch.clear(); }
 
-	std::vector<OctreeNode::InstanceRef> visibleInstances;
-	if (_octreeRoot)
-	{
-		_octreeRoot->Query(_camFrustum, visibleInstances);
-
-		_frameStats.VisibleInstances = (UINT)visibleInstances.size();
-		for (auto& ri : _allRitems) { _frameStats.TotalInstances += (UINT)ri->Instances.size(); }
-	}
-
-	for (auto& riPtr : _allRitems)
-	{
-		riPtr->VisibleInstanceCount = 0;
-		riPtr->InstanceOffset = (UINT)shadowOffset;
-	}
-
-	std::unordered_map<RenderItem*, std::vector<uint32_t>> grouped;
-	for (const auto& ref : visibleInstances)
-	{
-		grouped[ref.Item].push_back(ref.Index);
-	}
-
-	int cameraOffset = shadowOffset;
-	for (auto& pair : grouped)
-	{
-		RenderItem* ri = pair.first;
-		ri->InstanceOffset = (UINT)cameraOffset;
-		ri->VisibleInstanceCount = (UINT)pair.second.size();
-
-		for (uint32_t idx : pair.second)
+	_world->ForEachObject([&](ObjectId, MeshObject& o)
 		{
-			InstanceData data;
-			XMStoreFloat4x4(&data.World, XMMatrixTranspose(XMLoadFloat4x4(&ri->Instances[idx].World)));
-			XMStoreFloat4x4(&data.PrevWorld, XMMatrixTranspose(XMLoadFloat4x4(&ri->Instances[idx].PrevWorld)));
-			XMStoreFloat4x4(&data.TexTransform, XMMatrixTranspose(XMLoadFloat4x4(&ri->Instances[idx].TexTransform)));
-			currInstanceBuffer->CopyData(cameraOffset++, data);
-		}
+			for (RenderItem* ri : _modelBatches[o.Model]) { ri->Scratch.push_back(&o); }
+		});
 
-		_opaqueRitems.push_back(ri);
-	}
-
-	for (auto& riPtr : _allRitems)
+	for (auto& ri : _allRitems)
 	{
-		for (auto& inst : riPtr->Instances)
-		{
-			inst.PrevWorld = inst.World;
-		}
+		ri->ShadowInstanceOffset = offset;
+		ri->ShadowInstanceCount = (UINT)ri->Scratch.size();
+		for (const MeshObject* o : ri->Scratch) { write(*o); }
+		if (ri->ShadowInstanceCount > 0) { _shadowRitems.push_back(ri.get()); }
+		ri->Scratch.clear();
 	}
+
+	_world->QueryVisible(_camFrustum, _visibleObjects);
+	_frameStats.VisibleInstances = (UINT)_visibleObjects.size();
+	_frameStats.TotalInstances = (UINT)_world->ObjectCount();
+
+	for (ObjectId id : _visibleObjects)
+	{
+		const MeshObject* o = _world->Get(id);
+		if (!o) { continue; }
+		for (RenderItem* ri : _modelBatches[o->Model]) { ri->Scratch.push_back(o); }
+	}
+
+	for (auto& ri : _allRitems)
+	{
+		ri->InstanceOffset = offset;
+		ri->VisibleInstanceCount = (UINT)ri->Scratch.size();
+		for (const MeshObject* o : ri->Scratch) { write(*o); }
+		if (ri->VisibleInstanceCount > 0) { _opaqueRitems.push_back(ri.get()); }
+	}
+
+	assert(offset <= 10000 && "InstanceDataSB overflow");
 }
 
 void D3DFramework::BuildRootSignatureGBuffer()
@@ -1063,15 +1018,16 @@ void D3DFramework::BuildRootSignatureTerrainPass()
 	CD3DX12_DESCRIPTOR_RANGE hitRange;
 	hitRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 3);
 
-	CD3DX12_ROOT_PARAMETER slotRootParameter[4];
+	CD3DX12_ROOT_PARAMETER slotRootParameter[5];
 	slotRootParameter[0].InitAsDescriptorTable(1, &texRange, D3D12_SHADER_VISIBILITY_ALL); // t0, t1, t3
 	slotRootParameter[1].InitAsConstantBufferView(0);   // b0 cbPass
 	slotRootParameter[2].InitAsConstantBufferView(4);   // b4 cbTerrain
 	slotRootParameter[3].InitAsDescriptorTable(1, &hitRange, D3D12_SHADER_VISIBILITY_PIXEL); //hit
+	slotRootParameter[4].InitAsConstantBufferView(1);
 
 	auto staticSamplers = GetStaticSamplers();
 
-	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(4, slotRootParameter, (UINT)staticSamplers.size(), staticSamplers.data(), D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(5, slotRootParameter, (UINT)staticSamplers.size(), staticSamplers.data(), D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
 	ComPtr<ID3DBlob> serializedRootSig = nullptr;
 	ComPtr<ID3DBlob> errorBlob = nullptr;
@@ -1208,6 +1164,7 @@ void D3DFramework::BuildShadowPassPSO()
 	psoDesc.RasterizerState.DepthBias = 5000;
 	psoDesc.RasterizerState.SlopeScaledDepthBias = 1.5f;
 	psoDesc.RasterizerState.DepthBiasClamp = 0.0f;
+	psoDesc.RasterizerState.DepthClipEnable = FALSE;
 
 	psoDesc.NumRenderTargets = 0;
 	psoDesc.SampleDesc.Count = 1;
@@ -1260,6 +1217,25 @@ void D3DFramework::BuildTerrainPassPSO()
 
 	psoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
 	ThrowIfFailed(_device->Device()->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&_psos["terrainWire"])));
+
+	psoDesc.VS =
+	{ 
+		reinterpret_cast<BYTE*>(_shaders["terrainShadowVS"]->GetBufferPointer()),
+		_shaders["terrainShadowVS"]->GetBufferSize()
+	};
+	psoDesc.PS = { nullptr, 0 };
+
+	psoDesc.NumRenderTargets = 0;
+	for (int i = 0; i < 8; i++) { psoDesc.RTVFormats[i] = DXGI_FORMAT_UNKNOWN; }
+
+	psoDesc.DSVFormat = ShadowMap::DEPTH_DSV_FORMAT;
+	psoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+	psoDesc.RasterizerState.DepthBias = 5000;
+	psoDesc.RasterizerState.SlopeScaledDepthBias = 1.5f;
+	psoDesc.RasterizerState.DepthClipEnable = FALSE;
+	psoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+
+	ThrowIfFailed(_device->Device()->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&_psos["terrainShadow"])));
 }
 
 void D3DFramework::BuildShadersAndInputLayout()
@@ -1276,6 +1252,7 @@ void D3DFramework::BuildShadersAndInputLayout()
 	_shaders["shadowVS"] = D3DUtil::CompileShader(LOCAL_PATH_W + L"Shaders/Shadow.hlsl", nullptr, "VS", "vs_5_1");
 
 	_shaders["terrainVS"] = D3DUtil::CompileShader(LOCAL_PATH_W + L"Shaders/" + TERRAIN_FOLDER_W + L"Terrain.hlsl", nullptr, "VS", "vs_5_1");
+	_shaders["terrainShadowVS"] = D3DUtil::CompileShader(LOCAL_PATH_W + L"Shaders/" + TERRAIN_FOLDER_W + L"Terrain.hlsl", nullptr, "VS_Shadow", "vs_5_1");
 	_shaders["terrainPS"] = D3DUtil::CompileShader(LOCAL_PATH_W + L"Shaders/" + TERRAIN_FOLDER_W + L"Terrain.hlsl", nullptr, "PS", "ps_5_1");
 
 	_inputLayout =
@@ -1284,56 +1261,6 @@ void D3DFramework::BuildShadersAndInputLayout()
 		{ "NORMAL",   0, DXGI_FORMAT_R32G32B32_FLOAT,    0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
 		{ "TANGENT",  0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
 		{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT,       0, 40, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
-	};
-}
-
-void D3DFramework::ComputeSceneBounds()
-{
-	XMFLOAT3 minPt = { FLT_MAX,  FLT_MAX,  FLT_MAX };
-	XMFLOAT3 maxPt = { -FLT_MAX, -FLT_MAX, -FLT_MAX };
-
-	for (auto& ri : _allRitems)
-	{
-		for (auto& inst : ri->Instances)
-		{
-			BoundingBox worldBounds;
-			XMMATRIX world = XMLoadFloat4x4(&inst.World);
-			ri->Bounds.Transform(worldBounds, world);
-
-			XMFLOAT3 bMin =
-			{
-				worldBounds.Center.x - worldBounds.Extents.x,
-				worldBounds.Center.y - worldBounds.Extents.y,
-				worldBounds.Center.z - worldBounds.Extents.z
-			};
-			XMFLOAT3 bMax =
-			{
-				worldBounds.Center.x + worldBounds.Extents.x,
-				worldBounds.Center.y + worldBounds.Extents.y,
-				worldBounds.Center.z + worldBounds.Extents.z
-			};
-
-			minPt.x = std::min(minPt.x, bMin.x);
-			minPt.y = std::min(minPt.y, bMin.y);
-			minPt.z = std::min(minPt.z, bMin.z);
-			maxPt.x = std::max(maxPt.x, bMax.x);
-			maxPt.y = std::max(maxPt.y, bMax.y);
-			maxPt.z = std::max(maxPt.z, bMax.z);
-		}
-	}
-
-	_sceneBounds.Center =
-	{
-		(minPt.x + maxPt.x) * 0.5f,
-		(minPt.y + maxPt.y) * 0.5f,
-		(minPt.z + maxPt.z) * 0.5f
-	};
-
-	_sceneBounds.Extents =
-	{
-		(maxPt.x - minPt.x) * 0.5f,
-		(maxPt.y - minPt.y) * 0.5f,
-		(maxPt.z - minPt.z) * 0.5f
 	};
 }
 
@@ -1410,155 +1337,12 @@ void D3DFramework::CreatePPS()
 //	_ppChain->CommitAll(_device->Device());
 //}
 
-void D3DFramework::CreateLight()
-{
-	constexpr int LIGHT_COUNT = 10;
-
-	auto RandomFloat = [&](float min, float max) -> float
-		{
-			static std::mt19937 gen(std::random_device{}());
-			std::uniform_real_distribution<float> dis(min, max);
-			return dis(gen);
-		};
-
-	{
-		Light dirLight = {};
-
-		dirLight.Data.Position = { 0.0f, 5.0f, 0.0f };
-
-		XMFLOAT3 dir = { 1.0f, -1.0f, 0.0f };
-		XMStoreFloat3(&dir, XMVector3Normalize(XMLoadFloat3(&dir)));
-		dirLight.Data.Direction = dir;
-
-		dirLight.Data.Strength = { 1.0f, 1.0f, 0.9f };
-
-		dirLight.Data.FalloffStart = 0.f;
-		dirLight.Data.FalloffEnd = 0.f;
-		dirLight.Data.SpotPower = 0.f;
-
-		dirLight.Data.LightType = static_cast<int>(LightType::Directional);
-		dirLight.Data.Pad[0] = 0;
-		dirLight.Data.Pad[1] = 0;
-		dirLight.Data.Pad[2] = 0;
-
-		dirLight.IsActive = true;
-		dirLight.NumFramesDirty = GraphicsDevice::FRAME_COUNT;
-		dirLight.LightIndex = (int)_lights.size();
-
-		_lights.push_back(dirLight);
-	}
-
-	for (int i = 0; i < LIGHT_COUNT; ++i)
-	{
-		float r = RandomFloat(0, 1);
-		LightType type = LightType::Spot;
-
-		XMFLOAT3 pos = {
-			RandomFloat(-10.f, 10.f),
-			RandomFloat(5.f, 15.f),
-			RandomFloat(-10.f, 10.f)
-		};
-
-		XMFLOAT3 color = {
-			RandomFloat(0.5f, 1.0f),
-			RandomFloat(0.5f, 1.0f),
-			RandomFloat(0.5f, 1.0f)
-		};
-
-		XMFLOAT3 dir = {
-			RandomFloat(-1.f, 1.f),
-			RandomFloat(-1.f, 0.f),
-			RandomFloat(-1.f, 1.f)
-		};
-		XMStoreFloat3(&dir, XMVector3Normalize(XMLoadFloat3(&dir)));
-
-		float falloffStart = RandomFloat(2.f, 5.f);
-		float falloffEnd = RandomFloat(15.f, 30.f);
-		float spotPower = RandomFloat(1.f, 1.f);
-
-		Light light = {};
-		light.Data.Strength = color;
-		light.Data.FalloffStart = falloffStart;
-		light.Data.Direction = dir;
-		light.Data.FalloffEnd = falloffEnd;
-		light.Data.Position = pos;
-		light.Data.SpotPower = spotPower;
-		light.Data.LightType = static_cast<int>(type);
-		light.Data.Pad[0] = 0;
-		light.Data.Pad[1] = 0;
-		light.Data.Pad[2] = 0;
-		light.IsActive = true;
-		light.NumFramesDirty = GraphicsDevice::FRAME_COUNT;
-		light.LightIndex = (int)_lights.size();
-
-		_lights.push_back(light);
-	}
-}
-
-void D3DFramework::LoadModel(std::string path)
-{
-	ModelParse geoGen;
-	ModelParse::MeshInfo meshData = geoGen.LoadOBJ(path);
-
-	LoadTextures(meshData);
-	auto matByName = ParseMaterials(meshData);
-
-	ParseMesh(meshData, matByName);
-}
-
-void D3DFramework::CreateSceneObjects()
-{
-	if (_models.empty()) { return; }
-
-	for (auto& model : _models)
-	{
-		if (model.second->Mesh->Name == LOCAL_PATH + "Models/A_LOT_OF_POLYGONS.obj")
-		{
-			XMINT3 gridInstanceCount = XMINT3(10, 10, 10);
-			float spacing = 1.0f;
-
-			float offsetX = (gridInstanceCount.x * spacing) / 2.0f;
-			float offsetY = (gridInstanceCount.y * spacing) / 2.0f;
-			float offsetZ = (gridInstanceCount.z * spacing) / 2.0f;
-
-			for (int x = 0; x < gridInstanceCount.x; x++)
-			{
-				for (int y = 0; y < gridInstanceCount.y; y++)
-				{
-					for (int z = 0; z < gridInstanceCount.z; z++)
-					{
-						auto sceneObj = std::make_unique<SceneObject>();
-						sceneObj->ModelData = model.second.get();
-
-						float px = x * spacing - offsetX;
-						float py = y * spacing - offsetY;
-						float pz = z * spacing - offsetZ;
-
-						XMMATRIX world = XMMatrixTranslation(px, py, pz);
-						XMStoreFloat4x4(&sceneObj->World, world);
-
-						_sceneObjects.push_back(std::move(sceneObj));
-					}
-				}
-			}
-		}
-		else
-		{
-			auto sceneObj = std::make_unique<SceneObject>();
-			sceneObj->ModelData = model.second.get();
-			XMStoreFloat4x4(&sceneObj->World, XMMatrixIdentity());
-
-			_sceneObjects.push_back(std::move(sceneObj));
-		}
-	}
-}
-
 void D3DFramework::BuildFrameResources()
 {
 	int dirLightCount = 0;
-	for (int i = 0; i < _lights.size(); i++)
+	for (const auto& light : _world->Lights())
 	{
-		if (_lights[i].Data.LightType == (int)LightType::Directional)
+		if (light.Type == LightType::Directional)
 		{
 			dirLightCount++;
 		}
@@ -1566,7 +1350,7 @@ void D3DFramework::BuildFrameResources()
 
 	for (UINT i = 0; i < GraphicsDevice::FRAME_COUNT; ++i)
 	{
-		_frameResources.push_back(std::make_unique<FrameResource>(_device->Device(), (UINT)MAX_DEBUG_LAYER_COUNT, MAX_MATERIALS, (UINT)_lights.size(), dirLightCount * _shadowSettings.CascadeCount));
+		_frameResources.push_back(std::make_unique<FrameResource>(_device->Device(), (UINT)MAX_DEBUG_LAYER_COUNT, AssetManager::MAX_MATERIALS, std::max<UINT>(1, (UINT)_world->Lights().size()), std::max<UINT>(1, dirLightCount) * _shadowSettings.CascadeCount));
 	}
 }
 
@@ -1575,52 +1359,44 @@ void D3DFramework::BuildRenderItems()
 	_allRitems.clear();
 	_opaqueRitems.clear();
 
-	std::unordered_map<std::string, std::unique_ptr<RenderItem>> ritemsMap;
+	std::map<std::tuple<const MeshGeometry*, uint32_t, uint32_t, uint32_t>, RenderItem*> byKey;
 
-	for (auto& objPtr : _sceneObjects)
-	{
-		SceneObject* obj = objPtr.get();
-		Model* model = obj->ModelData;
-
-		if (!model || !model->Mesh) { continue; }
-
-		for (const Model::Part& part : model->Parts)
+	_world->ForEachObject([&](ObjectId, MeshObject& obj)
 		{
-			std::string key = model->Mesh->Name + "_" + std::to_string(part.Submesh);
+			if (_modelBatches.count(obj.Model)) { return; }
 
-			if (ritemsMap.find(key) == ritemsMap.end())
+			const Model* model = _assets->GetModel(obj.Model);
+			if (!model || !model->Mesh) { return; }
+
+			std::vector<RenderItem*>& batches = _modelBatches[obj.Model];
+
+			for (const Model::Part& part : model->Parts)
 			{
-				std::unique_ptr<RenderItem> ri = std::make_unique<RenderItem>();
-				Submesh& sub = model->Mesh->Submeshes[part.Submesh];
+				auto key = std::make_tuple(model->Mesh.get(), part.Submesh, part.Material.Index, part.Material.Generation);
 
-				ri->Geo = model->Mesh.get();
-				ri->SubmeshIndex = part.Submesh;
-				ri->Material = part.Material;
+				auto it = byKey.find(key);
+				if (it == byKey.end())
+				{
+					auto ri = std::make_unique<RenderItem>();
+					const Submesh& sub = model->Mesh->Submeshes[part.Submesh];
 
-				ri->Bounds = BoundingBox(sub.Bounds);
-				ri->IndexCount = sub.IndexCount;
-				ri->StartIndexLocation = sub.StartIndexLocation;
-				ri->BaseVertexLocation = sub.BaseVertexLocation;
+					ri->Geo = model->Mesh.get();
+					ri->SubmeshIndex = part.Submesh;
+					ri->Material = part.Material;
+					ri->IndexCount = sub.IndexCount;
+					ri->StartIndexLocation = sub.StartIndexLocation;
+					ri->BaseVertexLocation = sub.BaseVertexLocation;
+					ri->UsedPso = "opaque";
 
-				ri->UsedPso = "opaque";
+					it = byKey.emplace(key, ri.get()).first;
+					_allRitems.push_back(std::move(ri));
+				}
 
-				ritemsMap[key] = std::move(ri);
+				batches.push_back(it->second);
 			}
+		});
 
-			InstanceData inst;
-			inst.World = obj->World;
-			inst.PrevWorld = inst.World;
-			XMStoreFloat4x4(&inst.TexTransform, XMMatrixIdentity());
-
-			ritemsMap[key]->Instances.push_back(inst);
-		}
-	}
-
-	for (auto& kv : ritemsMap)
-	{
-		_allRitems.push_back(std::move(kv.second));
-		_opaqueRitems.push_back(_allRitems.back().get());
-	}
+	_builtWorldVersion = _world->Version();
 }
 
 void D3DFramework::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
@@ -1648,7 +1424,7 @@ void D3DFramework::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std
 	{
 		if (!ri || ri->VisibleInstanceCount == 0) { continue; }
 
-		const Material* mat = _materials.Get(ri->Material);
+		const Material* mat = _assets->GetMaterial(ri->Material);
 		if (!mat) { continue; }
 
 		auto vertexBuffer = ri->Geo->VertexBufferView();
@@ -1657,12 +1433,12 @@ void D3DFramework::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std
 		auto indexBuffer = ri->Geo->IndexBufferView();
 		cmdList->IASetIndexBuffer(&indexBuffer);
 
-		cmdList->SetGraphicsRootDescriptorTable(0, _textures->Srv(mat->AlbedoMap, DefaultTex::Albedo));                  // t0 albedo
-		cmdList->SetGraphicsRootDescriptorTable(1, _textures->Srv(mat->NormalMap, DefaultTex::Normal));                  // t1 normal
-		cmdList->SetGraphicsRootDescriptorTable(2, _textures->Srv(mat->MetallicMap, DefaultTex::Metallic));              // t2 metallic
-		cmdList->SetGraphicsRootDescriptorTable(3, _textures->Srv(mat->RoughnessMap, DefaultTex::Roughness));            // t3 roughness
-		cmdList->SetGraphicsRootDescriptorTable(4, _textures->Srv(mat->AOMap, DefaultTex::AO));                          // t4 ao
-		cmdList->SetGraphicsRootDescriptorTable(5, _textures->Srv(mat->DisplacementMap, DefaultTex::Displacement));      // t5 displacement
+		cmdList->SetGraphicsRootDescriptorTable(0, _assets->Textures().Srv(mat->AlbedoMap, DefaultTex::Albedo));                  // t0 albedo
+		cmdList->SetGraphicsRootDescriptorTable(1, _assets->Textures().Srv(mat->NormalMap, DefaultTex::Normal));                  // t1 normal
+		cmdList->SetGraphicsRootDescriptorTable(2, _assets->Textures().Srv(mat->MetallicMap, DefaultTex::Metallic));              // t2 metallic
+		cmdList->SetGraphicsRootDescriptorTable(3, _assets->Textures().Srv(mat->RoughnessMap, DefaultTex::Roughness));            // t3 roughness
+		cmdList->SetGraphicsRootDescriptorTable(4, _assets->Textures().Srv(mat->AOMap, DefaultTex::AO));                          // t4 ao
+		cmdList->SetGraphicsRootDescriptorTable(5, _assets->Textures().Srv(mat->DisplacementMap, DefaultTex::Displacement));      // t5 displacement
 
 		D3D12_GPU_VIRTUAL_ADDRESS matCBAddr = matCB->GetGPUVirtualAddress() + ri->Material.Index * matCBByteSize;
 		cmdList->SetGraphicsRootConstantBufferView(7, matCBAddr);    // b1 cbMaterial
@@ -1733,112 +1509,36 @@ void D3DFramework::DrawTerrain(ID3D12GraphicsCommandList* cmdList)
 	}
 }
 
-void D3DFramework::ParseMesh(const ModelParse::MeshInfo& meshData, const std::unordered_map<std::string, MaterialHandle>& matByName)
+void D3DFramework::DrawTerrainShadow(ID3D12GraphicsCommandList* cmdList, const D3D12_GPU_VIRTUAL_ADDRESS& cascadeCB)
 {
-	auto geo = std::make_unique<MeshGeometry>();
-	geo->Name = meshData.MeshName;
+	cmdList->SetPipelineState(_psos["terrainShadow"].Get());
+	cmdList->SetGraphicsRootSignature(_rootSignatureTerrainPass.Get());
+	cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-	UINT vbByteSize = (UINT)meshData.Vertices.size() * sizeof(Vertex);
-	UINT ibByteSize = (UINT)meshData.Indices32.size() * sizeof(uint32_t);
-	
-	ComPtr<ID3D12Resource> vbUpload;
-	ComPtr<ID3D12Resource> ibUpload;
+	cmdList->SetGraphicsRootDescriptorTable(0, _terrain->TexturesGpu());
+	cmdList->SetGraphicsRootConstantBufferView(4, cascadeCB);
 
-	geo->VertexBufferGPU = D3DUtil::CreateDefaultBuffer(_device->Device(), _device->CommandList(), meshData.Vertices.data(), vbByteSize, vbUpload);
-	geo->IndexBufferGPU = D3DUtil::CreateDefaultBuffer(_device->Device(), _device->CommandList(), meshData.Indices32.data(), ibByteSize, ibUpload);
+	auto passCB = _currFrameResource->PassCB->Resource();
+	cmdList->SetGraphicsRootConstantBufferView(1, passCB->GetGPUVirtualAddress()); // b0
 
-	_device->Release().Push(vbUpload);
-	_device->Release().Push(ibUpload);
+	UINT tileCbSize = D3DUtil::CalcConstantBufferSize(sizeof(TerrainConstant));
+	auto terrainCB = _currFrameResource->TerrainCB->Resource();
 
-	geo->VertexByteStride = sizeof(Vertex);
-	geo->VertexBufferByteSize = vbByteSize;
-	geo->IndexBufferByteSize = ibByteSize;
-	geo->IndexFormat = DXGI_FORMAT_R32_UINT;
+	const MeshGeometry* mesh = _terrain->GetTileMesh();
 
-	geo->Submeshes.reserve(meshData.Submeshes.size());
-	for (const auto& sub : meshData.Submeshes)
+	auto vbv = mesh->VertexBufferView();
+	auto ibv = mesh->IndexBufferView();
+	cmdList->IASetVertexBuffers(0, 1, &vbv);
+	cmdList->IASetIndexBuffer(&ibv);
+
+	const auto& tiles = _terrain->GetShadowTiles();
+	for (UINT t = 0; t < (UINT)tiles.size(); t++)
 	{
-		Submesh s;
-		s.Name = sub.Name;
-		s.IndexCount = sub.IndexCount;
-		s.StartIndexLocation = sub.IndexOffset;
-		s.BaseVertexLocation = (INT)sub.VertexOffset;
-		s.Bounds = sub.Bounds;
+		UINT cbIndex = _terrainShadowCBOffset + t;
+		cmdList->SetGraphicsRootConstantBufferView(2, terrainCB->GetGPUVirtualAddress() + cbIndex * tileCbSize);
+		cmdList->DrawIndexedInstanced(mesh->Submeshes[0].IndexCount, 1, 0, 0, 0);
 
-		geo->Submeshes.push_back(s);
-	}
-
-	auto model = std::make_unique<Model>();
-	model->Name = meshData.MeshName;
-	model->Mesh = std::move(geo);
-
-	model->Parts.reserve(meshData.Submeshes.size());
-	for (uint32_t i = 0; i < (uint32_t)meshData.Submeshes.size(); i++)
-	{
-		auto it = matByName.find(meshData.Submeshes[i].MaterialName);
-		MaterialHandle mat = (it != matByName.end()) ? it->second : _defaultMaterial;
-
-		model->Parts.push_back({ i, mat });
-	}
-
-	model->Materials.reserve(matByName.size());
-	for (const auto& [name, h] : matByName) { model->Materials.push_back(h); }
-
-	_models[model->Name] = std::move(model);
-}
-
-std::unordered_map<std::string, MaterialHandle> D3DFramework::ParseMaterials(const ModelParse::MeshInfo& meshData)
-{
-	std::unordered_map<std::string, MaterialHandle> result;
-
-	for (const auto& [name, mi] : meshData.Materials)
-	{
-		auto mat = std::make_unique<Material>();
-		mat->Name = name;
-
-		mat->AlbedoMap = _textures->Find(mi.DiffuseTextureName);
-		mat->NormalMap = _textures->Find(mi.NormalTextureName);
-		mat->MetallicMap = _textures->Find(mi.MetallicTextureName);
-		mat->RoughnessMap = _textures->Find(mi.RoughnessTextureName);
-		mat->AOMap = _textures->Find(mi.AOTextureName);
-		mat->DisplacementMap = _textures->Find(mi.DisplacementTextureName);
-
-		mat->DiffuseAlbedo = mi.DiffuseColor;
-		mat->Roughness = mi.Roughness;
-		mat->Metallic = mi.Metallic;
-
-		MaterialHandle h = _materials.Add(std::move(mat));
-
-		assert(h.Index < MAX_MATERIALS);
-
-		result[name] = h;
-	}
-
-	return result;
-}
-
-void D3DFramework::LoadTextures(const ModelParse::MeshInfo& meshData)
-{
-	for (auto& kv : meshData.Materials)
-	{
-		auto& mi = kv.second;
-
-		std::vector<std::string> toLoad =
-		{
-			mi.DiffuseTextureName,
-			mi.NormalTextureName,
-			mi.MetallicTextureName,
-			mi.RoughnessTextureName,
-			mi.AOTextureName,
-			mi.DisplacementTextureName,
-		};
-
-		for (const std::string& texName : toLoad)
-		{
-			if (texName.empty()) { continue; }
-
-			_textures->Load(texName, LOCAL_PATH_W + L"Textures/" + std::wstring(texName.begin(), texName.end()));
-		}
+		_frameStats.ShadowDraws++;
 	}
 }
 

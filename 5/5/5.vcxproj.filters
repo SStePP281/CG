@@ -1,67 +1,20 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
-    <Filter Include="Source Files">
-      <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
-      <Extensions>cpp;c;cc;cxx;c++;cppm;ixx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
-    </Filter>
-    <Filter Include="Header Files">
-      <UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
-      <Extensions>h;hh;hpp;hxx;h++;hm;inl;inc;ipp;xsd</Extensions>
-    </Filter>
-    <Filter Include="Shaders">
-      <UniqueIdentifier>{71c48b84-d135-401e-8ac2-3c5e113bacb2}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Header Files\AntiAliasing">
-      <UniqueIdentifier>{2bd0282c-917c-4679-8ce0-c12c746a8e05}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Source Files\AntiAliasing">
-      <UniqueIdentifier>{89998b56-7076-4aad-89c4-936533079550}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Header Files\DLSS">
-      <UniqueIdentifier>{3b9eab21-787c-498b-b200-b9ab56fbd1d4}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="RenderUI">
-      <UniqueIdentifier>{c7aa017b-55df-4791-a8ce-1c4b1d539f06}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="RenderUI\Panels">
-      <UniqueIdentifier>{3bad3608-f42f-461c-9f46-907fe18165e0}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="RenderUI\Main">
-      <UniqueIdentifier>{9bfe21e8-977d-44b7-9265-7f2496b60e21}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="RenderUI\Main\Header">
-      <UniqueIdentifier>{19d5d8b6-aa2d-453c-a3e5-0b961a3de57c}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="RenderUI\Main\Source">
-      <UniqueIdentifier>{2f3813a5-59fb-4a9a-91d6-b8efdc746c83}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="RenderUI\Libary">
-      <UniqueIdentifier>{e9639df8-92df-40a9-abdb-e45b65d918b4}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="RenderUI\Libary\imgui">
-      <UniqueIdentifier>{2a130c4b-eddb-4e42-9e35-4093feaa72db}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Source Files\Core">
-      <UniqueIdentifier>{afb18901-171d-4990-a314-7bc2251b8295}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="RenderUI\Panels\_Base">
-      <UniqueIdentifier>{afbca671-a97a-437e-9393-bdbcdefc7dd8}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="RenderUI\Panels\Header">
-      <UniqueIdentifier>{03d2115f-edd9-4838-8cd9-6880a96c0965}</UniqueIdentifier>
-    </Filter>
     <Filter Include="App">
       <UniqueIdentifier>{f9ffb450-c210-4e1f-b652-22e70a172f01}</UniqueIdentifier>
     </Filter>
     <Filter Include="Core">
       <UniqueIdentifier>{8b8fd8cb-b42b-4360-9c08-31479d050aa7}</UniqueIdentifier>
     </Filter>
-    <Filter Include="Assets">
-      <UniqueIdentifier>{ba155179-d052-4752-ab1a-c35e2824aca9}</UniqueIdentifier>
+    <Filter Include="Platform">
+      <UniqueIdentifier>{a6ea10ed-0bed-4562-8ad6-e683c12b3247}</UniqueIdentifier>
     </Filter>
     <Filter Include="RHI">
       <UniqueIdentifier>{aa1ddb29-a051-4a56-bb5f-83e2b59f352a}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Assets">
+      <UniqueIdentifier>{ba155179-d052-4752-ab1a-c35e2824aca9}</UniqueIdentifier>
     </Filter>
     <Filter Include="Scene">
       <UniqueIdentifier>{026609ee-adab-45d9-a8a0-4717c4040325}</UniqueIdentifier>
@@ -69,97 +22,55 @@
     <Filter Include="Renderer">
       <UniqueIdentifier>{93476141-f6cb-4590-9a9e-af53816b3791}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Renderer\AntiAliasing">
+      <UniqueIdentifier>{9bf67c58-883c-4de5-b974-c291905fd7cb}</UniqueIdentifier>
+    </Filter>
     <Filter Include="Editor">
       <UniqueIdentifier>{48fc2ab2-5efb-4a2d-9cca-8c2172c8ea23}</UniqueIdentifier>
     </Filter>
-    <Filter Include="Source Files\Core\DLSS">
-      <UniqueIdentifier>{9bc2fab3-1bba-4ab8-b8db-0f2ef36d2826}</UniqueIdentifier>
+    <Filter Include="Editor\Panels">
+      <UniqueIdentifier>{05c5b9d6-9d2b-4891-9871-d68bc227875d}</UniqueIdentifier>
     </Filter>
-    <Filter Include="Platform">
-      <UniqueIdentifier>{a6ea10ed-0bed-4562-8ad6-e683c12b3247}</UniqueIdentifier>
+    <Filter Include="ThirdParty">
+      <UniqueIdentifier>{f7dfd74d-8fd3-4b5a-a5bf-3d8177545989}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="ThirdParty\imgui">
+      <UniqueIdentifier>{99dba5d5-859c-4c8e-9e6f-2a59a94d8942}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Shaders">
+      <UniqueIdentifier>{71c48b84-d135-401e-8ac2-3c5e113bacb2}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Shaders\Common">
+      <UniqueIdentifier>{1cc95f32-c3da-4b12-9468-21d8eb208e20}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Shaders\GBuffer">
+      <UniqueIdentifier>{c0de2e19-19ac-4a08-a0b4-810695dadaff}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Shaders\Terrain">
+      <UniqueIdentifier>{338f7cad-91a2-4b80-a7c7-43d81fa8c608}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Shaders\PostProcess">
+      <UniqueIdentifier>{601f8f85-e1a6-4444-983f-80e8038ea441}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="Application.cpp">
+      <Filter>App</Filter>
+    </ClCompile>
+    <ClCompile Include="WindowMain.cpp">
+      <Filter>App</Filter>
+    </ClCompile>
+    <ClCompile Include="DemoScene.cpp">
+      <Filter>App</Filter>
+    </ClCompile>
     <ClCompile Include="GameTimer.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="D3DFramework.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="D3DUtil.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="FrameResource.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="ModelParse.cpp">
-      <Filter>Source Files</Filter>
+      <Filter>Core</Filter>
     </ClCompile>
     <ClCompile Include="MathHelper.cpp">
-      <Filter>Source Files</Filter>
+      <Filter>Core</Filter>
     </ClCompile>
-    <ClCompile Include="LunaDDSTextureLoader.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="GBuffer.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="ShadowMap.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="PostProcess.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="Terrain.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="TAA.cpp">
-      <Filter>Source Files\AntiAliasing</Filter>
-    </ClCompile>
-    <ClCompile Include="VelocityBuffer.cpp">
-      <Filter>Source Files\AntiAliasing</Filter>
-    </ClCompile>
-    <ClCompile Include="NGXManager.cpp">
-      <Filter>Source Files\Core\DLSS</Filter>
-    </ClCompile>
-    <ClCompile Include="DLAA.cpp">
-      <Filter>Source Files\AntiAliasing</Filter>
-    </ClCompile>
-    <ClCompile Include="RenderGUI.cpp">
-      <Filter>RenderUI\Main\Source</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\ThirdParty\imgui\imgui.cpp">
-      <Filter>RenderUI\Libary\imgui</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\ThirdParty\imgui\imgui_demo.cpp">
-      <Filter>RenderUI\Libary\imgui</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\ThirdParty\imgui\imgui_draw.cpp">
-      <Filter>RenderUI\Libary\imgui</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\ThirdParty\imgui\imgui_tables.cpp">
-      <Filter>RenderUI\Libary\imgui</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\ThirdParty\imgui\imgui_widgets.cpp">
-      <Filter>RenderUI\Libary\imgui</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\ThirdParty\imgui\backends\imgui_impl_dx12.cpp">
-      <Filter>RenderUI\Libary\imgui</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\ThirdParty\imgui\backends\imgui_impl_win32.cpp">
-      <Filter>RenderUI\Libary\imgui</Filter>
-    </ClCompile>
-    <ClCompile Include="DescriptorHeapAllocator.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="DeferredReleaseQueue.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="GraphicsDevice.cpp">
-      <Filter>RHI</Filter>
-    </ClCompile>
-    <ClCompile Include="TextureManager.cpp">
-      <Filter>Assets</Filter>
+    <ClCompile Include="D3DUtil.cpp">
+      <Filter>Core</Filter>
     </ClCompile>
     <ClCompile Include="Window.cpp">
       <Filter>Platform</Filter>
@@ -167,177 +78,148 @@
     <ClCompile Include="Input.cpp">
       <Filter>Platform</Filter>
     </ClCompile>
-    <ClCompile Include="Application.cpp">
-      <Filter>App</Filter>
+    <ClCompile Include="GraphicsDevice.cpp">
+      <Filter>RHI</Filter>
     </ClCompile>
-    <ClCompile Include="WindowMain.cpp">
-      <Filter>App</Filter>
+    <ClCompile Include="DescriptorHeapAllocator.cpp">
+      <Filter>RHI</Filter>
+    </ClCompile>
+    <ClCompile Include="DeferredReleaseQueue.cpp">
+      <Filter>RHI</Filter>
+    </ClCompile>
+    <ClCompile Include="AssetManager.cpp">
+      <Filter>Assets</Filter>
+    </ClCompile>
+    <ClCompile Include="TextureManager.cpp">
+      <Filter>Assets</Filter>
+    </ClCompile>
+    <ClCompile Include="ModelParse.cpp">
+      <Filter>Assets</Filter>
+    </ClCompile>
+    <ClCompile Include="World.cpp">
+      <Filter>Scene</Filter>
+    </ClCompile>
+    <ClCompile Include="Camera.cpp">
+      <Filter>Scene</Filter>
+    </ClCompile>
+    <ClCompile Include="Terrain.cpp">
+      <Filter>Scene</Filter>
+    </ClCompile>
+    <ClCompile Include="D3DFramework.cpp">
+      <Filter>Renderer</Filter>
+    </ClCompile>
+    <ClCompile Include="FrameResource.cpp">
+      <Filter>Renderer</Filter>
+    </ClCompile>
+    <ClCompile Include="GBuffer.cpp">
+      <Filter>Renderer</Filter>
+    </ClCompile>
+    <ClCompile Include="ShadowMap.cpp">
+      <Filter>Renderer</Filter>
+    </ClCompile>
+    <ClCompile Include="PostProcess.cpp">
+      <Filter>Renderer</Filter>
+    </ClCompile>
+    <ClCompile Include="VelocityBuffer.cpp">
+      <Filter>Renderer</Filter>
+    </ClCompile>
+    <ClCompile Include="TAA.cpp">
+      <Filter>Renderer\AntiAliasing</Filter>
+    </ClCompile>
+    <ClCompile Include="DLAA.cpp">
+      <Filter>Renderer\AntiAliasing</Filter>
+    </ClCompile>
+    <ClCompile Include="NGXManager.cpp">
+      <Filter>Renderer\AntiAliasing</Filter>
+    </ClCompile>
+    <ClCompile Include="RenderGUI.cpp">
+      <Filter>Editor</Filter>
+    </ClCompile>
+    <ClCompile Include="LunaDDSTextureLoader.cpp">
+      <Filter>ThirdParty</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\ThirdParty\imgui\imgui.cpp">
+      <Filter>ThirdParty\imgui</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\ThirdParty\imgui\imgui_demo.cpp">
+      <Filter>ThirdParty\imgui</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\ThirdParty\imgui\imgui_draw.cpp">
+      <Filter>ThirdParty\imgui</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\ThirdParty\imgui\imgui_tables.cpp">
+      <Filter>ThirdParty\imgui</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\ThirdParty\imgui\imgui_widgets.cpp">
+      <Filter>ThirdParty\imgui</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\ThirdParty\imgui\backends\imgui_impl_dx12.cpp">
+      <Filter>ThirdParty\imgui</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\ThirdParty\imgui\backends\imgui_impl_win32.cpp">
+      <Filter>ThirdParty\imgui</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <None Include="..\Shaders\GBuffer.hlsl">
-      <Filter>Shaders</Filter>
-    </None>
-    <None Include="..\Shaders\GBufferCommon.hlsl">
-      <Filter>Shaders</Filter>
-    </None>
-    <None Include="..\Shaders\GBufferDS.hlsl">
-      <Filter>Shaders</Filter>
-    </None>
-    <None Include="..\Shaders\GBufferHS.hlsl">
-      <Filter>Shaders</Filter>
-    </None>
-    <None Include="..\Shaders\LightingUtil.hlsl">
-      <Filter>Shaders</Filter>
-    </None>
-    <None Include="..\Shaders\LightPass.hlsl">
-      <Filter>Shaders</Filter>
-    </None>
-    <None Include="..\Shaders\PostProcess\Outline.hlsl">
-      <Filter>Shaders</Filter>
-    </None>
-    <None Include="packages.config">
-      <Filter>Shaders</Filter>
-    </None>
-    <None Include="..\Shaders\PostProcess\PPSUtil.hlsl">
-      <Filter>Shaders</Filter>
-    </None>
-    <None Include="..\Shaders\Shadow.hlsl">
-      <Filter>Shaders</Filter>
-    </None>
-    <None Include="..\Shaders\Terrain\Terrain.hlsl">
-      <Filter>Shaders</Filter>
-    </None>
-    <None Include="..\Shaders\Terrain\TerrainBrush.hlsl">
-      <Filter>Shaders</Filter>
-    </None>
-    <None Include="..\Shaders\Terrain\TerrainPick.hlsl">
-      <Filter>Shaders</Filter>
-    </None>
-    <None Include="..\Shaders\PostProcess\TextureOverlay.hlsl">
-      <Filter>Shaders</Filter>
-    </None>
-    <None Include="..\Shaders\PostProcess\ToneMapping.hlsl">
-      <Filter>Shaders</Filter>
-    </None>
-    <None Include="..\Shaders\TAA.hlsl">
-      <Filter>Shaders</Filter>
-    </None>
-  </ItemGroup>
-  <ItemGroup>
+    <ClInclude Include="Application.h">
+      <Filter>App</Filter>
+    </ClInclude>
+    <ClInclude Include="DemoScene.h">
+      <Filter>App</Filter>
+    </ClInclude>
     <ClInclude Include="GameTimer.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="D3DFramework.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="D3DUtil.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="ThrowIfFaild.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="UploadBuffer.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="FrameResource.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="ModelParse.h">
-      <Filter>Header Files</Filter>
+      <Filter>Core</Filter>
     </ClInclude>
     <ClInclude Include="MathHelper.h">
-      <Filter>Header Files</Filter>
+      <Filter>Core</Filter>
     </ClInclude>
-    <ClInclude Include="LunaDDSTextureLoader.h">
-      <Filter>Header Files</Filter>
+    <ClInclude Include="D3DUtil.h">
+      <Filter>Core</Filter>
     </ClInclude>
-    <ClInclude Include="ModelStruct.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="GBuffer.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="ShadowMap.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="PostProcess.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="Terrain.h">
-      <Filter>Header Files</Filter>
+    <ClInclude Include="ThrowIfFaild.h">
+      <Filter>Core</Filter>
     </ClInclude>
     <ClInclude Include="PathManager.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="AntiAliasing.h">
-      <Filter>Header Files\AntiAliasing</Filter>
-    </ClInclude>
-    <ClInclude Include="TAA.h">
-      <Filter>Header Files\AntiAliasing</Filter>
-    </ClInclude>
-    <ClInclude Include="VelocityBuffers.h">
-      <Filter>Header Files\AntiAliasing</Filter>
-    </ClInclude>
-    <ClInclude Include="NGXManager.h">
-      <Filter>Header Files\DLSS</Filter>
-    </ClInclude>
-    <ClInclude Include="DLAA.h">
-      <Filter>Header Files\AntiAliasing</Filter>
-    </ClInclude>
-    <ClInclude Include="RenderGUI.h">
-      <Filter>RenderUI\Main\Header</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\ThirdParty\imgui\imconfig.h">
-      <Filter>RenderUI\Libary\imgui</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\ThirdParty\imgui\imgui.h">
-      <Filter>RenderUI\Libary\imgui</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\ThirdParty\imgui\imgui_internal.h">
-      <Filter>RenderUI\Libary\imgui</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\ThirdParty\imgui\imstb_rectpack.h">
-      <Filter>RenderUI\Libary\imgui</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\ThirdParty\imgui\imstb_textedit.h">
-      <Filter>RenderUI\Libary\imgui</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\ThirdParty\imgui\imstb_truetype.h">
-      <Filter>RenderUI\Libary\imgui</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\ThirdParty\imgui\backends\imgui_impl_dx12.h">
-      <Filter>RenderUI\Libary\imgui</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\ThirdParty\imgui\backends\imgui_impl_win32.h">
-      <Filter>RenderUI\Libary\imgui</Filter>
+      <Filter>Core</Filter>
     </ClInclude>
     <ClInclude Include="RenderSettings.h">
-      <Filter>Source Files\Core</Filter>
-    </ClInclude>
-    <ClInclude Include="NoAA.h">
-      <Filter>Header Files\AntiAliasing</Filter>
-    </ClInclude>
-    <ClInclude Include="DescriptorHeapAllocator.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="DeferredReleaseQueue.h">
-      <Filter>Header Files</Filter>
+      <Filter>Core</Filter>
     </ClInclude>
     <ClInclude Include="FrameStats.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="IPanel.h">
-      <Filter>RenderUI\Panels\_Base</Filter>
-    </ClInclude>
-    <ClInclude Include="InfoPanel.h">
-      <Filter>RenderUI\Panels\Header</Filter>
+      <Filter>Core</Filter>
     </ClInclude>
     <ClInclude Include="SlotHandle.h">
       <Filter>Core</Filter>
     </ClInclude>
     <ClInclude Include="SlotPool.h">
       <Filter>Core</Filter>
+    </ClInclude>
+    <ClInclude Include="Window.h">
+      <Filter>Platform</Filter>
+    </ClInclude>
+    <ClInclude Include="Input.h">
+      <Filter>Platform</Filter>
+    </ClInclude>
+    <ClInclude Include="GraphicsDevice.h">
+      <Filter>RHI</Filter>
+    </ClInclude>
+    <ClInclude Include="DescriptorHeapAllocator.h">
+      <Filter>RHI</Filter>
+    </ClInclude>
+    <ClInclude Include="DeferredReleaseQueue.h">
+      <Filter>RHI</Filter>
+    </ClInclude>
+    <ClInclude Include="UploadBuffer.h">
+      <Filter>RHI</Filter>
+    </ClInclude>
+    <ClInclude Include="AssetManager.h">
+      <Filter>Assets</Filter>
+    </ClInclude>
+    <ClInclude Include="TextureManager.h">
+      <Filter>Assets</Filter>
+    </ClInclude>
+    <ClInclude Include="ModelParse.h">
+      <Filter>Assets</Filter>
     </ClInclude>
     <ClInclude Include="Mesh.h">
       <Filter>Assets</Filter>
@@ -351,23 +233,146 @@
     <ClInclude Include="Texture.h">
       <Filter>Assets</Filter>
     </ClInclude>
-    <ClInclude Include="TextureManager.h">
-      <Filter>Assets</Filter>
+    <ClInclude Include="World.h">
+      <Filter>Scene</Filter>
+    </ClInclude>
+    <ClInclude Include="Camera.h">
+      <Filter>Scene</Filter>
+    </ClInclude>
+    <ClInclude Include="Transform.h">
+      <Filter>Scene</Filter>
+    </ClInclude>
+    <ClInclude Include="MeshObject.h">
+      <Filter>Scene</Filter>
+    </ClInclude>
+    <ClInclude Include="LightObject.h">
+      <Filter>Scene</Filter>
+    </ClInclude>
+    <ClInclude Include="Octree.h">
+      <Filter>Scene</Filter>
+    </ClInclude>
+    <ClInclude Include="Terrain.h">
+      <Filter>Scene</Filter>
+    </ClInclude>
+    <ClInclude Include="D3DFramework.h">
+      <Filter>Renderer</Filter>
+    </ClInclude>
+    <ClInclude Include="FrameResource.h">
+      <Filter>Renderer</Filter>
     </ClInclude>
     <ClInclude Include="ShaderTypes.h">
       <Filter>Renderer</Filter>
     </ClInclude>
-    <ClInclude Include="GraphicsDevice.h">
-      <Filter>RHI</Filter>
+    <ClInclude Include="GBuffer.h">
+      <Filter>Renderer</Filter>
     </ClInclude>
-    <ClInclude Include="Window.h">
-      <Filter>Platform</Filter>
+    <ClInclude Include="ShadowMap.h">
+      <Filter>Renderer</Filter>
     </ClInclude>
-    <ClInclude Include="Input.h">
-      <Filter>Platform</Filter>
+    <ClInclude Include="PostProcess.h">
+      <Filter>Renderer</Filter>
     </ClInclude>
-    <ClInclude Include="Application.h">
-      <Filter>App</Filter>
+    <ClInclude Include="VelocityBuffers.h">
+      <Filter>Renderer</Filter>
     </ClInclude>
+    <ClInclude Include="AntiAliasing.h">
+      <Filter>Renderer\AntiAliasing</Filter>
+    </ClInclude>
+    <ClInclude Include="NoAA.h">
+      <Filter>Renderer\AntiAliasing</Filter>
+    </ClInclude>
+    <ClInclude Include="TAA.h">
+      <Filter>Renderer\AntiAliasing</Filter>
+    </ClInclude>
+    <ClInclude Include="DLAA.h">
+      <Filter>Renderer\AntiAliasing</Filter>
+    </ClInclude>
+    <ClInclude Include="NGXManager.h">
+      <Filter>Renderer\AntiAliasing</Filter>
+    </ClInclude>
+    <ClInclude Include="RenderGUI.h">
+      <Filter>Editor</Filter>
+    </ClInclude>
+    <ClInclude Include="IPanel.h">
+      <Filter>Editor</Filter>
+    </ClInclude>
+    <ClInclude Include="InfoPanel.h">
+      <Filter>Editor\Panels</Filter>
+    </ClInclude>
+    <ClInclude Include="LunaDDSTextureLoader.h">
+      <Filter>ThirdParty</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\ThirdParty\imgui\imconfig.h">
+      <Filter>ThirdParty\imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\ThirdParty\imgui\imgui.h">
+      <Filter>ThirdParty\imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\ThirdParty\imgui\imgui_internal.h">
+      <Filter>ThirdParty\imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\ThirdParty\imgui\imstb_rectpack.h">
+      <Filter>ThirdParty\imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\ThirdParty\imgui\imstb_textedit.h">
+      <Filter>ThirdParty\imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\ThirdParty\imgui\imstb_truetype.h">
+      <Filter>ThirdParty\imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\ThirdParty\imgui\backends\imgui_impl_dx12.h">
+      <Filter>ThirdParty\imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\ThirdParty\imgui\backends\imgui_impl_win32.h">
+      <Filter>ThirdParty\imgui</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\Shaders\GBufferCommon.hlsl">
+      <Filter>Shaders\Common</Filter>
+    </None>
+    <None Include="..\Shaders\LightingUtil.hlsl">
+      <Filter>Shaders\Common</Filter>
+    </None>
+    <None Include="..\Shaders\GBuffer.hlsl">
+      <Filter>Shaders\GBuffer</Filter>
+    </None>
+    <None Include="..\Shaders\GBufferHS.hlsl">
+      <Filter>Shaders\GBuffer</Filter>
+    </None>
+    <None Include="..\Shaders\GBufferDS.hlsl">
+      <Filter>Shaders\GBuffer</Filter>
+    </None>
+    <None Include="..\Shaders\LightPass.hlsl">
+      <Filter>Shaders</Filter>
+    </None>
+    <None Include="..\Shaders\Shadow.hlsl">
+      <Filter>Shaders</Filter>
+    </None>
+    <None Include="..\Shaders\TAA.hlsl">
+      <Filter>Shaders</Filter>
+    </None>
+    <None Include="..\Shaders\Terrain\Terrain.hlsl">
+      <Filter>Shaders\Terrain</Filter>
+    </None>
+    <None Include="..\Shaders\Terrain\TerrainBrush.hlsl">
+      <Filter>Shaders\Terrain</Filter>
+    </None>
+    <None Include="..\Shaders\Terrain\TerrainPick.hlsl">
+      <Filter>Shaders\Terrain</Filter>
+    </None>
+    <None Include="..\Shaders\PostProcess\PPSUtil.hlsl">
+      <Filter>Shaders\PostProcess</Filter>
+    </None>
+    <None Include="..\Shaders\PostProcess\ToneMapping.hlsl">
+      <Filter>Shaders\PostProcess</Filter>
+    </None>
+    <None Include="..\Shaders\PostProcess\TextureOverlay.hlsl">
+      <Filter>Shaders\PostProcess</Filter>
+    </None>
+    <None Include="..\Shaders\PostProcess\Outline.hlsl">
+      <Filter>Shaders\PostProcess</Filter>
+    </None>
+    <None Include="packages.config" />
   </ItemGroup>
 </Project>

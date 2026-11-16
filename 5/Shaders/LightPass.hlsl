@@ -64,7 +64,8 @@ cbuffer cbPass : register(b0)
 cbuffer cbLightInfo : register(b1)
 {
     uint gLightCount;
-    int3 pad;
+    float gIBLIntensity;
+    int2 pad;
 };
 
 struct CascadeData
@@ -239,7 +240,7 @@ float4 PS(VSOut pin) : SV_Target
 
     float3 IBL = CalculateIBLAmbient(N, V, mat);
 
-    float3 color = IBL + Lo;
+    float3 color = IBL * gIBLIntensity + Lo;
 
     if (DebugMode)
     {

@@ -44,6 +44,11 @@ cbuffer cbPass : register(b0)
     int TerrainDebug;
 };
 
+cbuffer cbShadow : register(b1)
+{
+    float4x4 gLightViewProj;
+};
+
 cbuffer cbTerrain : register(b4)
 {
     float2 gTileOrigin;
@@ -113,12 +118,8 @@ float2 CalcVelocity(float4 currPosH, float4 prevPosH)
     return (prev - curr) * float2(0.5f, -0.5f);
 }
 
-VertexOut VS(VertexIn vin)
+float3 TerrainPosW(float2 gridPos, out float2 uv)
 {
-    VertexOut vout;
-    
-    float2 gridPos = vin.PosL.xz;
-    
     float2 xz0 = gTileOrigin + gridPos * gTileSize;
     float2 uv0 = xz0 / gWorldSize;
     float h0 = gHeightMap.SampleLevel(gsamLinearClamp, uv0, 0).r * gHeightScale + gHeightOffset;
@@ -131,10 +132,18 @@ VertexOut VS(VertexIn vin)
     float2 gridMorphed = gridPos - fracPart * morphK;
     
     float2 localXZ = gTileOrigin + gridMorphed * gTileSize;
-    float2 uv = localXZ / gWorldSize;
+    uv = localXZ / gWorldSize;
     float h = gHeightMap.SampleLevel(gsamLinearClamp, uv, 0).r * gHeightScale + gHeightOffset;
+    
+    return float3(localXZ.x + gWorldOffset.x, h, localXZ.y + gWorldOffset.y);
+}
 
-    vout.PosW = float3(localXZ.x + gWorldOffset.x, h, localXZ.y + gWorldOffset.y);
+VertexOut VS(VertexIn vin)
+{
+    VertexOut vout;
+
+    float2 uv;
+    vout.PosW = TerrainPosW(vin.PosL.xz, uv);
     vout.PosH = mul(float4(vout.PosW, 1), gJitteredViewProj);
     vout.CurrPosH = mul(float4(vout.PosW, 1), gViewProj);
     vout.PrevPosH = mul(float4(vout.PosW, 1), gPrevViewProj);
@@ -142,6 +151,13 @@ VertexOut VS(VertexIn vin)
     vout.Lod = gLodLevel;
     
     return vout;
+}
+
+float4 VS_Shadow(VertexIn vin) : SV_POSITION
+{
+    float2 uv;
+    float3 posW = TerrainPosW(vin.PosL.xz, uv);
+    return mul(float4(posW, 1.0f), gLightViewProj);
 }
 
 GBufferOutput PS(VertexOut pin)

@@ -11,7 +11,8 @@
 #include "UploadBuffer.h"
 #include "MathHelper.h"
 #include "D3DUtil.h"
-#include "ModelStruct.h"
+#include "ShaderTypes.h"
+using namespace DirectX;
 #include "Terrain.h"
 
 using Microsoft::WRL::ComPtr;

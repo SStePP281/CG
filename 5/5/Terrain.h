@@ -9,8 +9,10 @@
 #include <d3d12.h>
 #include <d3dx12.h>
 
-#include "ModelStruct.h"
+#include <DirectXCollision.h>
+#include "Mesh.h"
 #include "GraphicsDevice.h"
+using namespace DirectX;
 
 using Microsoft::WRL::ComPtr;
 
@@ -32,7 +34,7 @@ constexpr UINT BRUSH_RADIUS_MIN = 1, BRUSH_RADIUS_MAX = 200;
 constexpr float BRUSH_STRENGTH_MIN = 0.05f, BRUSH_STRENGTH_MAX = 10.0f;
 
 constexpr UINT TERRAIN_TILES_PER_SIDE = (UINT)(TERRAIN_WORLD_SIZE / TERRAIN_TILE_WORLD_SIZE);
-constexpr UINT MAX_TERRAIN_TILES = 1024; 
+constexpr UINT MAX_TERRAIN_TILES = 4096; 
 constexpr UINT TERRAIN_TILE_VERTS = TERRAIN_TILE_CELLS + 1;
 
 static_assert(TERRAIN_TILES_PER_SIDE * TERRAIN_TILE_WORLD_SIZE == TERRAIN_WORLD_SIZE, "World size must be a multiple of tile size");
@@ -99,6 +101,9 @@ public:
 	void UpdateLOD(const XMFLOAT3& eyePosWorld, float fovY, float screenHeight, const BoundingFrustum& frustum);
 	const std::vector<TerrainTile>& GetVisibleTiles() const { return _visibleTiles; }
 
+	void UpdateShadowLOD(const XMFLOAT3& eye, float fovY, float screenHeight);
+	const std::vector<TerrainTile>& GetShadowTiles() const { return _shadowTiles; }
+
 private:
 	void CreateHitBuffer(ID3D12Device* device);
 
@@ -116,7 +121,8 @@ private:
 
 	static ComPtr<ID3D12Resource> LoadWic(ID3D12Device* device, ID3D12CommandQueue* cmdQueue, const std::wstring& path, bool isColor);
 
-	void SelectNode(const QuadNode* node, const XMFLOAT3& eye, float screenK, const BoundingFrustum& frustum);
+	void SelectNode(const QuadNode* node, const XMFLOAT3& eye, float screenK, const BoundingFrustum* frustum, std::vector<TerrainTile>& out);
+
 	BoundingBox NodeBounds(const QuadNode* node) const;
 
 private:
@@ -127,6 +133,8 @@ private:
 
 	std::unique_ptr<QuadNode> _root;
 	std::vector<TerrainTile> _visibleTiles;
+
+	std::vector<TerrainTile> _shadowTiles;
 
 private:
 	ComPtr<ID3D12Resource> _heightMap;

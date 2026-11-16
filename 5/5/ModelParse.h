@@ -10,7 +10,7 @@
 #include <string>
 
 #include "MathHelper.h"
-#include "ModelStruct.h"
+#include "Mesh.h"
 
 using namespace DirectX;
 
