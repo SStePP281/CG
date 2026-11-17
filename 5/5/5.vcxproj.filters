@@ -52,6 +52,21 @@
     <Filter Include="Shaders\PostProcess">
       <UniqueIdentifier>{601f8f85-e1a6-4444-983f-80e8038ea441}</UniqueIdentifier>
     </Filter>
+    <Filter Include="App\Settings">
+      <UniqueIdentifier>{bd16be12-5828-43f5-9927-ae508342c28c}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Editor\EditorTool">
+      <UniqueIdentifier>{451ea973-78d8-44aa-a72a-ce9c4b1c5748}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Editor\Panels\_Base">
+      <UniqueIdentifier>{cc7c2e2c-a6f4-4562-9633-c503717124da}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Editor\EditorTool\_Base">
+      <UniqueIdentifier>{2ef468d2-92e4-451c-8ef6-2bc7add12e23}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Editor\EditorTool\Terrain">
+      <UniqueIdentifier>{a3c1e504-a9ac-41d2-a9c8-d95f24e27da5}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Application.cpp">
@@ -132,9 +147,6 @@
     <ClCompile Include="NGXManager.cpp">
       <Filter>Renderer\AntiAliasing</Filter>
     </ClCompile>
-    <ClCompile Include="RenderGUI.cpp">
-      <Filter>Editor</Filter>
-    </ClCompile>
     <ClCompile Include="LunaDDSTextureLoader.cpp">
       <Filter>ThirdParty</Filter>
     </ClCompile>
@@ -159,6 +171,15 @@
     <ClCompile Include="..\..\ThirdParty\imgui\backends\imgui_impl_win32.cpp">
       <Filter>ThirdParty\imgui</Filter>
     </ClCompile>
+    <ClCompile Include="Editor.cpp">
+      <Filter>Editor</Filter>
+    </ClCompile>
+    <ClCompile Include="RenderGUI.cpp">
+      <Filter>Editor\Panels\_Base</Filter>
+    </ClCompile>
+    <ClCompile Include="TerrainPaintTool.cpp">
+      <Filter>Editor\EditorTool\Terrain</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Application.h">
@@ -180,9 +201,6 @@
       <Filter>Core</Filter>
     </ClInclude>
     <ClInclude Include="PathManager.h">
-      <Filter>Core</Filter>
-    </ClInclude>
-    <ClInclude Include="RenderSettings.h">
       <Filter>Core</Filter>
     </ClInclude>
     <ClInclude Include="FrameStats.h">
@@ -290,15 +308,6 @@
     <ClInclude Include="NGXManager.h">
       <Filter>Renderer\AntiAliasing</Filter>
     </ClInclude>
-    <ClInclude Include="RenderGUI.h">
-      <Filter>Editor</Filter>
-    </ClInclude>
-    <ClInclude Include="IPanel.h">
-      <Filter>Editor</Filter>
-    </ClInclude>
-    <ClInclude Include="InfoPanel.h">
-      <Filter>Editor\Panels</Filter>
-    </ClInclude>
     <ClInclude Include="LunaDDSTextureLoader.h">
       <Filter>ThirdParty</Filter>
     </ClInclude>
@@ -325,6 +334,30 @@
     </ClInclude>
     <ClInclude Include="..\..\ThirdParty\imgui\backends\imgui_impl_win32.h">
       <Filter>ThirdParty\imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="RenderSettings.h">
+      <Filter>App\Settings</Filter>
+    </ClInclude>
+    <ClInclude Include="Editor.h">
+      <Filter>Editor</Filter>
+    </ClInclude>
+    <ClInclude Include="RenderGUI.h">
+      <Filter>Editor\Panels\_Base</Filter>
+    </ClInclude>
+    <ClInclude Include="IPanel.h">
+      <Filter>Editor\Panels\_Base</Filter>
+    </ClInclude>
+    <ClInclude Include="InfoPanel.h">
+      <Filter>Editor\Panels</Filter>
+    </ClInclude>
+    <ClInclude Include="IEditorTool.h">
+      <Filter>Editor\EditorTool\_Base</Filter>
+    </ClInclude>
+    <ClInclude Include="TerrainPaintTool.h">
+      <Filter>Editor\EditorTool\Terrain</Filter>
+    </ClInclude>
+    <ClInclude Include="TerrainPaintPanel.h">
+      <Filter>Editor\EditorTool\Terrain</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
@@ -374,5 +407,8 @@
       <Filter>Shaders\PostProcess</Filter>
     </None>
     <None Include="packages.config" />
+    <None Include="TerrainRing.hlsl">
+      <Filter>Shaders\Terrain</Filter>
+    </None>
   </ItemGroup>
 </Project>

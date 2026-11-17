@@ -7,6 +7,7 @@
 #include "Transform.h"
 #include "MeshObject.h"
 #include "LightObject.h"
+#include "GameTimer.h"
 #include "Camera.h"
 #include "Octree.h"
 #include "SlotPool.h"
@@ -32,7 +33,7 @@ public:
     Camera& MainCamera() { return _camera; }
     const Camera& MainCamera() const { return _camera; }
 
-    void Update(float dt);
+    void Update(GameTimer& gt);
 
     void QueryVisible(const DirectX::BoundingFrustum& frustum, std::vector<ObjectId>& out) const;
     const DirectX::BoundingBox& Bounds() const { return _bounds; }

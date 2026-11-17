@@ -5,7 +5,7 @@
 ShadowMap::ShadowMap(GraphicsDevice& device, ShadowSettings& settings) : _settings(settings)
 {
 	SrvRange = device.Srv().Allocate(1);
-	DsvRange = device.Dsv().Allocate(settings.CascadeCount);
+	DsvRange = device.Dsv().Allocate(CASCADE_COUNT);
 
 	CreateTexture(device.Device());
 	CreateSRVAndDSV(device.Device());
@@ -23,7 +23,7 @@ void ShadowMap::Render(ID3D12GraphicsCommandList* cmdList, const std::function<v
 	TransitToOpaqueRenderingState(cmdList);
 	ClearView(cmdList);
 
-	for (UINT k = 0; k < _settings.CascadeCount; k++)
+	for (UINT k = 0; k < CASCADE_COUNT; k++)
 	{
 		auto dsv = DsvRange.Cpu(k);
 		cmdList->OMSetRenderTargets(0, nullptr, FALSE, &dsv);
@@ -37,7 +37,7 @@ void ShadowMap::Render(ID3D12GraphicsCommandList* cmdList, const std::function<v
 void ShadowMap::CreateTexture(ID3D12Device* device)
 {
 	CD3DX12_HEAP_PROPERTIES heapProp(D3D12_HEAP_TYPE_DEFAULT);
-	D3D12_RESOURCE_DESC resDesc = CD3DX12_RESOURCE_DESC::Tex2D(DEPTH_RESOURCE_FORMAT,_settings.ShadowTextureSize, _settings.ShadowTextureSize, _settings.CascadeCount, 1, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL);
+	D3D12_RESOURCE_DESC resDesc = CD3DX12_RESOURCE_DESC::Tex2D(DEPTH_RESOURCE_FORMAT,_settings.ShadowTextureSize, _settings.ShadowTextureSize, CASCADE_COUNT, 1, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL);
 
 	D3D12_CLEAR_VALUE clearValue = {};
 	clearValue.Format = DEPTH_DSV_FORMAT;
@@ -55,7 +55,7 @@ void ShadowMap::CreateSRVAndDSV(ID3D12Device* device)
 	dsvDesc.Texture2DArray.MipSlice = 0;
 	dsvDesc.Texture2DArray.ArraySize = 1;
 
-	for (UINT i = 0; i < _settings.CascadeCount; i++)
+	for (UINT i = 0; i < CASCADE_COUNT; i++)
 	{
 		dsvDesc.Texture2DArray.FirstArraySlice = i;
 		device->CreateDepthStencilView(Resource.Get(), &dsvDesc, DsvRange.Cpu(i));
@@ -68,7 +68,7 @@ void ShadowMap::CreateSRVAndDSV(ID3D12Device* device)
 	srvDesc.Texture2DArray.MostDetailedMip = 0;
 	srvDesc.Texture2DArray.MipLevels = 1;
 	srvDesc.Texture2DArray.FirstArraySlice = 0;
-	srvDesc.Texture2DArray.ArraySize = _settings.CascadeCount;
+	srvDesc.Texture2DArray.ArraySize = CASCADE_COUNT;
 
 	device->CreateShaderResourceView(Resource.Get(), &srvDesc, SrvRange.Cpu());
 }
@@ -97,7 +97,7 @@ void ShadowMap::TransitToLightRenderingState(ID3D12GraphicsCommandList* cmdList)
 
 void ShadowMap::ClearView(ID3D12GraphicsCommandList* cmdList)
 {
-	for (UINT i = 0; i < _settings.CascadeCount; i++)
+	for (UINT i = 0; i < CASCADE_COUNT; i++)
 	{
 		cmdList->ClearDepthStencilView(DsvRange.Cpu(i), D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
 	}

@@ -14,15 +14,7 @@ using namespace DirectX;
 
 Terrain::Terrain(GraphicsDevice& device)
 {
-	_descRange = device.Srv().Allocate(6);
-
-	_texSrvSubRange = _descRange.Sub(0, 3);
-	_brushUavSubRange = _descRange.Sub(3, 2);
-	_hitSrvSubRange = _descRange.Sub(5);
-
-	CreateHitBuffer(device.Device());
-	BuildPickPipeline(device.Device());
-	BuildBrushPipeline(device.Device());
+	_descRange = device.Srv().Allocate(3);
 
 	LoadTextures(device.Device(), device.Queue());
 
@@ -36,48 +28,6 @@ Terrain::Terrain(GraphicsDevice& device)
 
 	auto barrier = CD3DX12_RESOURCE_BARRIER::Transition(_heightMap.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 	device.CommandList()->ResourceBarrier(1, &barrier);
-}
-
-void Terrain::DoPick(ID3D12GraphicsCommandList* cmdList, D3D12_GPU_VIRTUAL_ADDRESS passCB, float mouseNdcX, float mouseNdcY, float maxDist)
-{
-	cmdList->SetPipelineState(_terrainPickPSO.Get());
-	cmdList->SetComputeRootSignature(_rootSignatureTerrainPick.Get());
-
-	cmdList->SetComputeRootConstantBufferView(0, passCB);
-
-	float c[8] = { mouseNdcX, mouseNdcY, maxDist, TERRAIN_HEIGHT_SCALE, TERRAIN_HEIGHT_OFFSET, TERRAIN_WORLD_SIZE, TERRAIN_WORLD_OFFSET, TERRAIN_WORLD_OFFSET };
-	cmdList->SetComputeRoot32BitConstants(1, 8, c, 0);
-
-	cmdList->SetComputeRootDescriptorTable(2, _texSrvSubRange.Gpu(0));     // height
-	cmdList->SetComputeRootDescriptorTable(3, _brushUavSubRange.Gpu(1));   // hit UAV
-
-	cmdList->Dispatch(1, 1, 1);
-
-	auto uavBarrier = CD3DX12_RESOURCE_BARRIER::UAV(_hitBuffer.Get());
-	cmdList->ResourceBarrier(1, &uavBarrier);
-}
-
-void Terrain::DoBrush(ID3D12GraphicsCommandList* cmdList, UINT layer, bool erase, float radiusMeters, float strengthDt)
-{
-	auto toUav = CD3DX12_RESOURCE_BARRIER::Transition(_maskArray.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-	cmdList->ResourceBarrier(1, &toUav);
-
-	cmdList->SetPipelineState(_terrainBrushPSO.Get());
-	cmdList->SetComputeRootSignature(_rootSignatureTerrainBrush.Get());
-
-	struct { int layer; int mode; float radius; float strengthDt; int maskCount; int layerCount; float worldSize; int maskSize; } c =
-	{ (int)layer, erase ? 1 : 0, radiusMeters, strengthDt, (int)_maskCount, (int)_layerCount, TERRAIN_WORLD_SIZE, (int)TERRAIN_MASK_SIZE };
-	cmdList->SetComputeRoot32BitConstants(0, 8, &c, 0);
-
-	cmdList->SetComputeRootDescriptorTable(1, _brushUavSubRange.Gpu());
-
-	float texelMeters = TERRAIN_WORLD_SIZE / TERRAIN_MASK_SIZE;
-	UINT side = 2 * (UINT)ceilf(radiusMeters / texelMeters) + 1;
-	UINT groups = (side + 7) / 8;
-	cmdList->Dispatch(groups, groups, 1);
-
-	auto toSrv = CD3DX12_RESOURCE_BARRIER::Transition(_maskArray.Get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-	cmdList->ResourceBarrier(1, &toSrv);
 }
 
 ComPtr<ID3D12Resource> Terrain::LoadWic(ID3D12Device* device, ID3D12CommandQueue* cmdQueue, const std::wstring& path, bool isColor)
@@ -96,25 +46,6 @@ ComPtr<ID3D12Resource> Terrain::LoadWic(ID3D12Device* device, ID3D12CommandQueue
 	resourceUpload.End(cmdQueue).wait();
 
 	return res;
-}
-
-void Terrain::CreateHitBuffer(ID3D12Device* device)
-{
-	D3D12_RESOURCE_DESC desc = CD3DX12_RESOURCE_DESC::Buffer(sizeof(TerrainHit), D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
-	CD3DX12_HEAP_PROPERTIES heap(D3D12_HEAP_TYPE_DEFAULT);
-	ThrowIfFailed(device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, nullptr, IID_PPV_ARGS(_hitBuffer.GetAddressOf())));
-}
-
-void Terrain::TransitHitToWrite(ID3D12GraphicsCommandList* cmdList)
-{
-	auto b = CD3DX12_RESOURCE_BARRIER::Transition(_hitBuffer.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-	cmdList->ResourceBarrier(1, &b);
-}
-
-void Terrain::TransitHitToRead(ID3D12GraphicsCommandList* cmdList)
-{
-	auto b = CD3DX12_RESOURCE_BARRIER::Transition(_hitBuffer.Get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-	cmdList->ResourceBarrier(1, &b);
 }
 
 void Terrain::LoadTextures(ID3D12Device* device, ID3D12CommandQueue* cmdQueue)
@@ -231,7 +162,7 @@ void Terrain::CreateSRVAndUAV(ID3D12Device* device)
 		srvDesc.Texture2D.MipLevels = desc.MipLevels;
 		srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
 
-		device->CreateShaderResourceView(_heightMap.Get(), &srvDesc, _texSrvSubRange.Cpu(0));
+		device->CreateShaderResourceView(_heightMap.Get(), &srvDesc, _descRange.Cpu(0));
 	}
 
 	{
@@ -247,7 +178,7 @@ void Terrain::CreateSRVAndUAV(ID3D12Device* device)
 		srvDesc.Texture2DArray.MostDetailedMip = 0;
 		srvDesc.Texture2DArray.ResourceMinLODClamp = 0.0f;
 
-		device->CreateShaderResourceView(_layerArray.Get(), &srvDesc, _texSrvSubRange.Cpu(1));
+		device->CreateShaderResourceView(_layerArray.Get(), &srvDesc, _descRange.Cpu(1));
 	}
 
 	{
@@ -263,40 +194,7 @@ void Terrain::CreateSRVAndUAV(ID3D12Device* device)
 		srvDesc.Texture2DArray.MostDetailedMip = 0;
 		srvDesc.Texture2DArray.ResourceMinLODClamp = 0.0f;
 
-		device->CreateShaderResourceView(_maskArray.Get(), &srvDesc, _texSrvSubRange.Cpu(2));
-	}
-
-	{
-		D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
-		uavDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-		uavDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2DARRAY;
-		uavDesc.Texture2DArray.MipSlice = 0;
-		uavDesc.Texture2DArray.FirstArraySlice = 0;
-		uavDesc.Texture2DArray.ArraySize = _maskCount;
-
-		device->CreateUnorderedAccessView(_maskArray.Get(), nullptr, &uavDesc, _brushUavSubRange.Cpu(0));
-	}
-
-	{
-		D3D12_SHADER_RESOURCE_VIEW_DESC srv = {};
-		srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-		srv.Format = DXGI_FORMAT_UNKNOWN;
-		srv.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
-		srv.Buffer.FirstElement = 0;
-		srv.Buffer.NumElements = 1;
-		srv.Buffer.StructureByteStride = sizeof(TerrainHit);
-		srv.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
-		device->CreateShaderResourceView(_hitBuffer.Get(), &srv, _hitSrvSubRange.Cpu(0));
-	}
-
-	{
-		D3D12_UNORDERED_ACCESS_VIEW_DESC uav = {};
-		uav.Format = DXGI_FORMAT_UNKNOWN;
-		uav.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
-		uav.Buffer.FirstElement = 0;
-		uav.Buffer.NumElements = 1;
-		uav.Buffer.StructureByteStride = sizeof(TerrainHit);
-		device->CreateUnorderedAccessView(_hitBuffer.Get(), nullptr, &uav, _brushUavSubRange.Cpu(1));
+		device->CreateShaderResourceView(_maskArray.Get(), &srvDesc, _descRange.Cpu(2));
 	}
 }
 
@@ -401,7 +299,7 @@ void Terrain::UpdateShadowLOD(const XMFLOAT3& eye, float fovY, float screenHeigh
 {
 	_shadowTiles.clear();
 	float screenK = screenHeight / (2.0f * tanf(fovY * 0.5f));
-	SelectNode(_root.get(), eye, screenK * 4.0f, nullptr, _shadowTiles);
+	SelectNode(_root.get(), eye, screenK, nullptr, _shadowTiles);
 }
 
 void Terrain::SelectNode(const QuadNode* node, const XMFLOAT3& eye, float screenK, const BoundingFrustum* frustum, std::vector<TerrainTile>& out)
@@ -452,88 +350,4 @@ BoundingBox Terrain::NodeBounds(const QuadNode* node) const
 	XMFLOAT3 extents = { half, TERRAIN_HEIGHT_SCALE * 0.5f, half };
 
 	return BoundingBox(center, extents);
-}
-
-void Terrain::BuildPickPipeline(ID3D12Device* device)
-{
-	{
-		CD3DX12_DESCRIPTOR_RANGE heightRange; heightRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
-		CD3DX12_DESCRIPTOR_RANGE hitRange;    hitRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 0);
-
-		CD3DX12_ROOT_PARAMETER slotRootParameter[4];
-		slotRootParameter[0].InitAsConstantBufferView(0);                                   // cbPass
-		slotRootParameter[1].InitAsConstants(8, 1);                                         // cbPick (8 слов)
-		slotRootParameter[2].InitAsDescriptorTable(1, &heightRange);                        // t0
-		slotRootParameter[3].InitAsDescriptorTable(1, &hitRange);                           // u0
-
-		CD3DX12_STATIC_SAMPLER_DESC sampler(0, D3D12_FILTER_MIN_MAG_MIP_LINEAR, D3D12_TEXTURE_ADDRESS_MODE_CLAMP, D3D12_TEXTURE_ADDRESS_MODE_CLAMP, D3D12_TEXTURE_ADDRESS_MODE_CLAMP);
-
-		CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(4, slotRootParameter, 1, &sampler, D3D12_ROOT_SIGNATURE_FLAG_NONE);
-
-		ComPtr<ID3DBlob> serializedRootSig = nullptr;
-		ComPtr<ID3DBlob> errorBlob = nullptr;
-		HRESULT hr = D3D12SerializeRootSignature(&rootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1, serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
-
-		if (errorBlob != nullptr)
-		{
-			OutputDebugStringA((char*)errorBlob->GetBufferPointer());
-		}
-
-		ThrowIfFailed(hr);
-
-		ThrowIfFailed(device->CreateRootSignature(0,
-			serializedRootSig->GetBufferPointer(),
-			serializedRootSig->GetBufferSize(),
-			IID_PPV_ARGS(&_rootSignatureTerrainPick)
-		));
-	}
-
-	{
-		ComPtr<ID3DBlob> blob = D3DUtil::CompileShader(LOCAL_PATH_W + L"Shaders/" + TERRAIN_FOLDER_W + L"TerrainPick.hlsl", nullptr, "CS", "cs_5_1");
-
-		D3D12_COMPUTE_PIPELINE_STATE_DESC cpso = {};
-		cpso.pRootSignature = _rootSignatureTerrainPick.Get();
-		cpso.CS = { blob->GetBufferPointer(), blob->GetBufferSize() };
-		ThrowIfFailed(device->CreateComputePipelineState(&cpso, IID_PPV_ARGS(_terrainPickPSO.GetAddressOf())));
-	}
-}
-
-void Terrain::BuildBrushPipeline(ID3D12Device* device)
-{
-	{
-		CD3DX12_DESCRIPTOR_RANGE uavRange;
-		uavRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 2, 0);    // u0 (маска), u1 (hit): слоты +3, +4
-
-		CD3DX12_ROOT_PARAMETER slotRootParameter[2];
-		slotRootParameter[0].InitAsConstants(8, 0);                              // cbBrush
-		slotRootParameter[1].InitAsDescriptorTable(1, &uavRange);
-
-		CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(2, slotRootParameter, 0, nullptr, D3D12_ROOT_SIGNATURE_FLAG_NONE);
-
-		ComPtr<ID3DBlob> serializedRootSig = nullptr;
-		ComPtr<ID3DBlob> errorBlob = nullptr;
-		HRESULT hr = D3D12SerializeRootSignature(&rootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1, serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
-
-		if (errorBlob != nullptr)
-		{
-			OutputDebugStringA((char*)errorBlob->GetBufferPointer());
-		}
-
-		ThrowIfFailed(hr);
-
-		ThrowIfFailed(device->CreateRootSignature(0,
-			serializedRootSig->GetBufferPointer(),
-			serializedRootSig->GetBufferSize(),
-			IID_PPV_ARGS(&_rootSignatureTerrainBrush)
-		));
-	}
-
-	{
-		ComPtr<ID3DBlob> blob = D3DUtil::CompileShader(LOCAL_PATH_W + L"Shaders/" + TERRAIN_FOLDER_W + L"TerrainBrush.hlsl", nullptr, "CS", "cs_5_1");
-
-		D3D12_COMPUTE_PIPELINE_STATE_DESC cpso = {};
-		cpso.pRootSignature = _rootSignatureTerrainBrush.Get();
-		cpso.CS = { blob->GetBufferPointer(), blob->GetBufferSize() };
-		ThrowIfFailed(device->CreateComputePipelineState(&cpso, IID_PPV_ARGS(_terrainBrushPSO.GetAddressOf())));
-	}
 }

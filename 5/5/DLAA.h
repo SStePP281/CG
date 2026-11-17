@@ -15,14 +15,14 @@ public:
     DLAA(NGXManager* ngxManager, const AAInitContext& context);
     ~DLAA() override;
 
-    AAMode GetMode() const override { return AAMode::DLAA; }
+    AASettings::AAMode GetMode() const override { return AASettings::AAMode::DLAA; }
 
     bool UsesJitter() const override { return true; }
     bool UsesVelocity() const override { return true; }
 
-    virtual Resolution ComputeRenderResolution(const RenderSettings& s) const override;
+    virtual Resolution ComputeRenderResolution(AASettings& aaSettings, const Resolution& display) const override;
 
-    void OnResize(ID3D12Device* device, ID3D12GraphicsCommandList* cmdList, const RenderSettings& res) override;
+    void OnResize(ID3D12Device* device, ID3D12GraphicsCommandList* cmdList, AASettings& aaSettings, const Resolution& display) override;
     void Resolve(ID3D12GraphicsCommandList* cmdList, const AAInputs& in) override;
 
     DescriptorRange OutputSrv() const override { return _srvRange; }
@@ -88,15 +88,15 @@ private:
 private:
     bool _needCreateFeature = false;
 
-    static NVSDK_NGX_PerfQuality_Value ToNGXQuality(UpscalePreset p)
+    static NVSDK_NGX_PerfQuality_Value ToNGXQuality(AASettings::UpscalePreset p)
     {
         switch (p)
         {
-        case UpscalePreset::Quality:          return NVSDK_NGX_PerfQuality_Value_MaxQuality;
-        case UpscalePreset::Balanced:         return NVSDK_NGX_PerfQuality_Value_Balanced;
-        case UpscalePreset::Performance:      return NVSDK_NGX_PerfQuality_Value_MaxPerf;
-        case UpscalePreset::UltraPerformance: return NVSDK_NGX_PerfQuality_Value_UltraPerformance;
-        case UpscalePreset::DLAA:
+        case AASettings::UpscalePreset::Quality:          return NVSDK_NGX_PerfQuality_Value_MaxQuality;
+        case AASettings::UpscalePreset::Balanced:         return NVSDK_NGX_PerfQuality_Value_Balanced;
+        case AASettings::UpscalePreset::Performance:      return NVSDK_NGX_PerfQuality_Value_MaxPerf;
+        case AASettings::UpscalePreset::UltraPerformance: return NVSDK_NGX_PerfQuality_Value_UltraPerformance;
+        case AASettings::UpscalePreset::DLAA:
         default:                              return NVSDK_NGX_PerfQuality_Value_DLAA;
         }
     }

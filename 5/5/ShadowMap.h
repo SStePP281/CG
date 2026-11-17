@@ -18,6 +18,8 @@ using namespace DirectX;
 class ShadowMap
 {
 public:
+    static constexpr UINT CASCADE_COUNT = 3;
+
     static constexpr DXGI_FORMAT DEPTH_RESOURCE_FORMAT = DXGI_FORMAT_R24G8_TYPELESS;
     static constexpr DXGI_FORMAT DEPTH_DSV_FORMAT = DXGI_FORMAT_D24_UNORM_S8_UINT;
     static constexpr DXGI_FORMAT DEPTH_SRV_FORMAT = DXGI_FORMAT_R24_UNORM_X8_TYPELESS;

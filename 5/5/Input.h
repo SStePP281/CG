@@ -15,8 +15,10 @@ public:
     bool WasReleased(int vk) const { return !_down[vk & 0xFF] && _prev[vk & 0xFF]; }
 
     POINT MousePos() const { return _mouse; }
+    
     DirectX::XMFLOAT2 MouseDelta() const { return { float(_mouse.x - _prevMouse.x), float(_mouse.y - _prevMouse.y) }; }
     float Wheel() const { return _wheel; }
+    float ConsumeWheel() { float w = _wheel; _wheel = 0.0f; return w; }
 
     bool MouseCaptured = false;
     bool KeyboardCaptured = false;

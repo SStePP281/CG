@@ -79,20 +79,15 @@ public:
 	Terrain(const Terrain& rhs) = delete;
 	Terrain& operator=(const Terrain& rhs) = delete;
 
-	void DoPick(ID3D12GraphicsCommandList* cmdList, D3D12_GPU_VIRTUAL_ADDRESS passCB, float mouseNdcX, float mouseNdcY, float maxDist);
-	void TransitHitToWrite(ID3D12GraphicsCommandList* cmdList);
-	void TransitHitToRead(ID3D12GraphicsCommandList* cmdList);
-
-	void DoBrush(ID3D12GraphicsCommandList* cmdList, UINT layer, bool erase, float radiusMeters, float strengthDt);
-
 	UINT GetWidth() const { return _width; }
 	UINT GetHeight() const { return _height; }
 
 	UINT GetMaskCount() const { return _maskCount; }
 	UINT GetLayerCount() const { return _layerCount; }
 
-	D3D12_GPU_DESCRIPTOR_HANDLE TexturesGpu() const { return _texSrvSubRange.Gpu(); }
-	D3D12_GPU_DESCRIPTOR_HANDLE HitSrvGpu()  const { return _hitSrvSubRange.Gpu(); }
+	ID3D12Resource* GetMaskArray() const { return _maskArray.Get(); }
+
+	DescriptorRange TexturesGpu() const { return _descRange; }
 
 	const std::vector<float>& GetLayerTileSizes() const { return _layerTileSizes; }
 
@@ -103,9 +98,6 @@ public:
 
 	void UpdateShadowLOD(const XMFLOAT3& eye, float fovY, float screenHeight);
 	const std::vector<TerrainTile>& GetShadowTiles() const { return _shadowTiles; }
-
-private:
-	void CreateHitBuffer(ID3D12Device* device);
 
 private:
 	void LoadTextures(ID3D12Device* device, ID3D12CommandQueue* cmdQueue);
@@ -149,24 +141,8 @@ private:
 
 	DescriptorRange _descRange;
 
-	DescriptorRange _texSrvSubRange;
-	DescriptorRange _brushUavSubRange;
-	DescriptorRange _hitSrvSubRange;
-
 	UINT _width = 0;
 	UINT _height = 0;
-
-private:
-	ComPtr<ID3D12RootSignature> _rootSignatureTerrainPick = nullptr;
-	ComPtr<ID3D12PipelineState> _terrainPickPSO = nullptr;
-
-	ComPtr<ID3D12RootSignature> _rootSignatureTerrainBrush = nullptr;
-	ComPtr<ID3D12PipelineState> _terrainBrushPSO = nullptr;
-
-	ComPtr<ID3D12Resource> _hitBuffer;
-
-	void BuildPickPipeline(ID3D12Device* device);
-	void BuildBrushPipeline(ID3D12Device* device);
 };
 
 #endif // !TERRAIN_HPP

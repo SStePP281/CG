@@ -24,14 +24,14 @@ public:
 	TAA(const TAA& rhs) = delete;
 	TAA& operator=(const TAA& rhs) = delete;
 
-	AAMode GetMode() const override { return AAMode::TAA; }
+	AASettings::AAMode GetMode() const override { return AASettings::AAMode::TAA; }
 
 	virtual bool  UsesJitter()   const { return true; }
 	virtual bool  UsesVelocity() const { return true; }
 
 	DescriptorRange OutputSrv() const override { return _srvRange.Sub(_currentIndex); }
 
-	void OnResize(ID3D12Device* device, ID3D12GraphicsCommandList* cmdList, const RenderSettings& res) override;
+	void OnResize(ID3D12Device* device, ID3D12GraphicsCommandList* cmdList, AASettings& aaSettings, const Resolution& display) override;
 
 	void Resolve(ID3D12GraphicsCommandList* cmdList, const AAInputs& in) override;
 

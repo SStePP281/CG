@@ -2,15 +2,6 @@ Texture2D gHeightMap : register(t0);
 Texture2DArray gColorMaps : register(t1);
 Texture2DArray gMaskMaps : register(t2);
 
-struct Hit
-{
-    float3 PosW;
-    uint Valid;
-    float2 MapUV;
-    float2 Pad;
-};
-StructuredBuffer<Hit> gHit : register(t3);
-
 SamplerState gsamLinearClamp : register(s3);
 SamplerState gsamAnisotropicWrap : register(s4);
 
@@ -66,11 +57,7 @@ cbuffer cbTerrain : register(b4)
     int gLodLevel;
     int gMaskCount;
     int gLayerCount;
-    float gBrushRadius;
-
-    float gBrushMode;
-    float gBrushStrength;
-    float2 gPad2;
+    int gPad;
     
     float4 gLayerTile[4];
 };
@@ -204,21 +191,6 @@ GBufferOutput PS(VertexOut pin)
     {
         uint lod = min((uint) pin.Lod, 5u);
         res.Albedo.rgb = lerp(res.Albedo.rgb, LOD_COLORS[lod], 0.6f);
-    }
-
-    if (gBrushRadius > 0.0f)
-    {
-        Hit hit = gHit[0];
-        if (hit.Valid != 0)
-        {
-            float d = distance(pin.PosW.xz, hit.PosW.xz);
-            float3 brushColor = (gBrushMode > 0.5f) ? float3(1.0f, 0.25f, 0.25f) : float3(0.25f, 1.0f, 0.35f);
-
-            float ring = 1.0f - smoothstep(0.0f, fwidth(d) * 1.5f, abs(d - gBrushRadius));
-            float disc = (d < gBrushRadius) ? lerp(0.05f, 0.4f, gBrushStrength) : 0.0f;
-
-            res.Albedo.rgb = lerp(res.Albedo.rgb, brushColor, saturate(ring + disc));
-        }
     }
     
     res.Velocity = CalcVelocity(pin.CurrPosH, pin.PrevPosH);

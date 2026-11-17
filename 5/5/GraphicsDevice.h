@@ -17,6 +17,7 @@ class GraphicsDevice
 {
 public:
 	static constexpr UINT FRAME_COUNT = 3;
+    static constexpr UINT SWAPCHAIN_COUNT = 2;
 
     GraphicsDevice() = default;
     ~GraphicsDevice();
@@ -24,7 +25,7 @@ public:
     GraphicsDevice(const GraphicsDevice&) = delete;
     GraphicsDevice& operator=(const GraphicsDevice&) = delete;
 
-    void Initialize(HWND hwnd, Resolution size, UINT swapChainBufferCount, DXGI_FORMAT backBufferFormat);
+    void Initialize(HWND hwnd, Resolution size, DXGI_FORMAT backBufferFormat);
 
     ID3D12Device* Device() const { return _device.Get(); }
     ID3D12CommandQueue* Queue() const { return _queue.Get(); }
@@ -83,7 +84,6 @@ private:
     std::vector<ComPtr<ID3D12Resource>> _backBuffers;
     DescriptorRange _backBufferRtv;
     UINT _backBufferIndex = 0;
-    UINT _bufferCount = 2;
     DXGI_FORMAT _backBufferFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
 
     DescriptorAllocator _srv;

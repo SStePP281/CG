@@ -24,8 +24,8 @@
 
 using namespace DirectX;
 
-D3DFramework::D3DFramework(Window& window, Input& input, AssetManager& assets, World& world, GraphicsDevice& device) :
-	_window(&window), _input(input), _assets(&assets), _world(&world), _device(&device)
+D3DFramework::D3DFramework(Window& window, Input& input, AssetManager& assets, World& world, GraphicsDevice& device, RenderSettings& renderSettings) :
+	_window(&window), _input(input), _assets(&assets), _world(&world), _device(&device), _renderSettings(renderSettings)
 {
 	UpdateRenderResolution();
 }
@@ -34,8 +34,6 @@ D3DFramework::~D3DFramework() { if (_device) { _device->Flush(); } }
 
 bool D3DFramework::Initialize()
 {
-	OnDisplayResize(_window->Size());
-
 	_device->BeginImmediate();
 
 	_ngxManager = std::make_unique<NGXManager>(_device->Device());
@@ -53,24 +51,23 @@ bool D3DFramework::Initialize()
 		_TAA = std::make_unique<TAA>(ctx);
 		_DLAA = std::make_unique<DLAA>(_ngxManager.get(), ctx);
 
-		_currentAA = GetAAByMode(_renderSettings.Mode);
+		_currentAA = GetAAByMode(_renderSettings.AA.Mode);
 
-		UpdateRenderResolution();
-		OnRenderResize();
+		OnDisplayResize(_window->Size());
 
-		_noAA->OnResize(_device->Device(), _device->CommandList(), _renderSettings);
-		_TAA->OnResize(_device->Device(), _device->CommandList(), _renderSettings);
-		_DLAA->OnResize(_device->Device(), _device->CommandList(), _renderSettings);
+		_noAA->OnResize(_device->Device(), _device->CommandList(), _renderSettings.AA, _display);
+		_TAA->OnResize(_device->Device(), _device->CommandList(), _renderSettings.AA, _display);
+		_DLAA->OnResize(_device->Device(), _device->CommandList(), _renderSettings.AA, _display);
 	}
 
-	_gBuffer = std::make_unique<GBuffer>(*_device, _renderSettings.Render);
+	_gBuffer = std::make_unique<GBuffer>(*_device, _render);
 
-	_shadowMap = std::make_unique<ShadowMap>(*_device, _shadowSettings);
+	_shadowMap = std::make_unique<ShadowMap>(*_device, _renderSettings.Shadow);
 
 	_terrain = std::make_unique<Terrain>(*_device);
 
 	_velocityBuffer = std::make_unique<VelocityBuffers>(*_device);
-	_velocityBuffer->OnResize(_device->Device(), _renderSettings.Render);
+	_velocityBuffer->OnResize(_device->Device(), _render);
 
 	_ppChain = std::make_unique<PostProcessChain>();
 	CreatePPS();
@@ -92,14 +89,6 @@ bool D3DFramework::Initialize()
 	BuildShadowPassPSO();
 	BuildTerrainPassPSO();
 
-	_gui = std::make_unique<RenderGUI>(_window->Handle(), *_device, _renderSettings.SwapChainBufferCount);
-	_window->MessageHook = [this](HWND h, UINT m, WPARAM w, LPARAM l)
-		{
-			return _gui && _gui->HandleMessage(h, m, w, l);
-		};
-
-	_gui->AddPanel<InfoPanel>(_frameStats, _frameHistory);
-
 	_device->EndImmediate();
 
 	return true;
@@ -107,15 +96,15 @@ bool D3DFramework::Initialize()
 
 void D3DFramework::UpdateRenderResolution()
 {
-	_renderSettings.Render = _currentAA ? _currentAA->ComputeRenderResolution(_renderSettings) : _renderSettings.Display;
+	_render = _currentAA ? _currentAA->ComputeRenderResolution(_renderSettings.AA, _display) : _display;
 }
 
 void D3DFramework::OnDisplayResize(Resolution display)
 {
-	_renderSettings.Display = display;
+	_display = display;
 
-	_screenViewport = { 0.0f, 0.0f, (float)display.Width, (float)display.Height, 0.0f, 1.0f };
-	_scissorRect = { 0, 0, (LONG)display.Width, (LONG)display.Height };
+	_screenViewport = { 0.0f, 0.0f, (float)_display.Width, (float)_display.Height, 0.0f, 1.0f };
+	_scissorRect = { 0, 0, (LONG)_display.Width, (LONG)_display.Height };
 
 	UpdateRenderResolution();
 	OnRenderResize();
@@ -124,31 +113,28 @@ void D3DFramework::OnDisplayResize(Resolution display)
 void D3DFramework::OnRenderResize()
 {
 	_renderViewport = _screenViewport;
-	_renderViewport.Width = (float)_renderSettings.Render.Width;
-	_renderViewport.Height = (float)_renderSettings.Render.Height;
+	_renderViewport.Width = (float)_render.Width;
+	_renderViewport.Height = (float)_render.Height;
 
-	_renderScissor = { 0, 0, (LONG)_renderSettings.Render.Width, (LONG)_renderSettings.Render.Height };
+	_renderScissor = { 0, 0, (LONG)_render.Width, (LONG)_render.Height };
 
 	_device->Flush();
 
 	ID3D12Device* d = _device->Device();
 	ID3D12GraphicsCommandList* l = _device->CommandList();
 
-	if (_gBuffer.get() != nullptr) { _gBuffer->OnResize(d, _renderSettings.Render); }
-	if (_ppChain.get() != nullptr) { _ppChain->OnResize(d, _renderSettings.Render, _renderSettings.Display); }
-	if (_velocityBuffer.get() != nullptr) { _velocityBuffer->OnResize(d, _renderSettings.Render); }
+	if (_gBuffer.get() != nullptr) { _gBuffer->OnResize(d, _render); }
+	if (_ppChain.get() != nullptr) { _ppChain->OnResize(d, _render, _display); }
+	if (_velocityBuffer.get() != nullptr) { _velocityBuffer->OnResize(d, _render); }
 
-	if (_TAA != nullptr) { _TAA->OnResize(d, l, _renderSettings); }
-	if (_DLAA != nullptr) { _DLAA->OnResize(d, l, _renderSettings); }
+	if (_TAA != nullptr) { _TAA->OnResize(d, l, _renderSettings.AA, _display); }
+	if (_DLAA != nullptr) { _DLAA->OnResize(d, l, _renderSettings.AA, _display); }
 	if (_currentAA != nullptr) { _currentAA->ResetHistory(); }
 }
 
 void D3DFramework::Update(const GameTimer& gt)
 {
-	_device->BeginFrame();
 	_currFrameResource = _frameResources[_device->FrameIndex()].get();
-
-	_gui->NewFrame();
 
 	_input.MouseCaptured = ImGui::GetIO().WantCaptureMouse;
 	_input.KeyboardCaptured = ImGui::GetIO().WantCaptureKeyboard;
@@ -162,7 +148,6 @@ void D3DFramework::Update(const GameTimer& gt)
 	_frameStats.RtvCapacity = _device->Rtv().Capacity();
 
 	OnKeyboardInput(gt);
-	UpdateCamera(gt);
 
 	if (_renderSettingsDirty)
 	{
@@ -187,42 +172,10 @@ void D3DFramework::Draw(const GameTimer& gt)
 {
 	ID3D12GraphicsCommandList* l = _device->CommandList();
 
-	//TERRAIN DRAW MODE
-
-	_terrain->TransitHitToWrite(l);
-	if (_paintMode)
-	{
-		POINT m = _input.MousePos();
-		float mouseX = 2.0f * m.x / _renderSettings.Display.Width - 1.0f;
-		float mouseY = 1.0f - 2.0f * m.y / _renderSettings.Display.Height;
-
-		_terrain->DoPick(l, _currFrameResource->PassCB->Resource()->GetGPUVirtualAddress(), mouseX, mouseY, 1000.0f);
-
-		if (GetAsyncKeyState(VK_LBUTTON) & 0x8000)
-		{
-			_terrain->DoBrush(l, _brushLayer, _brushMode == BrushMode::Erase, _brushRadius, _brushStrength * gt.DeltaTime());
-		}
-	}
-	_terrain->TransitHitToRead(l);
-
 	//SHADOW PASS
 
-	bool containsDirLight = false;
-	for (const auto& light : _world->Lights())
+	if (ShadowsActive())
 	{
-		if (light.Active && light.Type == LightType::Directional)
-		{
-			containsDirLight = true;
-			break;
-		}
-	}
-
-	if (containsDirLight)
-	{
-		l->SetPipelineState(_psos["shadowPass"].Get());
-		l->SetGraphicsRootSignature(_rootSignatureShadowPass.Get());
-		l->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
 		auto shadowCB = _currFrameResource->ShadowCB->Resource();
 		UINT shadowStride = D3DUtil::CalcConstantBufferSize(sizeof(ShadowConstant));
 
@@ -236,9 +189,14 @@ void D3DFramework::Draw(const GameTimer& gt)
 				l->SetGraphicsRootConstantBufferView(1, cascadeCB);
 
 				DrawRenderItemsShadow(l, _shadowRitems);
-				DrawTerrainShadow(l, cascadeCB);
+
+				if (_renderSettings.Shadow.EnableTerrainShadow)
+				{
+					DrawTerrainShadow(l, cascadeCB);
+				}
 			});
 	}
+
 	//GEOMETRY PASS (GBuffer)
 
 	l->RSSetViewports(1, &_renderViewport);
@@ -272,9 +230,6 @@ void D3DFramework::Draw(const GameTimer& gt)
 
 	auto toRT = CD3DX12_RESOURCE_BARRIER::Transition(_ppChain->GetHDRBuffer(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
 	l->ResourceBarrier(1, &toRT);
-
-	auto backBufferToRT = CD3DX12_RESOURCE_BARRIER::Transition(_device->BackBuffer(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
-	l->ResourceBarrier(1, &backBufferToRT);
 
 	float clearColor[4] = { 0, 0, 0, 1 };
 	auto hdrRTV = _isDebugMode ? _device->BackBufferRtv().Cpu() : _ppChain->GetHDRRtv().Cpu();
@@ -314,7 +269,7 @@ void D3DFramework::Draw(const GameTimer& gt)
 		// Debug пишет прямо в backbuffer (Display)
 		l->RSSetViewports(1, &_screenViewport);
 
-		std::vector<D3D12_RECT> scissorRects = BuildScissorRects(MAX_DEBUG_LAYER_COUNT, _renderSettings.Display);
+		std::vector<D3D12_RECT> scissorRects = BuildScissorRects(MAX_DEBUG_LAYER_COUNT, _display);
 
 		UINT passElementSize = D3DUtil::CalcConstantBufferSize(sizeof(PassConstants));
 
@@ -370,67 +325,13 @@ void D3DFramework::Draw(const GameTimer& gt)
 		_ppChain->ExecuteAll(l, _currentAA->OutputSrv(), _device->BackBufferRtv());
 	}
 
-	//GUI
-
-	auto backBuffer = _device->BackBufferRtv().Cpu();
-	l->OMSetRenderTargets(1, &backBuffer, TRUE, nullptr);
-
-	_gui->Render(l);
-
-	auto backBufferToPresent = CD3DX12_RESOURCE_BARRIER::Transition(_device->BackBuffer(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
-	l->ResourceBarrier(1, &backBufferToPresent);
-
 	//PRESENT
 
 	_velocityBuffer->Swap();
-	_device->EndFrame();
 }
 
 void D3DFramework::OnKeyboardInput(const GameTimer& gt)
 {
-	float notches = _input.Wheel();
-
-	if (notches != 0.0f && !_input.MouseCaptured)
-	{
-		bool ctrl = _input.IsDown(VK_CONTROL);
-		bool shift = _input.IsDown(VK_SHIFT);
-
-		if (_paintMode)
-		{
-			if (ctrl)
-			{
-				_brushRadius *= powf(1.15f, notches);
-				_brushRadius = MathHelper::Clamp(_brushRadius, (float)BRUSH_RADIUS_MIN, (float)BRUSH_RADIUS_MAX);
-			}
-			else if (shift)
-			{
-				_brushStrength *= powf(1.15f, notches);
-				_brushStrength = MathHelper::Clamp(_brushStrength, BRUSH_STRENGTH_MIN, BRUSH_STRENGTH_MAX);
-			}
-		}
-		else
-		{
-			_moveSpeed *= powf(1.15f, notches);
-			_moveSpeed = MathHelper::Clamp(_moveSpeed, 0.5f, 5000.0f);
-		}
-	}
-
-	float dt = gt.DeltaTime();
-	float speed = _moveSpeed * dt;
-
-	Camera& cam = _world->MainCamera();
-	XMVECTOR pos = XMLoadFloat3(&cam.Position);
-	XMVECTOR forward = cam.Forward();
-	XMVECTOR right = cam.Right();
-
-	if (_input.IsDown('W')) { pos += speed * forward; }
-
-	if (_input.IsDown('S')) { pos -= speed * forward; }
-
-	if (_input.IsDown('A')) { pos -= speed * right; }
-
-	if (_input.IsDown('D')) { pos += speed * right; }
-
 	if (_input.WasPressed(VK_F1))
 	{
 		_isDebugMode = !_isDebugMode;
@@ -449,17 +350,11 @@ void D3DFramework::OnKeyboardInput(const GameTimer& gt)
 		Sleep(200);
 	}
 
-	if (_input.WasPressed(VK_F4))
-	{
-		_paintMode = !_paintMode;
-		Sleep(200);
-	}
-
 	if (_input.WasPressed(VK_F5))
 	{
-		_renderSettings.Mode = (AAMode)(((int)_renderSettings.Mode + 1) % 3);
+		_renderSettings.AA.Mode = (AASettings::AAMode)(((int)_renderSettings.AA.Mode + 1) % 3);
 
-		_currentAA = GetAAByMode(_renderSettings.Mode);
+		_currentAA = GetAAByMode(_renderSettings.AA.Mode);
 		_renderSettingsDirty = true;
 
 		Sleep(200);
@@ -467,16 +362,16 @@ void D3DFramework::OnKeyboardInput(const GameTimer& gt)
 
 	if (_input.WasPressed(VK_F6))
 	{
-		int next = ((int)_renderSettings.Preset + 1) % (int)UpscalePreset::Custom;
-		_renderSettings.Preset = (UpscalePreset)next;
+		int next = ((int)_renderSettings.AA.Preset + 1) % (int)AASettings::UpscalePreset::Custom;
+		_renderSettings.AA.Preset = (AASettings::UpscalePreset)next;
 		_renderSettingsDirty = true;
 		Sleep(200);
 	}
 
 	if (_input.WasPressed(VK_F7))
 	{
-		_renderSettings.Preset = UpscalePreset::Custom;
-		_renderSettings.RenderScale = std::max(0.33f, _renderSettings.RenderScale - 0.05f);
+		_renderSettings.AA.Preset = AASettings::UpscalePreset::Custom;
+		_renderSettings.AA.RenderScale = std::max(0.33f, _renderSettings.AA.RenderScale - 0.05f);
 		_renderSettingsDirty = true;
 
 		Sleep(200);
@@ -484,39 +379,11 @@ void D3DFramework::OnKeyboardInput(const GameTimer& gt)
 
 	if (_input.WasPressed(VK_F8))
 	{
-		_renderSettings.Preset = UpscalePreset::Custom;
-		_renderSettings.RenderScale = std::min(1.0f, _renderSettings.RenderScale + 0.05f);
+		_renderSettings.AA.Preset = AASettings::UpscalePreset::Custom;
+		_renderSettings.AA.RenderScale = std::min(1.0f, _renderSettings.AA.RenderScale + 0.05f);
 		_renderSettingsDirty = true;
 
 		Sleep(200);
-	}
-
-	for (int vk = '1'; vk <= '9'; vk++)
-	{
-		if (_input.WasPressed(vk))
-		{
-			UINT layer = vk - '1';
-			if (layer < _terrain->GetLayerCount()) { _brushLayer = layer; }
-		}
-	}
-
-	if (_input.WasPressed(VK_OEM_PLUS) && _input.WasPressed(VK_CONTROL)) { _brushMode = BrushMode::Draw; }
-	if (_input.WasPressed(VK_OEM_MINUS) && _input.WasPressed(VK_CONTROL)) { _brushMode = BrushMode::Erase; }
-
-	XMStoreFloat3(&cam.Position, pos);
-}
-
-void D3DFramework::UpdateCamera(const GameTimer& gt)
-{
-	Camera& cam = _world->MainCamera();
-
-	if (!_paintMode && !_input.MouseCaptured && _input.IsDown(VK_LBUTTON))
-	{
-		XMFLOAT2 d = _input.MouseDelta();
-
-		cam.Yaw += XMConvertToRadians(_rotateSpeed * d.x);
-		cam.Pitch -= XMConvertToRadians(_rotateSpeed * d.y);
-		cam.Pitch = MathHelper::Clamp(cam.Pitch, -XM_PIDIV2 + 0.1f, XM_PIDIV2 - 0.1f);
 	}
 }
 
@@ -605,8 +472,8 @@ void D3DFramework::UpdateMainPassCB(const GameTimer& gt)
 	XMStoreFloat4x4(&_mainPassCB.InvViewProj, XMMatrixTranspose(invViewProj));
 
 	_mainPassCB.EyePosW = cam.Position;
-	_mainPassCB.RenderTargetSize = _renderSettings.Render.ToFloat2();
-	_mainPassCB.InvRenderTargetSize = _renderSettings.Render.InvFloat2();
+	_mainPassCB.RenderTargetSize = _render.ToFloat2();
+	_mainPassCB.InvRenderTargetSize = _render.InvFloat2();
 	_mainPassCB.NearZ = 1.0f;
 	_mainPassCB.FarZ = 1000.0f;
 	_mainPassCB.TotalTime = gt.TotalTime();
@@ -651,7 +518,20 @@ void D3DFramework::UpdateLightSB(const GameTimer& gt)
 	LightInfoConstants info = {};
 	info.LightCount = count;
 	info.IBLIntensity = 1.0f;
+	info.ShadowsEnabled = ShadowsActive() ? 1 : 0;
 	_currFrameResource->LightInfoCB->CopyData(0, info);
+}
+
+bool D3DFramework::ShadowsActive() const
+{
+	if (!_renderSettings.Shadow.EnableShadow) { return false; }
+
+	for (const LightObject& light : _world->Lights())
+	{
+		if (light.Active && light.Type == LightType::Directional) { return true; }
+	}
+
+	return false;
 }
 
 void D3DFramework::UpdateShadowCB(const GameTimer& gt)
@@ -679,7 +559,7 @@ void D3DFramework::UpdateShadowCB(const GameTimer& gt)
 		XMVECTOR up = XMVectorSet(0, 1, 0, 0);
 		if (fabsf(XMVectorGetY(lightDir)) > 0.99f) { up = XMVectorSet(1, 0, 0, 0); }
 
-		for (UINT cascade = 0; cascade < _shadowSettings.CascadeCount; cascade++)
+		for (UINT cascade = 0; cascade < ShadowMap::CASCADE_COUNT; cascade++)
 		{
 			float nearZ = cascadeNears[cascade];
 			float farZ = cascadeFars[cascade];
@@ -737,8 +617,8 @@ void D3DFramework::UpdateShadowCB(const GameTimer& gt)
 				maxZ = std::max(maxZ, vz);
 			}
 
-			float worldTexelSizeX = (maxX - minX) / _shadowSettings.ShadowTextureSize;
-			float worldTexelSizeY = (maxY - minY) / _shadowSettings.ShadowTextureSize;
+			float worldTexelSizeX = (maxX - minX) / _renderSettings.Shadow.ShadowTextureSize;
+			float worldTexelSizeY = (maxY - minY) / _renderSettings.Shadow.ShadowTextureSize;
 			minX = floorf(minX / worldTexelSizeX) * worldTexelSizeX;
 			maxX = floorf(maxX / worldTexelSizeX) * worldTexelSizeX;
 			minY = floorf(minY / worldTexelSizeY) * worldTexelSizeY;
@@ -749,7 +629,7 @@ void D3DFramework::UpdateShadowCB(const GameTimer& gt)
 			XMMATRIX lightViewProj = XMMatrixMultiply(lightView, lightProj);
 
 			XMVECTOR originNDC = XMVector3TransformCoord(XMVectorZero(), lightViewProj);
-			float texelSizeNDC = 2.0f / _shadowSettings.ShadowTextureSize;
+			float texelSizeNDC = 2.0f / _renderSettings.Shadow.ShadowTextureSize;
 			float snapX = floorf(XMVectorGetX(originNDC) / texelSizeNDC) * texelSizeNDC;
 			float snapY = floorf(XMVectorGetY(originNDC) / texelSizeNDC) * texelSizeNDC;
 			float dx = XMVectorGetX(originNDC) - snapX;
@@ -771,7 +651,7 @@ void D3DFramework::UpdateShadowCB(const GameTimer& gt)
 void D3DFramework::UpdateTerrainCB(const GameTimer& gt)
 {
 	const Camera& cam = _world->MainCamera();
-	const float screenH = (float)_renderSettings.Display.Height;
+	const float screenH = (float)_display.Height;
 
 	_terrain->UpdateLOD(cam.Position, cam.FovY, screenH, _camFrustum);
 	_terrain->UpdateShadowLOD(cam.Position, cam.FovY, screenH);
@@ -781,9 +661,6 @@ void D3DFramework::UpdateTerrainCB(const GameTimer& gt)
 	TerrainConstant terrainBase = TerrainConstant();
 	terrainBase.MaskCount = _terrain->GetMaskCount();
 	terrainBase.LayerCount = _terrain->GetLayerCount();
-	terrainBase.BrushMode = (_brushMode == BrushMode::Erase) ? 1.0f : 0.0f;
-	terrainBase.BrushStrength = logf(_brushStrength / BRUSH_STRENGTH_MIN) / logf(BRUSH_STRENGTH_MAX / BRUSH_STRENGTH_MIN);
-	terrainBase.BrushRadius = _paintMode ? _brushRadius : 0.0f;
 	const auto& layerTileSizes = _terrain->GetLayerTileSizes();
 
 	float* layerTileDst = &terrainBase.LayerTile[0].x;
@@ -1015,19 +892,15 @@ void D3DFramework::BuildRootSignatureTerrainPass()
 	CD3DX12_DESCRIPTOR_RANGE texRange;
 	texRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 3, 0);   // 3 SRV
 
-	CD3DX12_DESCRIPTOR_RANGE hitRange;
-	hitRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 3);
-
-	CD3DX12_ROOT_PARAMETER slotRootParameter[5];
+	CD3DX12_ROOT_PARAMETER slotRootParameter[3];
 	slotRootParameter[0].InitAsDescriptorTable(1, &texRange, D3D12_SHADER_VISIBILITY_ALL); // t0, t1, t3
 	slotRootParameter[1].InitAsConstantBufferView(0);   // b0 cbPass
 	slotRootParameter[2].InitAsConstantBufferView(4);   // b4 cbTerrain
-	slotRootParameter[3].InitAsDescriptorTable(1, &hitRange, D3D12_SHADER_VISIBILITY_PIXEL); //hit
 	slotRootParameter[4].InitAsConstantBufferView(1);
 
 	auto staticSamplers = GetStaticSamplers();
 
-	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(5, slotRootParameter, (UINT)staticSamplers.size(), staticSamplers.data(), D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(4, slotRootParameter, (UINT)staticSamplers.size(), staticSamplers.data(), D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
 	ComPtr<ID3DBlob> serializedRootSig = nullptr;
 	ComPtr<ID3DBlob> errorBlob = nullptr;
@@ -1271,11 +1144,11 @@ void D3DFramework::CreatePPS()
 	toneDesc.ShaderPath = LOCAL_PATH + "Shaders/" + POST_PROCESS_FOLDER + "ToneMapping.hlsl";
 	toneDesc.Stage = PostProcessStage::Tonemapping;
 	toneDesc.OutputFormat = _device->BackBufferFormat();
-	toneDesc.Res = _renderSettings.Display;
+	toneDesc.Res = _display;
 
 	_ppChain->ReservePass(*_device, toneDesc);
 
-	_ppChain->InitHDRBuffer(*_device, _renderSettings.Render);
+	_ppChain->InitHDRBuffer(*_device, _render);
 
 	_ppChain->CommitAll(_device->Device());
 }
@@ -1350,7 +1223,7 @@ void D3DFramework::BuildFrameResources()
 
 	for (UINT i = 0; i < GraphicsDevice::FRAME_COUNT; ++i)
 	{
-		_frameResources.push_back(std::make_unique<FrameResource>(_device->Device(), (UINT)MAX_DEBUG_LAYER_COUNT, AssetManager::MAX_MATERIALS, std::max<UINT>(1, (UINT)_world->Lights().size()), std::max<UINT>(1, dirLightCount) * _shadowSettings.CascadeCount));
+		_frameResources.push_back(std::make_unique<FrameResource>(_device->Device(), (UINT)MAX_DEBUG_LAYER_COUNT, AssetManager::MAX_MATERIALS, std::max<UINT>(1, (UINT)_world->Lights().size()), std::max<UINT>(1, dirLightCount) * ShadowMap::CASCADE_COUNT));
 	}
 }
 
@@ -1483,8 +1356,7 @@ void D3DFramework::DrawTerrain(ID3D12GraphicsCommandList* cmdList)
 	cmdList->SetGraphicsRootSignature(_rootSignatureTerrainPass.Get());
 	cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-	cmdList->SetGraphicsRootDescriptorTable(0, _terrain->TexturesGpu());
-	cmdList->SetGraphicsRootDescriptorTable(3, _terrain->HitSrvGpu());
+	cmdList->SetGraphicsRootDescriptorTable(0, _terrain->TexturesGpu().Gpu());
 
 	auto passCB = _currFrameResource->PassCB->Resource();
 	cmdList->SetGraphicsRootConstantBufferView(1, passCB->GetGPUVirtualAddress()); // b0
@@ -1515,7 +1387,7 @@ void D3DFramework::DrawTerrainShadow(ID3D12GraphicsCommandList* cmdList, const D
 	cmdList->SetGraphicsRootSignature(_rootSignatureTerrainPass.Get());
 	cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-	cmdList->SetGraphicsRootDescriptorTable(0, _terrain->TexturesGpu());
+	cmdList->SetGraphicsRootDescriptorTable(0, _terrain->TexturesGpu().Gpu());
 	cmdList->SetGraphicsRootConstantBufferView(4, cascadeCB);
 
 	auto passCB = _currFrameResource->PassCB->Resource();
@@ -1652,15 +1524,15 @@ std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> D3DFramework::GetStaticSamplers
 		anisotropicWrap, anisotropicClamp, shadow };
 }
 
-AntiAliasing* D3DFramework::GetAAByMode(AAMode mode)
+AntiAliasing* D3DFramework::GetAAByMode(AASettings::AAMode mode)
 {
 	switch (mode)
 	{
-	case AAMode::None:
+	case AASettings::AAMode::None:
 		return static_cast<AntiAliasing*>(_noAA.get());
-	case AAMode::TAA:
+	case AASettings::AAMode::TAA:
 		return static_cast<AntiAliasing*>(_TAA.get());
-	case AAMode::DLAA:
+	case AASettings::AAMode::DLAA:
 		return static_cast<AntiAliasing*>(_DLAA.get());
 	default:
 		return nullptr;

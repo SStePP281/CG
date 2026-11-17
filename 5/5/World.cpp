@@ -39,7 +39,7 @@ void World::Destroy(ObjectId id)
     }
 }
 
-void World::Update(float dt)
+void World::Update(GameTimer& gt)
 {
     _objects.ForEach([&](ObjectId, MeshObject& obj)
         {

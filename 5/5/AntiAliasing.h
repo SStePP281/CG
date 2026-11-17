@@ -38,13 +38,13 @@ public:
     AntiAliasing& operator=(const AntiAliasing&) = delete;
     virtual ~AntiAliasing() = default;
 
-    virtual AAMode GetMode() const { return AAMode::None; }
+    virtual AASettings::AAMode GetMode() const { return AASettings::AAMode::None; }
 
     virtual bool  UsesJitter()   const { return false; }
     virtual bool  UsesVelocity() const { return false; }
-    virtual Resolution ComputeRenderResolution(const RenderSettings& s) const { return s.Display; }
+    virtual Resolution ComputeRenderResolution(AASettings& aaSettings, const Resolution& display) const { return display; }
 
-    virtual void OnResize(ID3D12Device* device, ID3D12GraphicsCommandList* cmdList, const RenderSettings& res) = 0;
+    virtual void OnResize(ID3D12Device* device, ID3D12GraphicsCommandList* cmdList, AASettings& aaSettings, const Resolution& display) = 0;
 
     virtual void ResetHistory() {}
 

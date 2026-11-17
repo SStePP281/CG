@@ -86,7 +86,7 @@ struct RenderItem
 class D3DFramework
 {
 public:
-    D3DFramework(Window& window, Input& input, AssetManager& assets, World& world, GraphicsDevice& device);
+    D3DFramework(Window& window, Input& input, AssetManager& assets, World& world, GraphicsDevice& device, RenderSettings& renderSettings);
     ~D3DFramework();
 
     bool Initialize();
@@ -94,14 +94,22 @@ public:
     void Draw(const GameTimer& gt);
     void OnDisplayResize(Resolution display);
 
+public:
+    const FrameStats& GetFrameStats() const { return _frameStats; }
+    const FrameTimeHistory& GetFrameHistory() const { return _frameHistory; }
+
+    Terrain& GetTerrain() { return *_terrain; }
+    D3D12_GPU_VIRTUAL_ADDRESS PassCBAddress() const { return _currFrameResource->PassCB->Resource()->GetGPUVirtualAddress(); }
+    DescriptorRange DepthSrv() const { return _gBuffer->Textures[(UINT)GBufferIndex::Depth].SRV; }
+
 private:
-    float AspectRatio() const { return (float)_renderSettings.Display.Width / _renderSettings.Display.Height; }
+    float AspectRatio() const { return (float)_display.Width / _display.Height; }
+    bool ShadowsActive() const;
 
     void UpdateRenderResolution();
     void OnRenderResize();
 
     void OnKeyboardInput(const GameTimer& gt);
-    void UpdateCamera(const GameTimer& gt);
     
     void CreatePPS();
 
@@ -139,7 +147,7 @@ private:
 
     std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> GetStaticSamplers();
 
-    AntiAliasing* GetAAByMode(AAMode mode);
+    AntiAliasing* GetAAByMode(AASettings::AAMode mode);
 
 private:
     Window* _window;
@@ -151,11 +159,9 @@ private:
     FrameStats _frameStats;
     FrameTimeHistory _frameHistory;
 
-    RenderSettings _renderSettings;
-    ShadowSettings _shadowSettings;
-    DebugSettings  _debug;
-    BrushSettings  _brush;
-    CameraSettings _camera;
+    RenderSettings& _renderSettings;
+    Resolution _render;
+    Resolution _display;
 
     D3D12_VIEWPORT _screenViewport;
     D3D12_RECT _scissorRect;
@@ -207,26 +213,12 @@ private:
     ComPtr<ID3D12Resource> _iblBrdf;
     DescriptorRange _iblSrv;
 
-    float _moveSpeed = 10.0f;
-    float _rotateSpeed = 0.15f;
-
-private:
-    std::unique_ptr<RenderGUI> _gui;
-
 private:
     bool _isDebugMode = false;
     bool _isTerrainDegub = false;
     bool _isUseBeckmann = false;
 
     bool _renderSettingsDirty = false;
-
-    enum class BrushMode { Draw, Erase };
-
-    bool _paintMode = false;
-    BrushMode _brushMode = BrushMode::Draw;
-    UINT _brushLayer = 0;
-    float _brushRadius = 20.0f;
-    float _brushStrength = 1.0f;
 
     std::vector<D3D12_RECT> BuildScissorRects(int K, Resolution res)
     {

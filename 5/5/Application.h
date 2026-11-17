@@ -11,6 +11,7 @@
 #include "AssetManager.h"
 #include "World.h"
 #include "D3DFramework.h"
+#include "Editor.h"
 
 class D3DFramework;
 
@@ -33,11 +34,15 @@ private:
     GameTimer _timer;
 
     std::unique_ptr<Window> _window;
-    Input _input;
+    std::unique_ptr<Input> _input;
     std::unique_ptr<GraphicsDevice> _device;
     std::unique_ptr<AssetManager> _assets;
     std::unique_ptr<World> _world;
     std::unique_ptr<D3DFramework> _framework;
+    std::unique_ptr<Editor> _editor;
+
+private:
+    RenderSettings _renderSettings;
 };
 
 #endif // !APPLICATION_HPP

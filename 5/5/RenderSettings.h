@@ -16,86 +16,113 @@ struct Resolution
 	{
 		return { (UINT)(Width * s), (UINT)(Height * s) };
 	}
-};
 
-enum class AAMode { None, TAA, DLAA };
-
-enum class UpscalePreset { DLAA, Quality, Balanced, Performance, UltraPerformance, Custom };
-
-struct RenderSettings
-{
-	AAMode Mode = AAMode::None;
-	UpscalePreset Preset = UpscalePreset::DLAA;
-	float RenderScale = 1.0f;
-
-	UINT SwapChainBufferCount = 2;
-
-	Resolution Display;
-	Resolution Render;
-
-	bool operator==(const RenderSettings& other) const
+	bool operator==(const Resolution& other) const
 	{
-		return Mode == other.Mode && Preset == other.Preset && RenderScale == other.RenderScale;
+		return Width == other.Width && Height == other.Height;
 	}
 
-	bool operator!=(const RenderSettings& other) { return !(*this == other); }
+	bool operator!=(const Resolution& other) const
+	{
+		return !(*this == other);
+	}
+};
+
+struct DisplaySettings
+{
+	Resolution WindowSize = { 1920, 1080 };
+	bool Fullscreen = false;
+	bool VSync = false;
+
+	bool operator==(const DisplaySettings& other) const
+	{
+		return WindowSize == other.WindowSize && Fullscreen == other.Fullscreen && VSync == other.VSync;
+	}
+
+	bool operator!=(const DisplaySettings& other) const
+	{
+		return !(*this == other);
+	}
 };
 
 struct ShadowSettings
 {
-	UINT CascadeCount = 3;
+	bool EnableShadow = true;
+	bool EnableTerrainShadow = false;
+
 	UINT ShadowTextureSize = 4096;
+
+	bool operator==(const ShadowSettings& other) const
+	{
+		return ShadowTextureSize == other.ShadowTextureSize;
+	}
+
+	bool operator!=(const ShadowSettings& other) const
+	{
+		return !(*this == other);
+	}
 };
 
-struct DebugSettings
+struct AASettings
 {
-	bool GBufferViews = false;
-	bool UseBeckmann = false;
-	bool TerrainWireframe = false;
+	enum class AAMode { None, TAA, DLAA };
 
-	bool ShowOctree = false;
-	bool ShowVisibleBounds = false;
-	bool FreezeFrustum = false;
+	enum class UpscalePreset { DLAA, Quality, Balanced, Performance, UltraPerformance, Custom };
+
+	AAMode Mode = AAMode::None;
+	UpscalePreset Preset = UpscalePreset::DLAA;
+	float RenderScale = 1.0f;
+
+	bool operator==(const AASettings& other) const
+	{
+		return Mode == other.Mode && Preset == other.Preset && RenderScale == other.RenderScale;
+	}
+
+	bool operator!=(const AASettings& other) const
+	{
+		return !(*this == other);
+	}
 };
 
-enum class BrushMode { Draw, Erase };
-
-struct BrushSettings
+struct RenderSettings
 {
-	bool Enabled = false;
-	BrushMode Mode = BrushMode::Draw;
-	UINT Layer = 0;
-	float Radius = 20.0f;
-	float Strength = 1.0f;
+	DisplaySettings Display;
+
+	ShadowSettings Shadow;
+	AASettings AA;
+
+	bool operator==(const RenderSettings& other) const
+	{
+		return Shadow == other.Shadow && AA == other.AA;
+	}
+
+	bool operator!=(const RenderSettings& other) const
+	{
+		return !(*this == other);
+	}
 };
 
-struct CameraSettings
-{
-	float MoveSpeed = 10.0f;
-	float RotateSpeed = 0.15f;
-};
-
-inline const wchar_t* ToString(UpscalePreset p)
+inline const wchar_t* ToString(AASettings::UpscalePreset p)
 {
 	switch (p)
 	{
-		case UpscalePreset::DLAA:             return L"DLAA";
-		case UpscalePreset::Quality:          return L"Quality";
-		case UpscalePreset::Balanced:         return L"Balanced";
-		case UpscalePreset::Performance:      return L"Performance";
-		case UpscalePreset::UltraPerformance: return L"Ultra Perf";
-		case UpscalePreset::Custom:           return L"Custom";
+		case AASettings::UpscalePreset::DLAA:             return L"DLAA";
+		case AASettings::UpscalePreset::Quality:          return L"Quality";
+		case AASettings::UpscalePreset::Balanced:         return L"Balanced";
+		case AASettings::UpscalePreset::Performance:      return L"Performance";
+		case AASettings::UpscalePreset::UltraPerformance: return L"Ultra Perf";
+		case AASettings::UpscalePreset::Custom:           return L"Custom";
 		default:                              return L"?";
 	}
 }
 
-inline const wchar_t* ToString(AAMode m)
+inline const wchar_t* ToString(AASettings::AAMode m)
 {
 	switch (m)
 	{
-	case AAMode::None: return L"None";
-	case AAMode::TAA:  return L"TAA";
-	case AAMode::DLAA: return L"DLSS";
+	case AASettings::AAMode::None: return L"None";
+	case AASettings::AAMode::TAA:  return L"TAA";
+	case AASettings::AAMode::DLAA: return L"DLSS";
 	}
 	return L"?";
 }

@@ -107,11 +107,7 @@ struct TerrainConstant
     int LodLevel = 0;
     int MaskCount = 0;
     int LayerCount = 0;
-    float BrushRadius = 0.0f;
-
-    float BrushMode = 0.0f;
-    float BrushStrength = 0.0f;
-    XMFLOAT2 Pad2 = { 0.0f, 0.0f };
+    int Pad = 0;
 
     XMFLOAT4 LayerTile[TERRAIN_MAX_LAYERS / 4] = {};
 };

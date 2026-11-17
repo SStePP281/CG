@@ -68,40 +68,40 @@ DLAA::~DLAA()
     }
 }
 
-Resolution DLAA::ComputeRenderResolution(const RenderSettings& s) const
+Resolution DLAA::ComputeRenderResolution(AASettings& s, const Resolution& display) const
 {
-    if (s.Preset == UpscalePreset::DLAA)
+    if (s.Preset == AASettings::UpscalePreset::DLAA)
     {
-        return s.Display;
+        return display;
     }
-    else if (s.Preset == UpscalePreset::Custom)
+    else if (s.Preset == AASettings::UpscalePreset::Custom)
     {
-        return s.Display * s.RenderScale;
+        return display * s.RenderScale;
     }
     else
     {
         NVSDK_NGX_Parameter* params = _ngxManager->GetParameters();
-        if (!params) { return s.Display; }
+        if (!params) { return display; }
 
         unsigned int optW = 0, optH = 0, maxW = 0, maxH = 0, minW = 0, minH = 0;
         float sharpness = 0.0f;
 
-        NVSDK_NGX_Result r = NGX_DLSS_GET_OPTIMAL_SETTINGS(params, s.Display.Width, s.Display.Height, ToNGXQuality(s.Preset), &optW, &optH, &maxW, &maxH, &minW, &minH, &sharpness);
+        NVSDK_NGX_Result r = NGX_DLSS_GET_OPTIMAL_SETTINGS(params, display.Width, display.Height, ToNGXQuality(s.Preset), &optW, &optH, &maxW, &maxH, &minW, &minH, &sharpness);
 
         if (NVSDK_NGX_FAILED(r) || optW == 0 || optH == 0)
         {
-            return s.Display;
+            return display;
         }
 
         return { optW, optH };
     }
 }
 
-void DLAA::OnResize(ID3D12Device* device, ID3D12GraphicsCommandList* cmdList, const RenderSettings& s)
+void DLAA::OnResize(ID3D12Device* device, ID3D12GraphicsCommandList* cmdList, AASettings& aaSettings, const Resolution& display)
 {
-    _render = s.Render;
-    _display = s.Display;
-    _quality = ToNGXQuality(s.Preset);
+    _display = display;
+    _render = ComputeRenderResolution(aaSettings, display);
+    _quality = ToNGXQuality(aaSettings.Preset);
 
     if (_featureHandle) { NVSDK_NGX_D3D12_ReleaseFeature(_featureHandle); _featureHandle = nullptr; }
 

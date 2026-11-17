@@ -40,7 +40,8 @@ struct alignas(16) LightInfoConstants
 {
 	UINT LightCount;
 	float IBLIntensity = 1.0f;
-	UINT Pad[2];
+	UINT  ShadowsEnabled = 1;
+	UINT Pad;
 };
 
 #endif // !SHADER_TYPES_HPP

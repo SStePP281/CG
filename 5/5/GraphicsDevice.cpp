@@ -2,6 +2,7 @@
 #include "ThrowIfFaild.h"
 #include <iostream>
 #include <cstring>
+#include <d3dx12.h>
 
 GraphicsDevice::~GraphicsDevice()
 {
@@ -16,9 +17,8 @@ GraphicsDevice::~GraphicsDevice()
     }
 }
 
-void GraphicsDevice::Initialize(HWND hwnd, Resolution size, UINT swapChainBufferCount, DXGI_FORMAT backBufferFormat)
+void GraphicsDevice::Initialize(HWND hwnd, Resolution size, DXGI_FORMAT backBufferFormat)
 {
-    _bufferCount = swapChainBufferCount;
     _backBufferFormat = backBufferFormat;
 
     CreateDevice();
@@ -97,7 +97,7 @@ void GraphicsDevice::CreateSwapChain(HWND hwnd, Resolution size)
     sd.BufferDesc.Format = _backBufferFormat;
     sd.SampleDesc = { 1, 0 };
     sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-    sd.BufferCount = _bufferCount;
+    sd.BufferCount = SWAPCHAIN_COUNT;
     sd.OutputWindow = hwnd;
     sd.Windowed = TRUE;
     sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
@@ -105,13 +105,13 @@ void GraphicsDevice::CreateSwapChain(HWND hwnd, Resolution size)
 
     ThrowIfFailed(_factory->CreateSwapChain(_queue.Get(), &sd, _swapChain.GetAddressOf()));
 
-    _backBuffers.resize(_bufferCount);
-    _backBufferRtv = _rtv.Allocate(_bufferCount);
+    _backBuffers.resize(SWAPCHAIN_COUNT);
+    _backBufferRtv = _rtv.Allocate(SWAPCHAIN_COUNT);
 }
 
 void GraphicsDevice::CreateBackBufferViews()
 {
-    for (UINT i = 0; i < _bufferCount; i++)
+    for (UINT i = 0; i < SWAPCHAIN_COUNT; i++)
     {
         ThrowIfFailed(_swapChain->GetBuffer(i, IID_PPV_ARGS(&_backBuffers[i])));
         _device->CreateRenderTargetView(_backBuffers[i].Get(), nullptr, _backBufferRtv.Cpu(i));
@@ -126,7 +126,7 @@ void GraphicsDevice::ResizeSwapChain(Resolution size)
 
     for (auto& b : _backBuffers) { b.Reset(); }
 
-    ThrowIfFailed(_swapChain->ResizeBuffers(_bufferCount, size.Width, size.Height, _backBufferFormat, DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH));
+    ThrowIfFailed(_swapChain->ResizeBuffers(SWAPCHAIN_COUNT, size.Width, size.Height, _backBufferFormat, DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH));
 
     CreateBackBufferViews();
 }
@@ -144,19 +144,25 @@ ID3D12GraphicsCommandList* GraphicsDevice::BeginFrame()
 
     ID3D12DescriptorHeap* heaps[] = { _srv.Heap() };
     _cmdList->SetDescriptorHeaps(1, heaps);
+    
+    auto toRT = CD3DX12_RESOURCE_BARRIER::Transition(BackBuffer(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    _cmdList->ResourceBarrier(1, &toRT);
 
     return _cmdList.Get();
 }
 
 void GraphicsDevice::EndFrame()
 {
+    auto toPresent = CD3DX12_RESOURCE_BARRIER::Transition(BackBuffer(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
+    _cmdList->ResourceBarrier(1, &toPresent);
+
     ThrowIfFailed(_cmdList->Close());
 
     ID3D12CommandList* lists[] = { _cmdList.Get() };
     _queue->ExecuteCommandLists(1, lists);
 
     ThrowIfFailed(_swapChain->Present(0, 0));
-    _backBufferIndex = (_backBufferIndex + 1) % _bufferCount;
+    _backBufferIndex = (_backBufferIndex + 1) % SWAPCHAIN_COUNT;
 
     _frames[_frameIndex].Fence = ++_currentFence;
     ThrowIfFailed(_queue->Signal(_fence.Get(), _currentFence));

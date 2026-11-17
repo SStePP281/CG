@@ -65,7 +65,8 @@ cbuffer cbLightInfo : register(b1)
 {
     uint gLightCount;
     float gIBLIntensity;
-    int2 pad;
+    uint gShadowsEnabled;
+    int pad;
 };
 
 struct CascadeData
@@ -234,7 +235,7 @@ float4 PS(VSOut pin) : SV_Target
     mat.AO = ao;
     mat.UseBeckmann = DebugUseBeckmann;
 
-    float shadowFactor = CalcShadow(posW, viewZ);
+    float shadowFactor = gShadowsEnabled ? CalcShadow(posW, viewZ) : 1.0f;
 
     float3 Lo = CalculatePBRLighting(N, V, posW, mat, shadowFactor);
 

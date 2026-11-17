@@ -154,6 +154,7 @@
     <ClCompile Include="DemoScene.cpp" />
     <ClCompile Include="DescriptorHeapAllocator.cpp" />
     <ClCompile Include="DLAA.cpp" />
+    <ClCompile Include="Editor.cpp" />
     <ClCompile Include="FrameResource.cpp" />
     <ClCompile Include="GameTimer.cpp" />
     <ClCompile Include="GBuffer.cpp" />
@@ -168,6 +169,7 @@
     <ClCompile Include="ShadowMap.cpp" />
     <ClCompile Include="TAA.cpp" />
     <ClCompile Include="Terrain.cpp" />
+    <ClCompile Include="TerrainPaintTool.cpp" />
     <ClCompile Include="TextureManager.cpp" />
     <ClCompile Include="VelocityBuffer.cpp" />
     <ClCompile Include="Window.cpp" />
@@ -194,8 +196,10 @@
     <ClInclude Include="DemoScene.h" />
     <ClInclude Include="DescriptorHeapAllocator.h" />
     <ClInclude Include="DLAA.h" />
+    <ClInclude Include="Editor.h" />
     <ClInclude Include="FrameStats.h" />
     <ClInclude Include="GraphicsDevice.h" />
+    <ClInclude Include="IEditorTool.h" />
     <ClInclude Include="Input.h" />
     <ClInclude Include="LightObject.h" />
     <ClInclude Include="Material.h" />
@@ -221,6 +225,8 @@
     <ClInclude Include="ModelParse.h" />
     <ClInclude Include="LunaDDSTextureLoader.h" />
     <ClInclude Include="MathHelper.h" />
+    <ClInclude Include="TerrainPaintTool.h" />
+    <ClInclude Include="TerrainPaintPanel.h" />
     <ClInclude Include="World.h" />
     <ClInclude Include="PathManager.h" />
     <ClInclude Include="PostProcess.h" />
@@ -280,6 +286,11 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="..\Shaders\TAA.hlsl">
+      <FileType>Document</FileType>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="TerrainRing.hlsl">
       <FileType>Document</FileType>
     </None>
   </ItemGroup>

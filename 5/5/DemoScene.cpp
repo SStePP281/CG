@@ -87,8 +87,8 @@ void BuildDemoScene(World& world, AssetManager& assets)
     ModelHandle statue = assets.LoadModel(LOCAL_PATH + "Models/IBL_TEST.obj");
 	//ModelHandle lag = assets.LoadModel(LOCAL_PATH + "Models/A_LOT_OF_POLYGONS.obj");
 
-    //world.Spawn(sponza);
-    //world.Spawn(statue);
+    world.Spawn(sponza);
+    world.Spawn(statue);
 
 	/*const int n = 1;
 	const float space = 1.0f;
