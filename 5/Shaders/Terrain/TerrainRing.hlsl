@@ -1,4 +1,5 @@
 Texture2D gDepth : register(t0);
+Texture2D<uint2> gStencil : register(t1);
 struct Hit
 {
     float3 PosW;
@@ -6,7 +7,7 @@ struct Hit
     float2 MapUV;
     float2 Pad;
 };
-StructuredBuffer<Hit> gHit : register(t1);
+StructuredBuffer<Hit> gHit : register(t2);
 
 SamplerState gsamPointClamp : register(s1);
 
@@ -40,15 +41,12 @@ cbuffer cbPass : register(b0)
     int TerrainDebug;
 };
 
-cbuffer cbTerrainArea : register(b1)
+cbuffer cbBrushRing : register(b1)
 {
-    int gMaskCount;
-    int gLayerCount;
     float gBrushRadius;
     float gBrushMode;
-    
     float gBrushStrength;
-    float3 gPad2;
+    float gRingPad;
 };
 
 struct VSOut
@@ -89,12 +87,18 @@ float4 PS(VSOut pin) : SV_Target
     float3 posW = ReconstructPosition(pin.TexC, depth);
 
     float d = distance(posW.xz, hit.PosW.xz);
+    float w = min(fwidth(d), gBrushRadius * 0.05f) * 1.5f;
     float3 color = (gBrushMode > 0.5f) ? float3(1.0f, 0.25f, 0.25f) : float3(0.25f, 1.0f, 0.35f);
 
-    float ring = 1.0f - smoothstep(0.0f, fwidth(d) * 1.5f, abs(d - gBrushRadius));
+    float ring = 1.0f - smoothstep(0.0f, w, abs(d - gBrushRadius));
     float disc = (d < gBrushRadius) ? lerp(0.05f, 0.4f, gBrushStrength) : 0.0f;
 
-    float alpha = saturate(ring + disc);
+    uint sw, sh;
+    gStencil.GetDimensions(sw, sh);
+    uint stencil = gStencil.Load(int3(pin.TexC * float2(sw, sh), 0)).g;
+    float onTerrain = (stencil == 1) ? 1.0f : 0.0f;
+
+    float alpha = saturate(ring + disc) * onTerrain;
     if (alpha <= 0.0f) { discard; }
 
     return float4(color, alpha);

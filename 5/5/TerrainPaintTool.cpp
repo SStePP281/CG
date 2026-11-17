@@ -3,10 +3,10 @@
 #include "D3DUtil.h"
 #include "PathManager.h"
 
-TerrainPaintTool::TerrainPaintTool(GraphicsDevice& device, Input& input, RenderGUI& gui) :
+TerrainPaintTool::TerrainPaintTool(TerrainData& terrain, GraphicsDevice& device, Input& input, RenderGUI& gui) :
 	_terrain(&terrain), _device(&device), _input(&input)
 {
-	_panel = &gui.AddPanel<TerrainPaintPanel>(_brush, _terrain->GetLayerCount());
+	_panel = &gui.AddPanel<TerrainPaintPanel>(terrain, _brush, _terrain->LayerCount());
 
 	_descRange = device.Srv().Allocate(3);
 
@@ -23,6 +23,7 @@ TerrainPaintTool::TerrainPaintTool(GraphicsDevice& device, Input& input, RenderG
 
 void TerrainPaintTool::Update(const GameTimer& gt)
 {
+	_deltaTime = gt.DeltaTime();
 	if (_input->MouseCaptured) { return; }
 
 	bool ctrl = _input->IsDown(VK_CONTROL);
@@ -42,7 +43,7 @@ void TerrainPaintTool::Update(const GameTimer& gt)
 	for (int vk = '1'; vk <= '9'; vk++)
 	{
 		UINT layer = vk - '1';
-		if (_input->WasPressed(vk) && layer < _terrain->GetLayerCount()) { _brush.Layer = layer; }
+		if (_input->WasPressed(vk) && layer < _terrain->LayerCount()) { _brush.Layer = layer; }
 	}
 }
 
@@ -56,7 +57,7 @@ void TerrainPaintTool::PreDraw(const GameTimer& gt, const EditorFrameContext& ct
 	float x = 2.0f * m.x / display.Width - 1.0f;
 	float y = 1.0f - 2.0f * m.y / display.Height;
 
-	DoPick(ctx.PassCB, x, y);
+	DoPick(ctx.framework.PassCBAddress(), x, y);
 
 	if (!_input->MouseCaptured && _input->IsDown(VK_LBUTTON))
 	{
@@ -68,7 +69,7 @@ void TerrainPaintTool::PreDraw(const GameTimer& gt, const EditorFrameContext& ct
 
 void TerrainPaintTool::DrawOverlay(const EditorFrameContext& ctx)
 {
-	DoRing();
+	DoRing(ctx.framework.PassCBAddress(), ctx.framework.GetGBufferTextures(GBufferIndex::Depth).SRV);
 }
 
 void TerrainPaintTool::DoPick(D3D12_GPU_VIRTUAL_ADDRESS passCB, float mouseNdcX, float mouseNdcY)
@@ -80,10 +81,10 @@ void TerrainPaintTool::DoPick(D3D12_GPU_VIRTUAL_ADDRESS passCB, float mouseNdcX,
 
 	l->SetComputeRootConstantBufferView(0, passCB);
 
-	float c[8] = { mouseNdcX, mouseNdcY, BRUSH_MAX_DIST, TERRAIN_HEIGHT_SCALE, TERRAIN_HEIGHT_OFFSET, TERRAIN_WORLD_SIZE, TERRAIN_WORLD_OFFSET, TERRAIN_WORLD_OFFSET };
+	float c[8] = { mouseNdcX, mouseNdcY, 1000.0f, _terrain->HeightScale(), _terrain->HeightOffset(), _terrain->WorldSize(), _terrain->WorldOffset(), _terrain->WorldOffset()};
 	l->SetComputeRoot32BitConstants(1, 8, c, 0);
 
-	l->SetComputeRootDescriptorTable(2, _terrain->TexturesGpu().Gpu(0));
+	l->SetComputeRootDescriptorTable(2, _terrain->Srv().Gpu(0));
 	l->SetComputeRootDescriptorTable(3, _brushUavSubRange.Gpu(1));
 
 	l->Dispatch(1, 1, 1);
@@ -92,7 +93,7 @@ void TerrainPaintTool::DoPick(D3D12_GPU_VIRTUAL_ADDRESS passCB, float mouseNdcX,
 	l->ResourceBarrier(1, &uavBarrier);
 }
 
-void TerrainPaintTool::DoRing(D3D12_GPU_VIRTUAL_ADDRESS passCB)
+void TerrainPaintTool::DoRing(D3D12_GPU_VIRTUAL_ADDRESS passCB, DescriptorRange& depth)
 {
 	ID3D12GraphicsCommandList* l = _device->CommandList();
 
@@ -105,11 +106,11 @@ void TerrainPaintTool::DoRing(D3D12_GPU_VIRTUAL_ADDRESS passCB)
 
 	l->SetGraphicsRootConstantBufferView(0, passCB);
 
-	float strength01 = logf(_brushStrength / BRUSH_STRENGTH_MIN) / logf(BRUSH_STRENGTH_MAX / BRUSH_STRENGTH_MIN);
-	float c[4] = { _brushRadius, _brushMode == BrushMode::Erase ? 1.0f : 0.0f, strength01, 0.0f };
+	float strength01 = logf(_brush.Strength / _brush.STRENGTH_MIN) / logf(_brush.STRENGTH_MAX / _brush.STRENGTH_MIN);
+	float c[4] = { _brush.Radius, _brush.BrushMode == BrushSettings::Mode::Erase ? 1.0f : 0.0f, strength01, 0.0f };
 	l->SetGraphicsRoot32BitConstants(1, 4, c, 0);
 
-	l->SetGraphicsRootDescriptorTable(2, depthSrv.Gpu());
+	l->SetGraphicsRootDescriptorTable(2, depth.Gpu());
 	l->SetGraphicsRootDescriptorTable(3, _hitSrvSubRange.Gpu());
 
 	l->DrawInstanced(3, 1, 0, 0);
@@ -119,24 +120,24 @@ void TerrainPaintTool::DoBrush()
 {
 	ID3D12GraphicsCommandList* l = _device->CommandList();
 
-	ID3D12Resource* maskArray = _terrain->GetMaskArray();
-	int maskCount = _terrain->GetMaskCount();
-	int layerCount = _terrain->GetLayerCount();
+	ID3D12Resource* maskArray = _terrain->MaskArray();
+	int maskCount = _terrain->MaskCount();
+	int layerCount = _terrain->LayerCount();
 
 	auto toUav = CD3DX12_RESOURCE_BARRIER::Transition(maskArray, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 	l->ResourceBarrier(1, &toUav);
 
 	l->SetPipelineState(_terrainBrushPSO.Get());
 	l->SetComputeRootSignature(_rootSignatureTerrainBrush.Get());
-
-	struct { int layer; int mode; float radius; float strengthDt; int maskCount; int layerCount; float worldSize; int maskSize; } c =
-	{ (int)layer, erase ? 1 : 0, radiusMeters, strengthDt, maskCount, layerCount, TERRAIN_WORLD_SIZE, (int)TERRAIN_MASK_SIZE };
+		
+	struct { int layer; int mode; float radius; float strengthDt; int maskCount; int layerCount; float worldSize; int maskSize; }
+	c = { (int)_brush.Layer, _brush.BrushMode == BrushSettings::Mode::Erase ? 1 : 0, _brush.Radius, _brush.Strength * _deltaTime, maskCount, layerCount, _terrain->WorldSize(), (int)_terrain->MaskSize() };
 	l->SetComputeRoot32BitConstants(0, 8, &c, 0);
 
 	l->SetComputeRootDescriptorTable(1, _brushUavSubRange.Gpu());
 
-	float texelMeters = TERRAIN_WORLD_SIZE / TERRAIN_MASK_SIZE;
-	UINT side = 2 * (UINT)ceilf(radiusMeters / texelMeters) + 1;
+	float texelMeters = _terrain->WorldSize() / _terrain->MaskSize();
+	UINT side = 2 * (UINT)ceilf(_brush.Radius / texelMeters) + 1;
 	UINT groups = (side + 7) / 8;
 	l->Dispatch(groups, groups, 1);
 
@@ -183,9 +184,9 @@ void TerrainPaintTool::CreateSrvAndUAV()
 		uavDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2DARRAY;
 		uavDesc.Texture2DArray.MipSlice = 0;
 		uavDesc.Texture2DArray.FirstArraySlice = 0;
-		uavDesc.Texture2DArray.ArraySize = _terrain->GetMaskCount();
+		uavDesc.Texture2DArray.ArraySize = _terrain->MaskCount();
 
-		_device->Device()->CreateUnorderedAccessView(_terrain->GetMaskArray(), nullptr, &uavDesc, _brushUavSubRange.Cpu(0));
+		_device->Device()->CreateUnorderedAccessView(_terrain->MaskArray(), nullptr, &uavDesc, _brushUavSubRange.Cpu(0));
 	}
 
 	{
@@ -246,10 +247,10 @@ void TerrainPaintTool::BuildRingPipeline()
 {
 	{
 		CD3DX12_DESCRIPTOR_RANGE depthRange;
-		depthRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
+		depthRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 2, 0);
 
 		CD3DX12_DESCRIPTOR_RANGE hitRange;
-		hitRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1);
+		hitRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 2);
 
 		CD3DX12_ROOT_PARAMETER slotRootParameter[4];
 		slotRootParameter[0].InitAsConstantBufferView(0);                                   // cbPass

@@ -3,7 +3,7 @@
 
 #include "IEditorTool.h"
 #include "TerrainPaintPanel.h"
-#include "Terrain.h"
+#include "TerrainData.h"
 #include "GraphicsDevice.h"
 #include "Input.h"
 #include "GameTimer.h"
@@ -20,7 +20,7 @@ struct TerrainHit
 class TerrainPaintTool : public IEditorTool
 {
 public:
-	TerrainPaintTool(Terrain& terrain, GraphicsDevice& device, Input& input, RenderGUI& gui);
+	TerrainPaintTool(TerrainData& terrain, GraphicsDevice& device, Input& input, RenderGUI& gui);
 
 	const char* Name() const override { return "Terrain Paint"; }
 	IPanel* Panel() override { return _panel; }
@@ -31,14 +31,14 @@ public:
 
 private:
 	void DoPick(D3D12_GPU_VIRTUAL_ADDRESS passCB, float mouseNdcX, float mouseNdcY);
-	void DoRing(D3D12_GPU_VIRTUAL_ADDRESS passCB);
+	void DoRing(D3D12_GPU_VIRTUAL_ADDRESS passCB, DescriptorRange& depth);
 	void DoBrush();
 
 	void TransitHitToWrite();
 	void TransitHitToRead();
 
 private:
-	Terrain* _terrain;
+	TerrainData* _terrain;
 	GraphicsDevice* _device;
 	Input* _input;
 
@@ -68,6 +68,8 @@ private:
 	DescriptorRange _descRange;
 	DescriptorRange _brushUavSubRange;
 	DescriptorRange _hitSrvSubRange;
+
+	float _deltaTime = 0.0f;
 };
 
 #endif // !TERRAIN_PAINT_TOOL_HPP

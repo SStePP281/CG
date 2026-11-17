@@ -64,7 +64,7 @@ bool D3DFramework::Initialize()
 
 	_shadowMap = std::make_unique<ShadowMap>(*_device, _renderSettings.Shadow);
 
-	_terrain = std::make_unique<Terrain>(*_device);
+	_terrain = std::make_unique<TerrainRenderer>(*_device);
 
 	_velocityBuffer = std::make_unique<VelocityBuffers>(*_device);
 	_velocityBuffer->OnResize(_device->Device(), _render);
@@ -146,6 +146,9 @@ void D3DFramework::Update(const GameTimer& gt)
 	_frameStats.SrvCapacity = _device->Srv().Capacity();
 	_frameStats.RtvUsed = _device->Rtv().Used();
 	_frameStats.RtvCapacity = _device->Rtv().Capacity();
+
+	const TerrainData* terrainData = _assets->GetTerrain(_world->Terrain());
+	if (_terrain->Data() != terrainData) { _terrain->SetData(terrainData); }
 
 	OnKeyboardInput(gt);
 
@@ -604,8 +607,7 @@ void D3DFramework::UpdateShadowCB(const GameTimer& gt)
 			}
 
 			BoundingBox sceneBox = _world->Bounds();
-			BoundingBox terrainBox(XMFLOAT3(0.0f, TERRAIN_HEIGHT_OFFSET + TERRAIN_HEIGHT_SCALE * 0.5f, 0.0f), XMFLOAT3(TERRAIN_WORLD_SIZE * 0.5f, TERRAIN_HEIGHT_SCALE * 0.5f, TERRAIN_WORLD_SIZE * 0.5f));
-			BoundingBox::CreateMerged(sceneBox, sceneBox, terrainBox);
+			if (_terrain->Data()) { BoundingBox::CreateMerged(sceneBox, sceneBox, _terrain->Data()->Bounds()); }
 
 			XMFLOAT3 sceneCorners[8];
 			sceneBox.GetCorners(sceneCorners);
@@ -650,6 +652,9 @@ void D3DFramework::UpdateShadowCB(const GameTimer& gt)
 
 void D3DFramework::UpdateTerrainCB(const GameTimer& gt)
 {
+	const auto data = _terrain->Data();
+	if (!data) { return; }
+	
 	const Camera& cam = _world->MainCamera();
 	const float screenH = (float)_display.Height;
 
@@ -659,12 +664,16 @@ void D3DFramework::UpdateTerrainCB(const GameTimer& gt)
 	assert(_terrain->GetVisibleTiles().size() + _terrain->GetShadowTiles().size() <= MAX_TERRAIN_TILES);
 
 	TerrainConstant terrainBase = TerrainConstant();
-	terrainBase.MaskCount = _terrain->GetMaskCount();
-	terrainBase.LayerCount = _terrain->GetLayerCount();
-	const auto& layerTileSizes = _terrain->GetLayerTileSizes();
+	terrainBase.MaskCount = data->MaskCount();
+	terrainBase.LayerCount = data->LayerCount();
+	terrainBase.WorldSize = { data->WorldSize(), data->WorldSize() };
+	terrainBase.WorldOffset = { data->WorldOffset(), data->WorldOffset() };
+	terrainBase.HeightScale = data->HeightScale();
+	terrainBase.HeightOffset = data->HeightOffset();
 
+	const auto& layers = data->Layers();
 	float* layerTileDst = &terrainBase.LayerTile[0].x;
-	for (size_t k = 0; k < layerTileSizes.size(); k++) { layerTileDst[k] = layerTileSizes[k]; }
+	for (size_t k = 0; k < layers.size(); k++) { layerTileDst[k] = layers[k].TileSize; }
 
 	auto* cb = _currFrameResource->TerrainCB.get();
 	UINT i = 0;
@@ -892,11 +901,11 @@ void D3DFramework::BuildRootSignatureTerrainPass()
 	CD3DX12_DESCRIPTOR_RANGE texRange;
 	texRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 3, 0);   // 3 SRV
 
-	CD3DX12_ROOT_PARAMETER slotRootParameter[3];
+	CD3DX12_ROOT_PARAMETER slotRootParameter[4];
 	slotRootParameter[0].InitAsDescriptorTable(1, &texRange, D3D12_SHADER_VISIBILITY_ALL); // t0, t1, t3
 	slotRootParameter[1].InitAsConstantBufferView(0);   // b0 cbPass
 	slotRootParameter[2].InitAsConstantBufferView(4);   // b4 cbTerrain
-	slotRootParameter[4].InitAsConstantBufferView(1);
+	slotRootParameter[3].InitAsConstantBufferView(1);
 
 	auto staticSamplers = GetStaticSamplers();
 
@@ -1086,9 +1095,17 @@ void D3DFramework::BuildTerrainPassPSO()
 
 	psoDesc.DSVFormat = GBuffer::DEPTH_DSV_FORMAT;
 
+	auto& ds = psoDesc.DepthStencilState;
+	ds.StencilEnable = TRUE;
+	ds.StencilReadMask = 0xFF;
+	ds.StencilWriteMask = 0xFF;
+	ds.FrontFace = { D3D12_STENCIL_OP_KEEP, D3D12_STENCIL_OP_KEEP, D3D12_STENCIL_OP_REPLACE, D3D12_COMPARISON_FUNC_ALWAYS };
+	ds.BackFace = ds.FrontFace;
+
 	ThrowIfFailed(_device->Device()->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&_psos["terrain"])));
 
 	psoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
+	ds.StencilEnable = FALSE;
 	ThrowIfFailed(_device->Device()->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&_psos["terrainWire"])));
 
 	psoDesc.VS =
@@ -1352,11 +1369,14 @@ void D3DFramework::DrawRenderItemsShadow(ID3D12GraphicsCommandList* cmdList, con
 
 void D3DFramework::DrawTerrain(ID3D12GraphicsCommandList* cmdList)
 {
+	if (!_terrain->Data()) { return; }
+
 	cmdList->SetPipelineState(_psos[_isTerrainDegub ? "terrainWire" : "terrain"].Get());
+	cmdList->OMSetStencilRef(TerrainRenderer::STENCIL_TERRAIN);
 	cmdList->SetGraphicsRootSignature(_rootSignatureTerrainPass.Get());
 	cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-	cmdList->SetGraphicsRootDescriptorTable(0, _terrain->TexturesGpu().Gpu());
+	cmdList->SetGraphicsRootDescriptorTable(0, _terrain->Data()->Srv().Gpu());
 
 	auto passCB = _currFrameResource->PassCB->Resource();
 	cmdList->SetGraphicsRootConstantBufferView(1, passCB->GetGPUVirtualAddress()); // b0
@@ -1383,11 +1403,13 @@ void D3DFramework::DrawTerrain(ID3D12GraphicsCommandList* cmdList)
 
 void D3DFramework::DrawTerrainShadow(ID3D12GraphicsCommandList* cmdList, const D3D12_GPU_VIRTUAL_ADDRESS& cascadeCB)
 {
+	if (!_terrain->Data()) { return; }
+
 	cmdList->SetPipelineState(_psos["terrainShadow"].Get());
 	cmdList->SetGraphicsRootSignature(_rootSignatureTerrainPass.Get());
 	cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-	cmdList->SetGraphicsRootDescriptorTable(0, _terrain->TexturesGpu().Gpu());
+	cmdList->SetGraphicsRootDescriptorTable(0, _terrain->Data()->Srv().Gpu());
 	cmdList->SetGraphicsRootConstantBufferView(4, cascadeCB);
 
 	auto passCB = _currFrameResource->PassCB->Resource();

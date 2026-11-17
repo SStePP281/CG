@@ -25,6 +25,9 @@ public:
     const MeshObject* Get(ObjectId id) const { return _objects.Get(id); }
     size_t ObjectCount() const { return _objects.Count(); }
 
+    void SetTerrain(TerrainHandle h) { _terrain = h; _version++; }
+    TerrainHandle Terrain() const { return _terrain; }
+
     template<class F> void ForEachObject(F&& f) { _objects.ForEach(std::forward<F>(f)); }
 
     std::vector<LightObject>& Lights() { return _lights; }
@@ -48,6 +51,8 @@ private:
     SlotPool<MeshObject> _objects;
     std::vector<LightObject> _lights;
     Camera _camera;
+
+    TerrainHandle _terrain;
 
     std::unique_ptr<Octree<ObjectId>> _octree;
     DirectX::BoundingBox _bounds;

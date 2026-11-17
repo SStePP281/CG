@@ -10,6 +10,7 @@
 #include "SlotPool.h"
 #include "Model.h"
 #include "Material.h"
+#include "TerrainData.h"
 #include "ModelParse.h"
 
 class AssetManager
@@ -26,6 +27,10 @@ public:
     Material* GetMaterial(MaterialHandle h) { return _materials.Get(h); }
     const Material* GetMaterial(MaterialHandle h) const { return _materials.Get(h); }
     MaterialHandle DefaultMaterial() const { return _defaultMaterial; }
+
+    TerrainHandle LoadTerrain(const TerrainDesc& desc);
+    TerrainData* GetTerrain(TerrainHandle h) { return _terrains.Get(h); }
+    const TerrainData* GetTerrain(TerrainHandle h) const { return _terrains.Get(h); }
 
     TextureManager& Textures() { return *_textures; }
     const TextureManager& Textures() const { return *_textures; }
@@ -49,6 +54,8 @@ private:
 
     SlotPool<Material> _materials;
     MaterialHandle _defaultMaterial;
+
+    SlotPool<TerrainData> _terrains;
 };
 
 #endif // !ASSET_MANAGER_HPP

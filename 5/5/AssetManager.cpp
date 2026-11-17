@@ -39,6 +39,11 @@ ModelHandle AssetManager::FindModel(const std::string& path) const
     return it != _modelByPath.end() ? it->second : ModelHandle{};
 }
 
+TerrainHandle AssetManager::LoadTerrain(const TerrainDesc& desc)
+{
+    return _terrains.Add(std::make_unique<TerrainData>(_device, desc));
+}
+
 void AssetManager::LoadTextures(const ModelParse::MeshInfo& meshData)
 {
     for (const auto& [name, mi] : meshData.Materials)

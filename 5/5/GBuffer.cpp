@@ -4,7 +4,7 @@
 
 GBuffer::GBuffer(GraphicsDevice& device, Resolution res)
 {
-    _srvRange = device.Srv().Allocate((UINT)GBufferIndex::Count);
+    _srvRange = device.Srv().Allocate((UINT)GBufferIndex::Count + 1); // +1: stencil plane
     _rtvRange = device.Rtv().Allocate((UINT)GBufferIndex::Count - 1);
     _dsvRange = device.Dsv().Allocate(1);
 
@@ -70,6 +70,16 @@ void GBuffer::CreateSRV(ID3D12Device* device)
 
         device->CreateShaderResourceView(Textures[i].Resource.Get(), &srvDesc, _srvRange.Cpu(i));
     }
+
+    Textures[(UINT)GBufferIndex::Depth].SRV = _srvRange.Sub((UINT)GBufferIndex::Depth, 2);
+
+    D3D12_SHADER_RESOURCE_VIEW_DESC stencilDesc = {};
+    stencilDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    stencilDesc.Format = DXGI_FORMAT_X24_TYPELESS_G8_UINT;
+    stencilDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    stencilDesc.Texture2D.MipLevels = 1;
+    stencilDesc.Texture2D.PlaneSlice = 1;
+    device->CreateShaderResourceView(Textures[(UINT)GBufferIndex::Depth].Resource.Get(), &stencilDesc, _srvRange.Cpu((UINT)GBufferIndex::Count));
 }
 
 void GBuffer::CreateRTVandDSV(ID3D12Device* device)

@@ -11,7 +11,11 @@ Editor::Editor(Window& window, Input& input, GraphicsDevice& device, World& worl
 		};
 
 	_gui->AddPanel<InfoPanel>(_framework->GetFrameStats(), _framework->GetFrameHistory());
-	_gui->AddTool<TerrainPaintTool>(_framework->GetTerrain(), *_device, *_input, *_gui);
+
+	if (TerrainData* terrain = _asset->GetTerrain(_world->Terrain()))
+	{
+		AddTool<TerrainPaintTool>(*terrain, *_device, *_input, *_gui);
+	}
 
 }
 
@@ -50,21 +54,19 @@ void Editor::Draw()
 
 void Editor::DrawToolbar()
 {
-	ImGui::Begin("Tools");
+	if (!ImGui::BeginMainMenuBar()) { return; }
 
-	for (auto& t : _tools)
+	if (ImGui::BeginMenu("Tools"))
 	{
-		bool active = (_activeTool == t.get());
-		if (active) { ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive)); }
-
-		if (ImGui::Button(t->Name())) { SetActiveTool(t.get()); }
-
-		if (active) { ImGui::PopStyleColor(); }
-		ImGui::SameLine();
+		for (auto& t : _tools)
+		{
+			bool active = (_activeTool == t.get());
+			if (ImGui::MenuItem(t->Name(), nullptr, active)) { SetActiveTool(t.get()); }
+		}
+		ImGui::EndMenu();
 	}
-	ImGui::NewLine();
 
-	ImGui::End();
+	ImGui::EndMainMenuBar();
 }
 
 void Editor::SetActiveTool(IEditorTool* tool)

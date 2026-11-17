@@ -168,7 +168,8 @@
     <ClCompile Include="RenderGUI.cpp" />
     <ClCompile Include="ShadowMap.cpp" />
     <ClCompile Include="TAA.cpp" />
-    <ClCompile Include="Terrain.cpp" />
+    <ClCompile Include="TerrainRenderer.cpp" />
+    <ClCompile Include="TerrainData.cpp" />
     <ClCompile Include="TerrainPaintTool.cpp" />
     <ClCompile Include="TextureManager.cpp" />
     <ClCompile Include="VelocityBuffer.cpp" />
@@ -225,13 +226,14 @@
     <ClInclude Include="ModelParse.h" />
     <ClInclude Include="LunaDDSTextureLoader.h" />
     <ClInclude Include="MathHelper.h" />
+    <ClInclude Include="TerrainData.h" />
     <ClInclude Include="TerrainPaintTool.h" />
     <ClInclude Include="TerrainPaintPanel.h" />
     <ClInclude Include="World.h" />
     <ClInclude Include="PathManager.h" />
     <ClInclude Include="PostProcess.h" />
     <ClInclude Include="ShadowMap.h" />
-    <ClInclude Include="Terrain.h" />
+    <ClInclude Include="TerrainRenderer.h" />
     <ClInclude Include="Texture.h" />
     <ClInclude Include="TextureManager.h" />
     <ClInclude Include="Transform.h" />
@@ -290,7 +292,7 @@
     </None>
   </ItemGroup>
   <ItemGroup>
-    <None Include="TerrainRing.hlsl">
+    <None Include="..\Shaders\Terrain\TerrainRing.hlsl">
       <FileType>Document</FileType>
     </None>
   </ItemGroup>

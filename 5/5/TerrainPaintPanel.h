@@ -20,7 +20,7 @@ struct BrushSettings
 class TerrainPaintPanel : public IPanel
 {
 public:
-    TerrainPaintPanel(BrushSettings& s, UINT layerCount) : _s(s), _layerCount(layerCount) { Open = false; }
+    TerrainPaintPanel(TerrainData& data, BrushSettings& s, UINT layerCount) : _s(s), _data(&data) { Open = false; }
 
     const char* Name() const override { return "Terrain Paint"; }
     bool ShowInMenu() const override { return false; }
@@ -33,18 +33,19 @@ public:
         _s.BrushMode = (BrushSettings::Mode)mode;
 
         int layer = (int)_s.Layer;
-        ImGui::SliderInt("Layer", &layer, 0, (int)_layerCount - 1);
+        ImGui::SliderInt("Layer", &layer, 0, (int)_data->LayerCount() - 1);
         _s.Layer = (UINT)layer;
 
         ImGui::SliderFloat("Radius", &_s.Radius, BrushSettings::RADIUS_MIN, BrushSettings::RADIUS_MAX, "%.1f", ImGuiSliderFlags_Logarithmic);
         ImGui::SliderFloat("Strength", &_s.Strength, BrushSettings::STRENGTH_MIN, BrushSettings::STRENGTH_MAX, "%.2f", ImGuiSliderFlags_Logarithmic);
 
-        ImGui::TextDisabled("Ctrl+Wheel: radius, Shift+Wheel: strength");
+        ImGui::TextDisabled("Num: Layers\nCtrl+Wheel: radius\nShift+Wheel: strength");
     }
 
 private:
+    TerrainData* _data;
+
     BrushSettings& _s;
-    UINT _layerCount;
 };
 
 #endif // !TERRAIN_PAINT_PANEL_HPP

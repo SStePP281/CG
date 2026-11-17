@@ -117,9 +117,6 @@
     <ClCompile Include="Camera.cpp">
       <Filter>Scene</Filter>
     </ClCompile>
-    <ClCompile Include="Terrain.cpp">
-      <Filter>Scene</Filter>
-    </ClCompile>
     <ClCompile Include="D3DFramework.cpp">
       <Filter>Renderer</Filter>
     </ClCompile>
@@ -179,6 +176,12 @@
     </ClCompile>
     <ClCompile Include="TerrainPaintTool.cpp">
       <Filter>Editor\EditorTool\Terrain</Filter>
+    </ClCompile>
+    <ClCompile Include="TerrainData.cpp">
+      <Filter>Assets</Filter>
+    </ClCompile>
+    <ClCompile Include="TerrainRenderer.cpp">
+      <Filter>Renderer</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -269,9 +272,6 @@
     <ClInclude Include="Octree.h">
       <Filter>Scene</Filter>
     </ClInclude>
-    <ClInclude Include="Terrain.h">
-      <Filter>Scene</Filter>
-    </ClInclude>
     <ClInclude Include="D3DFramework.h">
       <Filter>Renderer</Filter>
     </ClInclude>
@@ -359,6 +359,12 @@
     <ClInclude Include="TerrainPaintPanel.h">
       <Filter>Editor\EditorTool\Terrain</Filter>
     </ClInclude>
+    <ClInclude Include="TerrainData.h">
+      <Filter>Assets</Filter>
+    </ClInclude>
+    <ClInclude Include="TerrainRenderer.h">
+      <Filter>Renderer</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="..\Shaders\GBufferCommon.hlsl">
@@ -407,7 +413,7 @@
       <Filter>Shaders\PostProcess</Filter>
     </None>
     <None Include="packages.config" />
-    <None Include="TerrainRing.hlsl">
+    <None Include="..\Shaders\Terrain\TerrainRing.hlsl">
       <Filter>Shaders\Terrain</Filter>
     </None>
   </ItemGroup>

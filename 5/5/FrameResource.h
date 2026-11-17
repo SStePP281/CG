@@ -12,8 +12,10 @@
 #include "MathHelper.h"
 #include "D3DUtil.h"
 #include "ShaderTypes.h"
+#include "TerrainData.h"
+#include "TerrainRenderer.h"
+
 using namespace DirectX;
-#include "Terrain.h"
 
 using Microsoft::WRL::ComPtr;
 
@@ -93,13 +95,13 @@ struct ShadowConstant
 struct TerrainConstant
 {
     XMFLOAT2 TileOrigin = { 0.0f, 0.0f };
-    float TileSize = TERRAIN_TILE_WORLD_SIZE;
-    float HeightScale = TERRAIN_HEIGHT_SCALE;
+    float TileSize = 0.0f;
+    float HeightScale = 0.0f;
 
-    XMFLOAT2 WorldSize = { TERRAIN_WORLD_SIZE, TERRAIN_WORLD_SIZE };
-    XMFLOAT2 WorldOffset = { TERRAIN_WORLD_OFFSET, TERRAIN_WORLD_OFFSET };
+    XMFLOAT2 WorldSize = { 0.0f, 0.0f };
+    XMFLOAT2 WorldOffset = { 0.0f, 0.0f };
 
-    float HeightOffset = TERRAIN_HEIGHT_OFFSET;
+    float HeightOffset = 0.0f;
     float MorphStart = 0.0f;
     float MorphEnd = 1.0f;
     float TileCells = (float)TERRAIN_TILE_CELLS;

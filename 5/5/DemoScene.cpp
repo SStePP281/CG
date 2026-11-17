@@ -100,5 +100,10 @@ void BuildDemoScene(World& world, AssetManager& assets)
 		world.Spawn(lag, t);
 	}*/
 
+	TerrainDesc td;
+	td.HeightMap = L"Height.png";
+	td.Layers = { { L"Default.png", 1024.0f }, { L"Grass.png", 16.0f }, { L"Stone.png", 32.0f }, { L"Muddy.png", 32.0f } };
+	world.SetTerrain(assets.LoadTerrain(td));
+
     CreateLights(world);
 }

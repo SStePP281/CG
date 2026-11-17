@@ -34,7 +34,7 @@
 #include "GBuffer.h"
 #include "ShadowMap.h"
 #include "PostProcess.h"
-#include "Terrain.h"
+#include "TerrainRenderer.h"
 #include "VelocityBuffers.h"
 #include "AntiAliasing.h"
 #include "NGXManager.h"
@@ -98,9 +98,8 @@ public:
     const FrameStats& GetFrameStats() const { return _frameStats; }
     const FrameTimeHistory& GetFrameHistory() const { return _frameHistory; }
 
-    Terrain& GetTerrain() { return *_terrain; }
     D3D12_GPU_VIRTUAL_ADDRESS PassCBAddress() const { return _currFrameResource->PassCB->Resource()->GetGPUVirtualAddress(); }
-    DescriptorRange DepthSrv() const { return _gBuffer->Textures[(UINT)GBufferIndex::Depth].SRV; }
+    GBufferTexture& GetGBufferTextures(GBufferIndex index) const { return _gBuffer->Textures[(UINT)index]; }
 
 private:
     float AspectRatio() const { return (float)_display.Width / _display.Height; }
@@ -196,7 +195,7 @@ private:
 
     std::unique_ptr<GBuffer> _gBuffer;
     std::unique_ptr<ShadowMap> _shadowMap;
-    std::unique_ptr<Terrain> _terrain;
+    std::unique_ptr<TerrainRenderer> _terrain;
     std::unique_ptr<VelocityBuffers> _velocityBuffer;
     std::unique_ptr<PostProcessChain> _ppChain;
     std::unique_ptr<NGXManager> _ngxManager;
