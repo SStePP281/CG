@@ -67,6 +67,15 @@
     <Filter Include="Editor\EditorTool\Terrain">
       <UniqueIdentifier>{a3c1e504-a9ac-41d2-a9c8-d95f24e27da5}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Editor\Panels\Settings">
+      <UniqueIdentifier>{1d4f193d-b570-4ffa-9d1f-2899be186ab5}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Editor\Panels\Settings\_Base">
+      <UniqueIdentifier>{ad55d38b-8ff6-464b-a3a7-fb8744caca9d}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Editor\Panels\Settings\Sections">
+      <UniqueIdentifier>{b7bed93f-407b-4097-9bbd-5fa5ed9e37e6}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Application.cpp">
@@ -174,7 +183,7 @@
     <ClCompile Include="RenderGUI.cpp">
       <Filter>Editor\Panels\_Base</Filter>
     </ClCompile>
-    <ClCompile Include="TerrainPaintTool.cpp">
+    <ClCompile Include="TerrainTool.cpp">
       <Filter>Editor\EditorTool\Terrain</Filter>
     </ClCompile>
     <ClCompile Include="TerrainData.cpp">
@@ -353,10 +362,10 @@
     <ClInclude Include="IEditorTool.h">
       <Filter>Editor\EditorTool\_Base</Filter>
     </ClInclude>
-    <ClInclude Include="TerrainPaintTool.h">
+    <ClInclude Include="TerrainTool.h">
       <Filter>Editor\EditorTool\Terrain</Filter>
     </ClInclude>
-    <ClInclude Include="TerrainPaintPanel.h">
+    <ClInclude Include="TerrainToolPanel.h">
       <Filter>Editor\EditorTool\Terrain</Filter>
     </ClInclude>
     <ClInclude Include="TerrainData.h">
@@ -364,6 +373,18 @@
     </ClInclude>
     <ClInclude Include="TerrainRenderer.h">
       <Filter>Renderer</Filter>
+    </ClInclude>
+    <ClInclude Include="ProjectSettingsPanel.h">
+      <Filter>Editor\Panels\Settings\_Base</Filter>
+    </ClInclude>
+    <ClInclude Include="DisplaySettingsSection.h">
+      <Filter>Editor\Panels\Settings\Sections</Filter>
+    </ClInclude>
+    <ClInclude Include="AASettingsSection.h">
+      <Filter>Editor\Panels\Settings\Sections</Filter>
+    </ClInclude>
+    <ClInclude Include="ShadowSettingsSection.h">
+      <Filter>Editor\Panels\Settings\Sections</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

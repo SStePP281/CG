@@ -25,7 +25,7 @@ ObjectId World::Spawn(ModelHandle model, const Transform& t)
     ObjectId id = _objects.Add(std::move(obj));
 
     _spatialDirty = true;
-    _version++;
+    _current++;
 
     return id;
 }
@@ -35,7 +35,7 @@ void World::Destroy(ObjectId id)
     if (_objects.Remove(id))
     {
         _spatialDirty = true;
-        _version++;
+        _current++;
     }
 }
 

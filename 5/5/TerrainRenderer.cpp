@@ -19,6 +19,7 @@ TerrainRenderer::TerrainRenderer(GraphicsDevice& device)
 
 void TerrainRenderer::SetData(const TerrainData* data)
 {
+	_builtWorldSize = data ? data->WorldSize() : 0.0f;
 	_data = data;
 	_root = data ? BuildNode({ 0, 0 }, data->WorldSize(), 0) : nullptr;
 
@@ -167,15 +168,16 @@ void TerrainRenderer::SelectNode(const QuadNode* node, const XMFLOAT3& eye, floa
 BoundingBox TerrainRenderer::NodeBounds(const QuadNode* node) const
 {
 	float half = node->Size * 0.5f;
+	float hs = _data->HeightScale();
 
 	XMFLOAT3 center =
 	{
 		node->Origin.x + half + _data->WorldOffset(),
-		_data->HeightOffset() + _data->HeightScale() * 0.5f,
+		_data->HeightOffset() + hs * 0.5f,
 		node->Origin.y + half + _data->WorldOffset()
 	};
 
-	XMFLOAT3 extents = { half, _data->HeightScale() * 0.5f, half };
+	XMFLOAT3 extents = { half, fabsf(hs) * 0.5f, half };
 
 	return BoundingBox(center, extents);
 }

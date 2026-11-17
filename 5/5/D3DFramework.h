@@ -38,12 +38,9 @@
 #include "VelocityBuffers.h"
 #include "AntiAliasing.h"
 #include "NGXManager.h"
-#include "RenderGUI.h"
 #include "TextureManager.h"
 #include "DeferredReleaseQueue.h"
 #include "FrameStats.h"
-#include "InfoPanel.h"
-#include "SlotPool.h"
 #include "Material.h"
 #include "GameTimer.h"
 #include "Window.h"
@@ -94,11 +91,13 @@ public:
     void Draw(const GameTimer& gt);
     void OnDisplayResize(Resolution display);
 
+    void ApplySettings();
+
 public:
     const FrameStats& GetFrameStats() const { return _frameStats; }
     const FrameTimeHistory& GetFrameHistory() const { return _frameHistory; }
 
-    D3D12_GPU_VIRTUAL_ADDRESS PassCBAddress() const { return _currFrameResource->PassCB->Resource()->GetGPUVirtualAddress(); }
+    FrameResource* GetFrameResources() const { return _currFrameResource; }
     GBufferTexture& GetGBufferTextures(GBufferIndex index) const { return _gBuffer->Textures[(UINT)index]; }
 
 private:
@@ -159,6 +158,8 @@ private:
     FrameTimeHistory _frameHistory;
 
     RenderSettings& _renderSettings;
+    RenderSettings _applied;
+
     Resolution _render;
     Resolution _display;
 
@@ -216,8 +217,6 @@ private:
     bool _isDebugMode = false;
     bool _isTerrainDegub = false;
     bool _isUseBeckmann = false;
-
-    bool _renderSettingsDirty = false;
 
     std::vector<D3D12_RECT> BuildScissorRects(int K, Resolution res)
     {

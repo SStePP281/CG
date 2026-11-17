@@ -25,7 +25,7 @@ public:
     const MeshObject* Get(ObjectId id) const { return _objects.Get(id); }
     size_t ObjectCount() const { return _objects.Count(); }
 
-    void SetTerrain(TerrainHandle h) { _terrain = h; _version++; }
+    void SetTerrain(TerrainHandle h) { _terrain = h; _current++; }
     TerrainHandle Terrain() const { return _terrain; }
 
     template<class F> void ForEachObject(F&& f) { _objects.ForEach(std::forward<F>(f)); }
@@ -40,7 +40,7 @@ public:
 
     void QueryVisible(const DirectX::BoundingFrustum& frustum, std::vector<ObjectId>& out) const;
     const DirectX::BoundingBox& Bounds() const { return _bounds; }
-    uint64_t Version() const { return _version; }
+    uint64_t Version() const { return _current; }
 
 private:
     void UpdateTransform(MeshObject& obj);
@@ -57,7 +57,7 @@ private:
     std::unique_ptr<Octree<ObjectId>> _octree;
     DirectX::BoundingBox _bounds;
     bool _spatialDirty = true;
-    uint64_t _version = 0;
+    uint64_t _current = 0;
 };
 
 #endif // !WORLD_HPP

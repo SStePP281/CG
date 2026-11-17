@@ -54,6 +54,8 @@ public:
 	void SetData(const TerrainData* data);
 	const TerrainData* Data() const { return _data; }
 
+	bool NeedsRebuild(const TerrainData* data) const { return _data != data || (data && data->WorldSize() != _builtWorldSize); }
+
 	const MeshGeometry* GetTileMesh() const { return _tileMesh.get(); }
 
 	void UpdateLOD(const XMFLOAT3& eyePosWorld, float fovY, float screenHeight, const BoundingFrustum& frustum);
@@ -70,6 +72,8 @@ private:
 
 private:
 	const TerrainData* _data = nullptr;
+
+	float _builtWorldSize = 0.0f;
 
 	std::unique_ptr<MeshGeometry> _tileMesh;
 	ComPtr<ID3D12Resource> _tileVbUpload;

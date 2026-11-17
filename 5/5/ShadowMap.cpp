@@ -2,20 +2,28 @@
 #include "ThrowIfFaild.h"
 #include <d3dx12.h>
 
-ShadowMap::ShadowMap(GraphicsDevice& device, ShadowSettings& settings) : _settings(settings)
+ShadowMap::ShadowMap(GraphicsDevice& device, ShadowSettings& settings)
 {
 	SrvRange = device.Srv().Allocate(1);
 	DsvRange = device.Dsv().Allocate(CASCADE_COUNT);
 
-	CreateTexture(device.Device());
+	CreateTexture(device.Device(), settings);
+	CreateSRVAndDSV(device.Device());
+}
+
+void ShadowMap::OnResize(GraphicsDevice& device, ShadowSettings& settings)
+{
+	device.Release().Push(std::move(Resource));
+	SrvRange = device.ReallocateSrv(SrvRange);
+
+	CreateTexture(device.Device(), settings);
 	CreateSRVAndDSV(device.Device());
 }
 
 void ShadowMap::Render(ID3D12GraphicsCommandList* cmdList, const std::function<void(UINT cascade)>& drawCascade)
 {
-	const float size = (float)_settings.ShadowTextureSize;
-	D3D12_VIEWPORT shadowViewport = { 0, 0, size, size, 0.0f, 1.0f };
-	D3D12_RECT shadowScissor = { 0, 0, (LONG)size, (LONG)size };
+	D3D12_VIEWPORT shadowViewport = { 0, 0, (FLOAT)_textureSize, (FLOAT)_textureSize, 0.0f, 1.0f };
+	D3D12_RECT shadowScissor = { 0, 0, (LONG)_textureSize, (LONG)_textureSize };
 
 	cmdList->RSSetViewports(1, &shadowViewport);
 	cmdList->RSSetScissorRects(1, &shadowScissor);
@@ -34,10 +42,12 @@ void ShadowMap::Render(ID3D12GraphicsCommandList* cmdList, const std::function<v
 	TransitToLightRenderingState(cmdList);
 }
 
-void ShadowMap::CreateTexture(ID3D12Device* device)
+void ShadowMap::CreateTexture(ID3D12Device* device, ShadowSettings& settings)
 {
+	_textureSize = settings.ShadowTextureSize;
+
 	CD3DX12_HEAP_PROPERTIES heapProp(D3D12_HEAP_TYPE_DEFAULT);
-	D3D12_RESOURCE_DESC resDesc = CD3DX12_RESOURCE_DESC::Tex2D(DEPTH_RESOURCE_FORMAT,_settings.ShadowTextureSize, _settings.ShadowTextureSize, CASCADE_COUNT, 1, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL);
+	D3D12_RESOURCE_DESC resDesc = CD3DX12_RESOURCE_DESC::Tex2D(DEPTH_RESOURCE_FORMAT, _textureSize, _textureSize, CASCADE_COUNT, 1, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL);
 
 	D3D12_CLEAR_VALUE clearValue = {};
 	clearValue.Format = DEPTH_DSV_FORMAT;

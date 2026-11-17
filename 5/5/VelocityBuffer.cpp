@@ -7,9 +7,12 @@ VelocityBuffers::VelocityBuffers(GraphicsDevice& device)
     _rtvRange = device.Rtv().Allocate(2);
 }
 
-void VelocityBuffers::OnResize(ID3D12Device* d, Resolution res)
+void VelocityBuffers::OnResize(GraphicsDevice& device, Resolution res)
 {
     _current = 1;
+
+    for (auto& b : _buffer) { device.Release().Push(std::move(b)); }
+    _srvRange = device.ReallocateSrv(_srvRange);
 
     D3D12_RESOURCE_DESC desc = CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_R16G16_FLOAT, res.Width, res.Height, 1, 1, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET);
     CD3DX12_HEAP_PROPERTIES heap(D3D12_HEAP_TYPE_DEFAULT);
@@ -17,6 +20,8 @@ void VelocityBuffers::OnResize(ID3D12Device* d, Resolution res)
     D3D12_CLEAR_VALUE clear = {};
     clear.Format = DXGI_FORMAT_R16G16_FLOAT;
     clear.Color[1] = 0.0f;
+
+    ID3D12Device* d = device.Device();
 
     for (int i = 0; i < 2; i++)
     {

@@ -49,24 +49,27 @@ void PostProcessPass::Execute(ID3D12GraphicsCommandList* cmdList, DescriptorRang
 	cmdList->DrawInstanced(3, 1, 0, 0);
 }
 
-void PostProcessPass::OnResize(ID3D12Device* device, Resolution res)
+void PostProcessPass::OnResize(GraphicsDevice& device, Resolution res)
 {
+	ID3D12Device* d = device.Device();
+
 	Desc.Res = res;
 
-	OutputBuffer.Reset();
-	CreateOutputBuffer(device);
+	device.Release().Push(std::move(OutputBuffer));
+	OutputSRV = device.ReallocateSrv(OutputSRV);
+	CreateOutputBuffer(device.Device());
 
 	D3D12_RENDER_TARGET_VIEW_DESC rtvDesc = {};
 	rtvDesc.Format = Desc.OutputFormat;
 	rtvDesc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
-	device->CreateRenderTargetView(OutputBuffer.Get(), &rtvDesc, OutputRTV.Cpu());
+	d->CreateRenderTargetView(OutputBuffer.Get(), &rtvDesc, OutputRTV.Cpu());
 
 	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
 	srvDesc.Format = Desc.OutputFormat;
 	srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
 	srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
 	srvDesc.Texture2D.MipLevels = 1;
-	device->CreateShaderResourceView(OutputBuffer.Get(), &srvDesc, OutputSRV.Cpu());
+	d->CreateShaderResourceView(OutputBuffer.Get(), &srvDesc, OutputSRV.Cpu());
 }
 
 void PostProcessPass::CreateResources(ID3D12Device* device)
@@ -313,11 +316,14 @@ void PostProcessChain::ExecuteAll(ID3D12GraphicsCommandList* cmdList, Descriptor
 	}
 }
 
-void PostProcessChain::OnResize(ID3D12Device* device, Resolution render, Resolution display)
+void PostProcessChain::OnResize(GraphicsDevice& device, Resolution render, Resolution display)
 {
 	if (_hdrBuffer)
 	{
-		_hdrBuffer.Reset();
+		ID3D12Device* d = device.Device();
+
+		device.Release().Push(std::move(_hdrBuffer));
+		_hdrSrv = device.ReallocateSrv(_hdrSrv);
 
 		D3D12_RESOURCE_DESC desc = CD3DX12_RESOURCE_DESC::Tex2D(HDR_FORMAT, render.Width, render.Height, 1, 1, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET);
 
@@ -326,19 +332,19 @@ void PostProcessChain::OnResize(ID3D12Device* device, Resolution render, Resolut
 		clear.Color[3] = 1.0f;
 
 		CD3DX12_HEAP_PROPERTIES heapProps(D3D12_HEAP_TYPE_DEFAULT);
-		ThrowIfFailed(device->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, &clear, IID_PPV_ARGS(&_hdrBuffer)));
+		ThrowIfFailed(d->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, &clear, IID_PPV_ARGS(&_hdrBuffer)));
 
 		D3D12_RENDER_TARGET_VIEW_DESC rtvDesc = {};
 		rtvDesc.Format = HDR_FORMAT;
 		rtvDesc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
-		device->CreateRenderTargetView(_hdrBuffer.Get(), &rtvDesc, _hdrRtv.Cpu());
+		d->CreateRenderTargetView(_hdrBuffer.Get(), &rtvDesc, _hdrRtv.Cpu());
 
 		D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
 		srvDesc.Format = HDR_FORMAT;
 		srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
 		srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
 		srvDesc.Texture2D.MipLevels = 1;
-		device->CreateShaderResourceView(_hdrBuffer.Get(), &srvDesc, _hdrSrv.Cpu());
+		d->CreateShaderResourceView(_hdrBuffer.Get(), &srvDesc, _hdrSrv.Cpu());
 	}
 
 	for (auto& pass : _passes)

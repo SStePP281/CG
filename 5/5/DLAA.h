@@ -22,7 +22,7 @@ public:
 
     virtual Resolution ComputeRenderResolution(AASettings& aaSettings, const Resolution& display) const override;
 
-    void OnResize(ID3D12Device* device, ID3D12GraphicsCommandList* cmdList, AASettings& aaSettings, const Resolution& display) override;
+    void OnResize(GraphicsDevice& device, AASettings& aaSettings, const Resolution& display) override;
     void Resolve(ID3D12GraphicsCommandList* cmdList, const AAInputs& in) override;
 
     DescriptorRange OutputSrv() const override { return _srvRange; }

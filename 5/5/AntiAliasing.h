@@ -44,7 +44,7 @@ public:
     virtual bool  UsesVelocity() const { return false; }
     virtual Resolution ComputeRenderResolution(AASettings& aaSettings, const Resolution& display) const { return display; }
 
-    virtual void OnResize(ID3D12Device* device, ID3D12GraphicsCommandList* cmdList, AASettings& aaSettings, const Resolution& display) = 0;
+    virtual void OnResize(GraphicsDevice& device, AASettings& aaSettings, const Resolution& display) = 0;
 
     virtual void ResetHistory() {}
 

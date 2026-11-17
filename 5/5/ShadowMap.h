@@ -26,6 +26,8 @@ public:
 
     ShadowMap(GraphicsDevice& device, ShadowSettings& settings);
 
+    void OnResize(GraphicsDevice& device, ShadowSettings& settings);
+
     void Render(ID3D12GraphicsCommandList* cmdList, const std::function<void(UINT cascade)>& drawCascade);
 
     ComPtr<ID3D12Resource> Resource;
@@ -33,7 +35,7 @@ public:
     DescriptorRange DsvRange;
 
 private:
-    void CreateTexture(ID3D12Device* device);
+    void CreateTexture(ID3D12Device* device, ShadowSettings& _settings);
     void CreateSRVAndDSV(ID3D12Device* device);
 
     void TransitToOpaqueRenderingState(ID3D12GraphicsCommandList* cmdList);
@@ -41,7 +43,7 @@ private:
 
     void ClearView(ID3D12GraphicsCommandList* cmdList);
 
-    ShadowSettings& _settings;
+    UINT _textureSize = 0;
 };
 
 #endif // !SHADOW_MAP_HPP

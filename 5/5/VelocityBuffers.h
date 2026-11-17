@@ -17,7 +17,7 @@ public:
     static constexpr UINT SrvSlotCount = 2;
 
     VelocityBuffers(GraphicsDevice& device);
-    void OnResize(ID3D12Device* device, Resolution res);
+    void OnResize(GraphicsDevice& device, Resolution res);
 
     void Swap() { _current = 1 - _current; }
 

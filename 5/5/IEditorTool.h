@@ -5,6 +5,7 @@
 #include "Input.h"
 #include "GraphicsDevice.h"
 #include "D3DFramework.h"
+#include "IPanel.h"
 
 struct EditorFrameContext
 {

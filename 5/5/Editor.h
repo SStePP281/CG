@@ -9,6 +9,7 @@
 #include "D3DFramework.h"
 #include "RenderGUI.h"
 #include "IEditorTool.h"
+#include "ProjectSettingsPanel.h"
 
 class Editor
 {
@@ -48,6 +49,8 @@ private:
 
 private:
     std::unique_ptr<RenderGUI> _gui;
+
+    ProjectSettingsPanel* _projectSettings = nullptr;
 
     std::vector<std::unique_ptr<IEditorTool>> _tools;
     IEditorTool* _activeTool = nullptr;

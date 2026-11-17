@@ -31,7 +31,7 @@ public:
 
 	DescriptorRange OutputSrv() const override { return _srvRange.Sub(_currentIndex); }
 
-	void OnResize(ID3D12Device* device, ID3D12GraphicsCommandList* cmdList, AASettings& aaSettings, const Resolution& display) override;
+	void OnResize(GraphicsDevice& device, AASettings& aaSettings, const Resolution& display) override;
 
 	void Resolve(ID3D12GraphicsCommandList* cmdList, const AAInputs& in) override;
 

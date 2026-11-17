@@ -12,7 +12,7 @@ TAA::TAA(const AAInitContext& ctx)
     CreatePSO(ctx);
 }
 
-void TAA::OnResize(ID3D12Device* device, ID3D12GraphicsCommandList* cmdList, AASettings& aaSettings, const Resolution& display)
+void TAA::OnResize(GraphicsDevice& device, AASettings& aaSettings, const Resolution& display)
 {
     _currentIndex = 0;
     _frameCount = 0;
@@ -20,8 +20,11 @@ void TAA::OnResize(ID3D12Device* device, ID3D12GraphicsCommandList* cmdList, AAS
     _width = display.Width;
     _height = display.Height;
 
-    CreateResources(device);
-    CreateSRVAndRTV(device);
+    for (auto& b : _colorBuffer) { device.Release().Push(std::move(b)); }
+    _srvRange = device.ReallocateSrv(_srvRange);
+
+    CreateResources(device.Device());
+    CreateSRVAndRTV(device.Device());
 }
 
 void TAA::Resolve(ID3D12GraphicsCommandList* cmdList, const AAInputs& in)

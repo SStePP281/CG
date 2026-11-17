@@ -54,7 +54,7 @@ struct ShadowSettings
 
 	bool operator==(const ShadowSettings& other) const
 	{
-		return ShadowTextureSize == other.ShadowTextureSize;
+		return ShadowTextureSize == other.ShadowTextureSize && EnableShadow == other.EnableShadow && EnableTerrainShadow == other.EnableTerrainShadow;
 	}
 
 	bool operator!=(const ShadowSettings& other) const

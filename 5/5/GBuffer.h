@@ -59,7 +59,7 @@ public:
 
     void ClearView(ID3D12GraphicsCommandList* cmdList);
 
-    void OnResize(ID3D12Device* device, Resolution res);
+    void OnResize(GraphicsDevice& device, Resolution res);
 
     std::vector<GBufferTexture> Textures;
 

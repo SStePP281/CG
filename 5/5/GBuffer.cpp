@@ -173,11 +173,12 @@ void GBuffer::ClearView(ID3D12GraphicsCommandList* cmdList)
     }
 }
 
-void GBuffer::OnResize(ID3D12Device* device, Resolution res)
+void GBuffer::OnResize(GraphicsDevice& device, Resolution res)
 {
-    for (auto& t : Textures) t.Resource.Reset();
+    for (auto& t : Textures) { device.Release().Push(std::move(t.Resource)); }
+    _srvRange = device.ReallocateSrv(_srvRange);
 
-    CreateTextures(device, res);
-    CreateRTVandDSV(device);
-    CreateSRV(device);
+    CreateTextures(device.Device(), res);
+    CreateRTVandDSV(device.Device());
+    CreateSRV(device.Device());
 }

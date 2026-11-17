@@ -97,16 +97,24 @@ Resolution DLAA::ComputeRenderResolution(AASettings& s, const Resolution& displa
     }
 }
 
-void DLAA::OnResize(ID3D12Device* device, ID3D12GraphicsCommandList* cmdList, AASettings& aaSettings, const Resolution& display)
+void DLAA::OnResize(GraphicsDevice& device, AASettings& aaSettings, const Resolution& display)
 {
     _display = display;
     _render = ComputeRenderResolution(aaSettings, display);
     _quality = ToNGXQuality(aaSettings.Preset);
 
-    if (_featureHandle) { NVSDK_NGX_D3D12_ReleaseFeature(_featureHandle); _featureHandle = nullptr; }
+    if (_featureHandle)
+    {
+        device.Flush();
+        NVSDK_NGX_D3D12_ReleaseFeature(_featureHandle);
+        _featureHandle = nullptr;
+    }
 
-    CreateResources(device);
-    CreateSRVAndRTV(device);
+    device.Release().Push(std::move(_output));
+    _srvRange = device.ReallocateSrv(_srvRange);
+
+    CreateResources(device.Device());
+    CreateSRVAndRTV(device.Device());
 
     _frameCount = 0;
     _resetHistory = true;

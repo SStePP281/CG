@@ -58,7 +58,7 @@ public:
     void Build(ID3D12Device* device);
     void Execute(ID3D12GraphicsCommandList* cmdList, DescriptorRange input, D3D12_CPU_DESCRIPTOR_HANDLE rtv);
 
-    void OnResize(ID3D12Device* device, Resolution res);
+    void OnResize(GraphicsDevice& device, Resolution res);
 
     PassDesc Desc;
 
@@ -70,7 +70,6 @@ public:
     ComPtr<ID3D12PipelineState> PSO;
 
 private:
-
     void CreateResources(ID3D12Device* device);
     void CreateOutputBuffer(ID3D12Device* device);
     void BuildRootSignature(ID3D12Device* device);
@@ -95,7 +94,7 @@ public:
     DescriptorRange GetHDRRtv() const { return _hdrRtv; }
     DescriptorRange GetHDRSrv() const { return _hdrSrv; }
 
-    void OnResize(ID3D12Device* device, Resolution render, Resolution display);
+    void OnResize(GraphicsDevice& device, Resolution render, Resolution display);
 
 private:
     void Sort();

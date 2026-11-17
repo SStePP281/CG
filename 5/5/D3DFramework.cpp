@@ -55,9 +55,9 @@ bool D3DFramework::Initialize()
 
 		OnDisplayResize(_window->Size());
 
-		_noAA->OnResize(_device->Device(), _device->CommandList(), _renderSettings.AA, _display);
-		_TAA->OnResize(_device->Device(), _device->CommandList(), _renderSettings.AA, _display);
-		_DLAA->OnResize(_device->Device(), _device->CommandList(), _renderSettings.AA, _display);
+		_noAA->OnResize(*_device, _renderSettings.AA, _display);
+		_TAA->OnResize(*_device, _renderSettings.AA, _display);
+		_DLAA->OnResize(*_device, _renderSettings.AA, _display);
 	}
 
 	_gBuffer = std::make_unique<GBuffer>(*_device, _render);
@@ -67,7 +67,7 @@ bool D3DFramework::Initialize()
 	_terrain = std::make_unique<TerrainRenderer>(*_device);
 
 	_velocityBuffer = std::make_unique<VelocityBuffers>(*_device);
-	_velocityBuffer->OnResize(_device->Device(), _render);
+	_velocityBuffer->OnResize(*_device, _render);
 
 	_ppChain = std::make_unique<PostProcessChain>();
 	CreatePPS();
@@ -110,6 +110,44 @@ void D3DFramework::OnDisplayResize(Resolution display)
 	OnRenderResize();
 }
 
+void D3DFramework::ApplySettings()
+{
+	if (_renderSettings.Shadow != _applied.Shadow)
+	{
+		if (_renderSettings.Shadow.ShadowTextureSize != _applied.Shadow.ShadowTextureSize)
+		{ 
+			_shadowMap->OnResize(*_device, _renderSettings.Shadow);
+		}
+		_applied.Shadow = _renderSettings.Shadow;
+	}
+
+	if (_renderSettings.AA != _applied.AA)
+	{
+		_currentAA = GetAAByMode(_renderSettings.AA.Mode);
+
+		UpdateRenderResolution();
+		OnRenderResize();
+
+		_applied.AA = _renderSettings.AA;
+	}
+
+	if (_renderSettings.Display != _applied.Display)
+	{
+		if (_renderSettings.Display.WindowSize != _applied.Display.WindowSize)
+		{
+			OnRenderResize();
+		}
+
+		_applied.Display = _renderSettings.Display;
+	}
+
+	const TerrainData* terrainData = _assets->GetTerrain(_world->Terrain());
+	if (_terrain->NeedsRebuild(terrainData))
+	{
+		_terrain->SetData(terrainData);
+	}
+}
+
 void D3DFramework::OnRenderResize()
 {
 	_renderViewport = _screenViewport;
@@ -118,26 +156,21 @@ void D3DFramework::OnRenderResize()
 
 	_renderScissor = { 0, 0, (LONG)_render.Width, (LONG)_render.Height };
 
-	_device->Flush();
-
 	ID3D12Device* d = _device->Device();
 	ID3D12GraphicsCommandList* l = _device->CommandList();
 
-	if (_gBuffer.get() != nullptr) { _gBuffer->OnResize(d, _render); }
-	if (_ppChain.get() != nullptr) { _ppChain->OnResize(d, _render, _display); }
-	if (_velocityBuffer.get() != nullptr) { _velocityBuffer->OnResize(d, _render); }
+	if (_gBuffer.get() != nullptr) { _gBuffer->OnResize(*_device, _render); }
+	if (_ppChain.get() != nullptr) { _ppChain->OnResize(*_device, _render, _display); }
+	if (_velocityBuffer.get() != nullptr) { _velocityBuffer->OnResize(*_device, _render); }
 
-	if (_TAA != nullptr) { _TAA->OnResize(d, l, _renderSettings.AA, _display); }
-	if (_DLAA != nullptr) { _DLAA->OnResize(d, l, _renderSettings.AA, _display); }
+	if (_TAA != nullptr) { _TAA->OnResize(*_device, _renderSettings.AA, _display); }
+	if (_DLAA != nullptr) { _DLAA->OnResize(*_device, _renderSettings.AA, _display); }
 	if (_currentAA != nullptr) { _currentAA->ResetHistory(); }
 }
 
 void D3DFramework::Update(const GameTimer& gt)
 {
 	_currFrameResource = _frameResources[_device->FrameIndex()].get();
-
-	_input.MouseCaptured = ImGui::GetIO().WantCaptureMouse;
-	_input.KeyboardCaptured = ImGui::GetIO().WantCaptureKeyboard;
 
 	_frameHistory.Push(gt.DeltaTime() * 1000.0f);
 
@@ -147,17 +180,8 @@ void D3DFramework::Update(const GameTimer& gt)
 	_frameStats.RtvUsed = _device->Rtv().Used();
 	_frameStats.RtvCapacity = _device->Rtv().Capacity();
 
-	const TerrainData* terrainData = _assets->GetTerrain(_world->Terrain());
-	if (_terrain->Data() != terrainData) { _terrain->SetData(terrainData); }
-
+	ApplySettings();
 	OnKeyboardInput(gt);
-
-	if (_renderSettingsDirty)
-	{
-		UpdateRenderResolution();
-		OnRenderResize();
-		_renderSettingsDirty = false;
-	}
 
 	AnimateMaterials(gt);
 	AnimateLight(gt);
@@ -350,42 +374,6 @@ void D3DFramework::OnKeyboardInput(const GameTimer& gt)
 	if (_input.WasPressed(VK_F3))
 	{
 		_isTerrainDegub = !_isTerrainDegub;
-		Sleep(200);
-	}
-
-	if (_input.WasPressed(VK_F5))
-	{
-		_renderSettings.AA.Mode = (AASettings::AAMode)(((int)_renderSettings.AA.Mode + 1) % 3);
-
-		_currentAA = GetAAByMode(_renderSettings.AA.Mode);
-		_renderSettingsDirty = true;
-
-		Sleep(200);
-	}
-
-	if (_input.WasPressed(VK_F6))
-	{
-		int next = ((int)_renderSettings.AA.Preset + 1) % (int)AASettings::UpscalePreset::Custom;
-		_renderSettings.AA.Preset = (AASettings::UpscalePreset)next;
-		_renderSettingsDirty = true;
-		Sleep(200);
-	}
-
-	if (_input.WasPressed(VK_F7))
-	{
-		_renderSettings.AA.Preset = AASettings::UpscalePreset::Custom;
-		_renderSettings.AA.RenderScale = std::max(0.33f, _renderSettings.AA.RenderScale - 0.05f);
-		_renderSettingsDirty = true;
-
-		Sleep(200);
-	}
-
-	if (_input.WasPressed(VK_F8))
-	{
-		_renderSettings.AA.Preset = AASettings::UpscalePreset::Custom;
-		_renderSettings.AA.RenderScale = std::min(1.0f, _renderSettings.AA.RenderScale + 0.05f);
-		_renderSettingsDirty = true;
-
 		Sleep(200);
 	}
 }
@@ -1410,7 +1398,7 @@ void D3DFramework::DrawTerrainShadow(ID3D12GraphicsCommandList* cmdList, const D
 	cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
 	cmdList->SetGraphicsRootDescriptorTable(0, _terrain->Data()->Srv().Gpu());
-	cmdList->SetGraphicsRootConstantBufferView(4, cascadeCB);
+	cmdList->SetGraphicsRootConstantBufferView(3, cascadeCB);
 
 	auto passCB = _currFrameResource->PassCB->Resource();
 	cmdList->SetGraphicsRootConstantBufferView(1, passCB->GetGPUVirtualAddress()); // b0

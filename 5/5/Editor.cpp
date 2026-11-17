@@ -1,5 +1,11 @@
 #include "Editor.h"
-#include "TerrainPaintTool.h"
+#include "InfoPanel.h"
+#include "TerrainTool.h"
+
+#include "DisplaySettingsSection.h"
+#include "ShadowSettingsSection.h"
+#include "AASettingsSection.h"
+
 
 Editor::Editor(Window& window, Input& input, GraphicsDevice& device, World& world, AssetManager& asset, D3DFramework& framework, RenderSettings& renderSettings) :
 	_window(&window), _input(&input), _device(&device), _world(&world), _asset(&asset), _framework(&framework), _renderSettings(renderSettings)
@@ -12,16 +18,23 @@ Editor::Editor(Window& window, Input& input, GraphicsDevice& device, World& worl
 
 	_gui->AddPanel<InfoPanel>(_framework->GetFrameStats(), _framework->GetFrameHistory());
 
+	_projectSettings = &_gui->AddPanel<ProjectSettingsPanel>();
+	_projectSettings->AddSection<DisplaySettingsSection>(_renderSettings.Display);
+	_projectSettings->AddSection<ShadowSettingsSection>(_renderSettings.Shadow);
+	_projectSettings->AddSection<AASettingsSection>(_renderSettings.AA);
+
 	if (TerrainData* terrain = _asset->GetTerrain(_world->Terrain()))
 	{
-		AddTool<TerrainPaintTool>(*terrain, *_device, *_input, *_gui);
+		AddTool<TerrainTool>(*terrain, *_device, *_input, *_gui);
 	}
-
 }
 
 void Editor::Update(GameTimer& gt)
 {
 	_gui->NewFrame();
+
+	_input->MouseCaptured = ImGui::GetIO().WantCaptureMouse;
+	_input->KeyboardCaptured = ImGui::GetIO().WantCaptureKeyboard;
 
 	DrawToolbar();
 
@@ -55,6 +68,12 @@ void Editor::Draw()
 void Editor::DrawToolbar()
 {
 	if (!ImGui::BeginMainMenuBar()) { return; }
+
+	if (ImGui::BeginMenu("Edit"))
+	{
+		ImGui::MenuItem("Project Settings", nullptr, &_projectSettings->Open);
+		ImGui::EndMenu();
+	}
 
 	if (ImGui::BeginMenu("Tools"))
 	{

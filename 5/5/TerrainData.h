@@ -51,9 +51,14 @@ public:
 	ID3D12Resource* HeightMap() const { return _heightMap.Get(); }
 	ID3D12Resource* MaskArray() const { return _maskArray.Get(); }
 
+	void SetHeightScale(float v) { _desc.HeightScale = v; }
+	void SetHeightOffset(float v) { _desc.HeightOffset = v; }
+	void SetWorldSize(float v) { _desc.WorldSize = v; }
+	void SetLayerTileSize(UINT i, float v) { _desc.Layers[i].TileSize = v; }
+
 	DescriptorRange Srv() const { return _srv; }
 
-	DirectX::BoundingBox Bounds() const { return DirectX::BoundingBox({ 0.0f, HeightOffset() + HeightScale() * 0.5f, 0.0f }, { WorldSize() * 0.5f, HeightScale() * 0.5f, WorldSize() * 0.5f }); }
+	DirectX::BoundingBox Bounds() const { return DirectX::BoundingBox({ 0.0f, HeightOffset() + fabsf(HeightScale()) * 0.5f, 0.0f }, { WorldSize() * 0.5f, HeightScale() * 0.5f, WorldSize() * 0.5f }); }
 
 private:
 	static ComPtr<ID3D12Resource> LoadWic(ID3D12Device* device, ID3D12CommandQueue* queue, const std::wstring& path, bool isColor);

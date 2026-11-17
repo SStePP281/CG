@@ -50,6 +50,9 @@ public:
     DescriptorAllocator& Dsv() { return _dsv; }
     DeferredReleaseQueue& Release() { return _release; }
 
+    // The old SRV range may still be read by frames in flight: retire it through the release queue and hand out a fresh one of the same size.
+    DescriptorRange ReallocateSrv(DescriptorRange old) { _release.Push(nullptr, &_srv, old); return _srv.Allocate(old.Count()); }
+
 private:
     void CreateDevice();
     void CreateCommandObjects();

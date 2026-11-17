@@ -2,11 +2,14 @@
 #define TERRAIN_PAINT_TOOL_HPP
 
 #include "IEditorTool.h"
-#include "TerrainPaintPanel.h"
+#include "TerrainToolPanel.h"
 #include "TerrainData.h"
 #include "GraphicsDevice.h"
 #include "Input.h"
 #include "GameTimer.h"
+#include "RenderGUI.h"
+
+using TerrainMode = TerrainToolPanel::TerrainMode;
 
 struct TerrainHit
 {
@@ -17,12 +20,12 @@ struct TerrainHit
 	XMFLOAT2 Pad;
 };
 
-class TerrainPaintTool : public IEditorTool
+class TerrainTool : public IEditorTool
 {
 public:
-	TerrainPaintTool(TerrainData& terrain, GraphicsDevice& device, Input& input, RenderGUI& gui);
+	TerrainTool(TerrainData& terrain, GraphicsDevice& device, Input& input, RenderGUI& gui);
 
-	const char* Name() const override { return "Terrain Paint"; }
+	const char* Name() const override { return "Terrain"; }
 	IPanel* Panel() override { return _panel; }
 
 	void Update(const GameTimer& gt) override;
@@ -44,7 +47,7 @@ private:
 
 private:
 	BrushSettings _brush;
-	TerrainPaintPanel* _panel = nullptr;
+	TerrainToolPanel* _panel = nullptr;
 
 private:
 	void CreateHitBuffer();
@@ -69,6 +72,7 @@ private:
 	DescriptorRange _brushUavSubRange;
 	DescriptorRange _hitSrvSubRange;
 
+	TerrainMode _mode = TerrainMode::Settings;
 	float _deltaTime = 0.0f;
 };
 

@@ -1,12 +1,12 @@
-#include "TerrainPaintTool.h"
+#include "TerrainTool.h"
 #include "ThrowIfFaild.h"
 #include "D3DUtil.h"
 #include "PathManager.h"
 
-TerrainPaintTool::TerrainPaintTool(TerrainData& terrain, GraphicsDevice& device, Input& input, RenderGUI& gui) :
+TerrainTool::TerrainTool(TerrainData& terrain, GraphicsDevice& device, Input& input, RenderGUI& gui) :
 	_terrain(&terrain), _device(&device), _input(&input)
 {
-	_panel = &gui.AddPanel<TerrainPaintPanel>(terrain, _brush, _terrain->LayerCount());
+	_panel = &gui.AddPanel<TerrainToolPanel>(terrain, _brush, _mode);
 
 	_descRange = device.Srv().Allocate(3);
 
@@ -21,7 +21,7 @@ TerrainPaintTool::TerrainPaintTool(TerrainData& terrain, GraphicsDevice& device,
 	BuildBrushPipeline();
 }
 
-void TerrainPaintTool::Update(const GameTimer& gt)
+void TerrainTool::Update(const GameTimer& gt)
 {
 	_deltaTime = gt.DeltaTime();
 	if (_input->MouseCaptured) { return; }
@@ -47,8 +47,10 @@ void TerrainPaintTool::Update(const GameTimer& gt)
 	}
 }
 
-void TerrainPaintTool::PreDraw(const GameTimer& gt, const EditorFrameContext& ctx)
+void TerrainTool::PreDraw(const GameTimer& gt, const EditorFrameContext& ctx)
 {
+	if (_mode == TerrainMode::Settings) { return; }
+
 	TransitHitToWrite();
 
 	Resolution display = ctx.window.Size();
@@ -57,22 +59,31 @@ void TerrainPaintTool::PreDraw(const GameTimer& gt, const EditorFrameContext& ct
 	float x = 2.0f * m.x / display.Width - 1.0f;
 	float y = 1.0f - 2.0f * m.y / display.Height;
 
-	DoPick(ctx.framework.PassCBAddress(), x, y);
+	DoPick(ctx.framework.GetFrameResources()->PassCB->Resource()->GetGPUVirtualAddress(), x, y);
 
 	if (!_input->MouseCaptured && _input->IsDown(VK_LBUTTON))
 	{
-		DoBrush();
+		if (_mode == TerrainMode::Paint)
+		{
+			DoBrush();
+		}
+		else if (_mode == TerrainMode::Sculpt)
+		{
+
+		}
 	}
 
 	TransitHitToRead();
 }
 
-void TerrainPaintTool::DrawOverlay(const EditorFrameContext& ctx)
+void TerrainTool::DrawOverlay(const EditorFrameContext& ctx)
 {
-	DoRing(ctx.framework.PassCBAddress(), ctx.framework.GetGBufferTextures(GBufferIndex::Depth).SRV);
+	if (_mode == TerrainMode::Settings) { return; }
+
+	DoRing(ctx.framework.GetFrameResources()->PassCB->Resource()->GetGPUVirtualAddress(), ctx.framework.GetGBufferTextures(GBufferIndex::Depth).SRV);
 }
 
-void TerrainPaintTool::DoPick(D3D12_GPU_VIRTUAL_ADDRESS passCB, float mouseNdcX, float mouseNdcY)
+void TerrainTool::DoPick(D3D12_GPU_VIRTUAL_ADDRESS passCB, float mouseNdcX, float mouseNdcY)
 {
 	ID3D12GraphicsCommandList* l = _device->CommandList();
 
@@ -93,7 +104,7 @@ void TerrainPaintTool::DoPick(D3D12_GPU_VIRTUAL_ADDRESS passCB, float mouseNdcX,
 	l->ResourceBarrier(1, &uavBarrier);
 }
 
-void TerrainPaintTool::DoRing(D3D12_GPU_VIRTUAL_ADDRESS passCB, DescriptorRange& depth)
+void TerrainTool::DoRing(D3D12_GPU_VIRTUAL_ADDRESS passCB, DescriptorRange& depth)
 {
 	ID3D12GraphicsCommandList* l = _device->CommandList();
 
@@ -116,7 +127,7 @@ void TerrainPaintTool::DoRing(D3D12_GPU_VIRTUAL_ADDRESS passCB, DescriptorRange&
 	l->DrawInstanced(3, 1, 0, 0);
 }
 
-void TerrainPaintTool::DoBrush()
+void TerrainTool::DoBrush()
 {
 	ID3D12GraphicsCommandList* l = _device->CommandList();
 
@@ -145,26 +156,26 @@ void TerrainPaintTool::DoBrush()
 	l->ResourceBarrier(1, &toSrv);
 }
 
-void TerrainPaintTool::TransitHitToWrite()
+void TerrainTool::TransitHitToWrite()
 {
 	auto b = CD3DX12_RESOURCE_BARRIER::Transition(_hitBuffer.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 	_device->CommandList()->ResourceBarrier(1, &b);
 }
 
-void TerrainPaintTool::TransitHitToRead()
+void TerrainTool::TransitHitToRead()
 {
 	auto b = CD3DX12_RESOURCE_BARRIER::Transition(_hitBuffer.Get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
 	_device->CommandList()->ResourceBarrier(1, &b);
 }
 
-void TerrainPaintTool::CreateHitBuffer()
+void TerrainTool::CreateHitBuffer()
 {
 	D3D12_RESOURCE_DESC desc = CD3DX12_RESOURCE_DESC::Buffer(sizeof(TerrainHit), D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
 	CD3DX12_HEAP_PROPERTIES heap(D3D12_HEAP_TYPE_DEFAULT);
 	ThrowIfFailed(_device->Device()->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, nullptr, IID_PPV_ARGS(_hitBuffer.GetAddressOf())));
 }
 
-void TerrainPaintTool::CreateSrvAndUAV()
+void TerrainTool::CreateSrvAndUAV()
 {
 	{
 		D3D12_SHADER_RESOURCE_VIEW_DESC srv = {};
@@ -200,7 +211,7 @@ void TerrainPaintTool::CreateSrvAndUAV()
 	}
 }
 
-void TerrainPaintTool::BuildPickPipeline()
+void TerrainTool::BuildPickPipeline()
 {
 	{
 		CD3DX12_DESCRIPTOR_RANGE heightRange;
@@ -243,7 +254,7 @@ void TerrainPaintTool::BuildPickPipeline()
 	}
 }
 
-void TerrainPaintTool::BuildRingPipeline()
+void TerrainTool::BuildRingPipeline()
 {
 	{
 		CD3DX12_DESCRIPTOR_RANGE depthRange;
@@ -315,7 +326,7 @@ void TerrainPaintTool::BuildRingPipeline()
 	}
 }
 
-void TerrainPaintTool::BuildBrushPipeline()
+void TerrainTool::BuildBrushPipeline()
 {
 	{
 		CD3DX12_DESCRIPTOR_RANGE uavRange;

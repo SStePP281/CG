@@ -170,7 +170,7 @@
     <ClCompile Include="TAA.cpp" />
     <ClCompile Include="TerrainRenderer.cpp" />
     <ClCompile Include="TerrainData.cpp" />
-    <ClCompile Include="TerrainPaintTool.cpp" />
+    <ClCompile Include="TerrainTool.cpp" />
     <ClCompile Include="TextureManager.cpp" />
     <ClCompile Include="VelocityBuffer.cpp" />
     <ClCompile Include="Window.cpp" />
@@ -189,6 +189,7 @@
     <ClInclude Include="..\..\ThirdParty\imgui\imstb_rectpack.h" />
     <ClInclude Include="..\..\ThirdParty\imgui\imstb_textedit.h" />
     <ClInclude Include="..\..\ThirdParty\imgui\imstb_truetype.h" />
+    <ClInclude Include="AASettingsSection.h" />
     <ClInclude Include="AntiAliasing.h" />
     <ClInclude Include="Application.h" />
     <ClInclude Include="AssetManager.h" />
@@ -196,6 +197,7 @@
     <ClInclude Include="DeferredReleaseQueue.h" />
     <ClInclude Include="DemoScene.h" />
     <ClInclude Include="DescriptorHeapAllocator.h" />
+    <ClInclude Include="DisplaySettingsSection.h" />
     <ClInclude Include="DLAA.h" />
     <ClInclude Include="Editor.h" />
     <ClInclude Include="FrameStats.h" />
@@ -208,7 +210,9 @@
     <ClInclude Include="MeshObject.h" />
     <ClInclude Include="Model.h" />
     <ClInclude Include="Octree.h" />
+    <ClInclude Include="ProjectSettingsPanel.h" />
     <ClInclude Include="ShaderTypes.h" />
+    <ClInclude Include="ShadowSettingsSection.h" />
     <ClInclude Include="SlotHandle.h" />
     <ClInclude Include="InfoPanel.h" />
     <ClInclude Include="IPanel.h" />
@@ -227,8 +231,8 @@
     <ClInclude Include="LunaDDSTextureLoader.h" />
     <ClInclude Include="MathHelper.h" />
     <ClInclude Include="TerrainData.h" />
-    <ClInclude Include="TerrainPaintTool.h" />
-    <ClInclude Include="TerrainPaintPanel.h" />
+    <ClInclude Include="TerrainTool.h" />
+    <ClInclude Include="TerrainToolPanel.h" />
     <ClInclude Include="World.h" />
     <ClInclude Include="PathManager.h" />
     <ClInclude Include="PostProcess.h" />
