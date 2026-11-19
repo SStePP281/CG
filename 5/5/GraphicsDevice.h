@@ -27,6 +27,8 @@ public:
 
     void Initialize(HWND hwnd, Resolution size, DXGI_FORMAT backBufferFormat);
 
+    void SetVSync(bool v) { _vsync = v; }
+
     ID3D12Device* Device() const { return _device.Get(); }
     ID3D12CommandQueue* Queue() const { return _queue.Get(); }
     ID3D12GraphicsCommandList* CommandList() const { return _cmdList.Get(); }
@@ -44,16 +46,20 @@ public:
     ID3D12Resource* BackBuffer() const { return _backBuffers[_backBufferIndex].Get(); }
     DescriptorRange BackBufferRtv() const { return _backBufferRtv.Sub(_backBufferIndex); }
     DXGI_FORMAT BackBufferFormat() const { return _backBufferFormat; }
+    Resolution BackBufferSize() const;
+
+    // Unique resolutions of the monitor the window is on, largest first.
+    std::vector<Resolution> SupportedResolutions() const;
 
     DescriptorAllocator& Srv() { return _srv; }
     DescriptorAllocator& Rtv() { return _rtv; }
     DescriptorAllocator& Dsv() { return _dsv; }
     DeferredReleaseQueue& Release() { return _release; }
-
-    // The old SRV range may still be read by frames in flight: retire it through the release queue and hand out a fresh one of the same size.
     DescriptorRange ReallocateSrv(DescriptorRange old) { _release.Push(nullptr, &_srv, old); return _srv.Allocate(old.Count()); }
 
 private:
+    UINT SwapChainFlags() const { return _tearingSupported ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0; }
+
     void CreateDevice();
     void CreateCommandObjects();
     void CreateDescriptorAllocators();
@@ -82,6 +88,9 @@ private:
 
     FrameContext _frames[FRAME_COUNT];
     UINT _frameIndex = 0;
+
+    bool _vsync = false;
+    bool _tearingSupported = false;
 
     ComPtr<IDXGISwapChain> _swapChain;
     std::vector<ComPtr<ID3D12Resource>> _backBuffers;

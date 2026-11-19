@@ -10,10 +10,10 @@
 #include "GraphicsDevice.h"
 #include "AssetManager.h"
 #include "World.h"
-#include "D3DFramework.h"
+#include "Renderer.h"
 #include "Editor.h"
 
-class D3DFramework;
+class Renderer;
 
 class Application
 {
@@ -25,6 +25,9 @@ public:
     Application& operator=(const Application&) = delete;
 
     bool Initialize();
+
+    void ApplyDisplaySettings();
+
     int Run();
 
 private:
@@ -33,16 +36,18 @@ private:
     HINSTANCE _hInstance = nullptr;
     GameTimer _timer;
 
+private:
+    RenderSettings _renderSettings;
+    DisplaySettings _appliedDisplay;
+
+private:
     std::unique_ptr<Window> _window;
     std::unique_ptr<Input> _input;
     std::unique_ptr<GraphicsDevice> _device;
     std::unique_ptr<AssetManager> _assets;
     std::unique_ptr<World> _world;
-    std::unique_ptr<D3DFramework> _framework;
+    std::unique_ptr<Renderer> _renderer;
     std::unique_ptr<Editor> _editor;
-
-private:
-    RenderSettings _renderSettings;
 };
 
 #endif // !APPLICATION_HPP

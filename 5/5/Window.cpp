@@ -3,7 +3,7 @@
 
 static const wchar_t* WINDOW_CLASS = L"EngineWindow";
 
-Window::Window(HINSTANCE hInstance, const std::wstring& title, Resolution size) : _hInstance(hInstance), _size(size)
+Window::Window(HINSTANCE hInstance, const std::wstring& title, DisplaySettings& settings) : _hInstance(hInstance), _size(settings.WindowSize)
 {
     WNDCLASSW wc = {};
     wc.style = CS_HREDRAW | CS_VREDRAW;
@@ -15,13 +15,15 @@ Window::Window(HINSTANCE hInstance, const std::wstring& title, Resolution size) 
     wc.lpszClassName = WINDOW_CLASS;
     RegisterClassW(&wc);
 
-    RECT r = { 0, 0, (LONG)size.Width, (LONG)size.Height };
+    RECT r = { 0, 0, (LONG)_size.Width, (LONG)_size.Height };
     AdjustWindowRect(&r, WS_OVERLAPPEDWINDOW, FALSE);
 
     _hwnd = CreateWindowW(WINDOW_CLASS, title.c_str(), WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, r.right - r.left, r.bottom - r.top, nullptr, nullptr, hInstance, this);
 
     ShowWindow(_hwnd, SW_SHOW);
     UpdateWindow(_hwnd);
+
+    if (settings.Fullscreen) { SetFullscreen(true); }
 }
 
 Window::~Window()
@@ -40,6 +42,39 @@ bool Window::PumpMessages()
         DispatchMessage(&msg);
     }
     return true;
+}
+
+void Window::SetClientSize(Resolution size)
+{
+    if (_fullscreen) { return; }
+
+    RECT r = { 0, 0, (LONG)size.Width, (LONG)size.Height };
+    AdjustWindowRect(&r, WS_OVERLAPPEDWINDOW, FALSE);
+    SetWindowPos(_hwnd, nullptr, 0, 0, r.right - r.left, r.bottom - r.top, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+}
+
+void Window::SetFullscreen(bool fullscreen)
+{
+    if (_fullscreen == fullscreen) { return; }
+    _fullscreen = fullscreen;
+
+    if (fullscreen)
+    {
+        GetWindowRect(_hwnd, &_windowedRect);
+
+        MONITORINFO mi = { sizeof(mi) };
+        GetMonitorInfo(MonitorFromWindow(_hwnd, MONITOR_DEFAULTTONEAREST), &mi);
+        const RECT& m = mi.rcMonitor;
+
+        SetWindowLongPtr(_hwnd, GWL_STYLE, WS_POPUP | WS_VISIBLE);
+        SetWindowPos(_hwnd, HWND_TOP, m.left, m.top, m.right - m.left, m.bottom - m.top, SWP_FRAMECHANGED | SWP_NOOWNERZORDER);
+    }
+    else
+    {
+        SetWindowLongPtr(_hwnd, GWL_STYLE, WS_OVERLAPPEDWINDOW | WS_VISIBLE);
+        const RECT& w = _windowedRect;
+        SetWindowPos(_hwnd, nullptr, w.left, w.top, w.right - w.left, w.bottom - w.top, SWP_FRAMECHANGED | SWP_NOZORDER | SWP_NOOWNERZORDER);
+    }
 }
 
 void Window::SetTitle(const std::wstring& title)

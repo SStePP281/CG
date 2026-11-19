@@ -1,5 +1,5 @@
-#ifndef D3D_FRAMEWORK_HPP
-#define D3D_FRAMEWORK_HPP
+#ifndef RENDERER_HPP
+#define RENDERER_HPP
 
 #include <memory>
 #include <vector>
@@ -48,6 +48,7 @@
 #include "AssetManager.h"
 #include "World.h"
 #include "Octree.h"
+#include "RenderView.h"
 
 class TAA; 
 class DLAA;
@@ -56,7 +57,6 @@ class NoAA;
 using Microsoft::WRL::ComPtr;
 using namespace DirectX;
 
-constexpr int MAX_DEBUG_LAYER_COUNT = 9;
 
 struct RenderItem
 {
@@ -80,11 +80,11 @@ struct RenderItem
     UINT ShadowInstanceOffset = 0;
 };
 
-class D3DFramework
+class Renderer
 {
 public:
-    D3DFramework(Window& window, Input& input, AssetManager& assets, World& world, GraphicsDevice& device, RenderSettings& renderSettings);
-    ~D3DFramework();
+    Renderer(Window& window, Input& input, AssetManager& assets, World& world, GraphicsDevice& device, RenderSettings& renderSettings);
+    ~Renderer();
 
     bool Initialize();
     void Update(const GameTimer& gt);
@@ -99,6 +99,10 @@ public:
 
     FrameResource* GetFrameResources() const { return _currFrameResource; }
     GBufferTexture& GetGBufferTextures(GBufferIndex index) const { return _gBuffer->Textures[(UINT)index]; }
+    DescriptorRange GetShadowSrv() const { return _shadowMap->SrvRange; }
+    DescriptorRange GetVelocitySrv() const { return _velocityBuffer->Previous().srv; }
+
+    void SetViewFlags(const ViewFlags& flags) { _view = flags; }
 
 private:
     float AspectRatio() const { return (float)_display.Width / _display.Height; }
@@ -106,8 +110,6 @@ private:
 
     void UpdateRenderResolution();
     void OnRenderResize();
-
-    void OnKeyboardInput(const GameTimer& gt);
     
     void CreatePPS();
 
@@ -214,37 +216,7 @@ private:
     DescriptorRange _iblSrv;
 
 private:
-    bool _isDebugMode = false;
-    bool _isTerrainDegub = false;
-    bool _isUseBeckmann = false;
-
-    std::vector<D3D12_RECT> BuildScissorRects(int K, Resolution res)
-    {
-        int cols = (int)ceilf(sqrtf((float)K));
-        int rows = (int)ceilf((float)K / cols);
-
-        int cellW = res.Width / cols;
-        int cellH = res.Height / rows;
-
-        std::vector<D3D12_RECT> rects;
-        rects.reserve(K);
-
-        for (int i = 0; i < K; i++)
-        {
-            int col = i % cols;
-            int row = i / cols;
-
-            D3D12_RECT r;
-            r.left = col * cellW;
-            r.top = row * cellH;
-            r.right = r.left + cellW;
-            r.bottom = r.top + cellH;
-
-            rects.push_back(r);
-        }
-
-        return rects;
-    }
+    ViewFlags _view;
 };
 
-#endif // !D3D_FRAMEWORK_HPP
+#endif // !RENDERER_HPP

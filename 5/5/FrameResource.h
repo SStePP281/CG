@@ -43,10 +43,10 @@ struct PassConstants
     float TotalTime = 0.0f;
     float DeltaTime = 0.0f;
 
-    int DebugMode = 0;
-    int DebugViewIndex = 0;
     int DebugUseBeckmann = 0;
     int TerrainDebug = 0;
+    int ViewMode = 0;   // ViewMode in RenderView.h
+    int Pad = 0;
 };
 
 struct TessellationConstant

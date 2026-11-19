@@ -9,7 +9,7 @@
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
-RenderGUI::RenderGUI(HWND hwnd, GraphicsDevice& device, UINT frameCount) : _srvAlloc(device.Srv())
+RenderGUI::RenderGUI(HWND hwnd, GraphicsDevice& device, UINT frameCount) : _device(device), _srvAlloc(device.Srv())
 {
     if (_initialized) { return; }
 
@@ -63,6 +63,16 @@ void RenderGUI::NewFrame()
 
     ImGui_ImplDX12_NewFrame();
     ImGui_ImplWin32_NewFrame();
+
+    // ImGui lays out and takes the mouse in window pixels; the back buffer can be smaller (fullscreen at a lower resolution).
+    // FramebufferScale maps window pixels to back buffer pixels for the DX12 backend's viewport and scissor rects.
+    ImGuiIO& io = ImGui::GetIO();
+    if (io.DisplaySize.x > 0.0f && io.DisplaySize.y > 0.0f)
+    {
+        Resolution bb = _device.BackBufferSize();
+        io.DisplayFramebufferScale = ImVec2(bb.Width / io.DisplaySize.x, bb.Height / io.DisplaySize.y);
+    }
+
     ImGui::NewFrame();
 
     if (!Visible) { return; }

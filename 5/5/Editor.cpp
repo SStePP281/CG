@@ -7,26 +7,32 @@
 #include "AASettingsSection.h"
 
 
-Editor::Editor(Window& window, Input& input, GraphicsDevice& device, World& world, AssetManager& asset, D3DFramework& framework, RenderSettings& renderSettings) :
-	_window(&window), _input(&input), _device(&device), _world(&world), _asset(&asset), _framework(&framework), _renderSettings(renderSettings)
+Editor::Editor(Window& window, Input& input, GraphicsDevice& device, World& world, AssetManager& asset, Renderer& renderer, RenderSettings& renderSettings) :
+	_window(&window), _input(&input), _device(&device), _world(&world), _asset(&asset), _renderer(&renderer), _renderSettings(renderSettings)
 {
 	_gui = std::make_unique<RenderGUI>(_window->Handle(), *_device, GraphicsDevice::FRAME_COUNT);
+
 	_window->MessageHook = [this](HWND h, UINT m, WPARAM w, LPARAM l)
 		{
 			return _gui && _gui->HandleMessage(h, m, w, l);
 		};
 
-	_gui->AddPanel<InfoPanel>(_framework->GetFrameStats(), _framework->GetFrameHistory());
-
-	_projectSettings = &_gui->AddPanel<ProjectSettingsPanel>();
-	_projectSettings->AddSection<DisplaySettingsSection>(_renderSettings.Display);
-	_projectSettings->AddSection<ShadowSettingsSection>(_renderSettings.Shadow);
-	_projectSettings->AddSection<AASettingsSection>(_renderSettings.AA);
-
-	if (TerrainData* terrain = _asset->GetTerrain(_world->Terrain()))
 	{
-		AddTool<TerrainTool>(*terrain, *_device, *_input, *_gui);
+		_gui->AddPanel<InfoPanel>(_renderer->GetFrameStats(), _renderer->GetFrameHistory());
 	}
+
+	{
+		_projectSettings = &_gui->AddPanel<ProjectSettingsPanel>();
+		_projectSettings->AddSection<DisplaySettingsSection>(_renderSettings.Display, _device->SupportedResolutions());
+		_projectSettings->AddSection<ShadowSettingsSection>(_renderSettings.Shadow);
+		_projectSettings->AddSection<AASettingsSection>(_renderSettings.AA);
+	}
+
+	{
+		if (TerrainData* terrain = _asset->GetTerrain(_world->Terrain())) { AddTool<TerrainTool>(*terrain, *_device, *_input, *_gui); }
+	}
+
+	_viewport = std::make_unique<EditorViewport>(*_input, *_device, *_world, *_renderer);
 }
 
 void Editor::Update(GameTimer& gt)
@@ -42,14 +48,14 @@ void Editor::Update(GameTimer& gt)
 
 	if (_activeTool) { _activeTool->Update(gt); }
 
-	UpdateCameraTransform(gt);
+	_viewport->Update(gt);
 }
 
 void Editor::PreDraw(GameTimer& gt)
 {
 	if (_activeTool)
 	{
-		_activeTool->PreDraw(gt, { *_device, *_framework, *_window });
+		_activeTool->PreDraw(gt, { *_device, *_renderer, *_window });
 	}
 }
 
@@ -60,7 +66,9 @@ void Editor::Draw()
 	auto backBuffer = _device->BackBufferRtv().Cpu();
 	l->OMSetRenderTargets(1, &backBuffer, TRUE, nullptr);
 
-	if (_activeTool) { _activeTool->DrawOverlay({ *_device, *_framework, *_window }); }
+	_viewport->Draw();
+
+	if (_activeTool) { _activeTool->DrawOverlay({ *_device, *_renderer, *_window }); }
 
 	_gui->Render(l);
 }
@@ -74,6 +82,8 @@ void Editor::DrawToolbar()
 		ImGui::MenuItem("Project Settings", nullptr, &_projectSettings->Open);
 		ImGui::EndMenu();
 	}
+
+	_viewport->DrawMenu();
 
 	if (ImGui::BeginMenu("Tools"))
 	{
@@ -104,52 +114,5 @@ void Editor::SetActiveTool(IEditorTool* tool)
 	{
 		_activeTool->OnActivate();
 		if (IPanel* p = _activeTool->Panel()) { p->Open = true; }
-	}
-}
-
-void Editor::UpdateCameraTransform(GameTimer& gt)
-{
-	Camera& cam = _world->MainCamera();
-
-	{
-		float notches = _input->Wheel();
-
-		if (notches != 0.0f && !_input->MouseCaptured)
-		{
-			bool ctrl = _input->IsDown(VK_CONTROL);
-			bool shift = _input->IsDown(VK_SHIFT);
-
-			if (!ctrl && !shift)
-			{
-				_cameraMoveSpeed *= powf(1.15f, notches);
-				_cameraMoveSpeed = MathHelper::Clamp(_cameraMoveSpeed, 0.5f, 5000.0f);
-			}
-		}
-	}
-
-	{
-		if (/*!_paintMode && */!_input->MouseCaptured && _input->IsDown(VK_RBUTTON))
-		{
-			XMFLOAT2 d = _input->MouseDelta();
-
-			cam.Yaw += XMConvertToRadians(_cameraRotateSpeed * d.x);
-			cam.Pitch -= XMConvertToRadians(_cameraRotateSpeed * d.y);
-			cam.Pitch = MathHelper::Clamp(cam.Pitch, -XM_PIDIV2 + 0.1f, XM_PIDIV2 - 0.1f);
-		}
-	}
-
-	{
-		float speed = _cameraMoveSpeed * gt.DeltaTime();
-
-		XMVECTOR pos = XMLoadFloat3(&cam.Position);
-		XMVECTOR forward = cam.Forward();
-		XMVECTOR right = cam.Right();
-
-		if (_input->IsDown('W')) { pos += speed * forward; }
-		if (_input->IsDown('S')) { pos -= speed * forward; }
-		if (_input->IsDown('A')) { pos -= speed * right; }
-		if (_input->IsDown('D')) { pos += speed * right; }
-
-		XMStoreFloat3(&cam.Position, pos);
 	}
 }

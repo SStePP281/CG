@@ -9,7 +9,7 @@
 class Window
 {
 public:
-    Window(HINSTANCE hInstance, const std::wstring& title, Resolution size);
+    Window(HINSTANCE hInstance, const std::wstring& title, DisplaySettings& settings);
     ~Window();
 
     Window(const Window&) = delete;
@@ -21,6 +21,10 @@ public:
     Resolution Size() const { return _size; }
     bool Minimized() const { return _minimized; }
     bool Active() const { return _active; }
+
+    void SetClientSize(Resolution size);
+    void SetFullscreen(bool fullscreen);
+    bool Fullscreen() const { return _fullscreen; }
 
     void SetTitle(const std::wstring& title);
 
@@ -35,6 +39,9 @@ private:
     HINSTANCE _hInstance = nullptr;
     HWND _hwnd = nullptr;
     Resolution _size;
+
+    bool _fullscreen = false;
+    RECT _windowedRect = {};
 
     bool _minimized = false;
     bool _resizing = false;

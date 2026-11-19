@@ -4,13 +4,13 @@
 #include "GameTimer.h"
 #include "Input.h"
 #include "GraphicsDevice.h"
-#include "D3DFramework.h"
+#include "Renderer.h"
 #include "IPanel.h"
 
 struct EditorFrameContext
 {
     GraphicsDevice& device;
-    D3DFramework& framework;
+    Renderer& renderer;
     Window& window;
 };
 

@@ -11,35 +11,7 @@ StructuredBuffer<Hit> gHit : register(t2);
 
 SamplerState gsamPointClamp : register(s1);
 
-cbuffer cbPass : register(b0)
-{
-    float4x4 gView;
-    float4x4 gInvView;
-    
-    float4x4 gProj;
-    float4x4 gInvProj;
-    
-    float4x4 gViewProj;
-    float4x4 gJitteredViewProj;
-    float4x4 gInvViewProj;
-    float4x4 gPrevViewProj;
-    
-    float3 gEyePosW;
-    float cbPerObjectPad1;
-    
-    float2 gRenderTargetSize;
-    float2 gInvRenderTargetSize;
-    
-    float gNearZ;
-    float gFarZ;
-    float gTotalTime;
-    float gDeltaTime;
-
-    int DebugMode;
-    int DebugViewIndex;
-    int DebugUseBeckmann;
-    int TerrainDebug;
-};
+#include "../Common.hlsli"
 
 cbuffer cbBrushRing : register(b1)
 {
@@ -54,17 +26,6 @@ struct VSOut
     float4 PosH : SV_POSITION;
     float2 TexC : TEXCOORD;
 };
-
-float3 ReconstructPosition(float2 texCoord, float depth)
-{
-    float x = texCoord.x * 2.0f - 1.0f;
-    float y = (1.0f - texCoord.y) * 2.0f - 1.0f;
-
-    float4 ndcPos = float4(x, y, depth, 1.0f);
-    float4 worldPos = mul(ndcPos, gInvViewProj);
-
-    return worldPos.xyz / worldPos.w;
-}
 
 VSOut VS(uint vid : SV_VertexID)
 {

@@ -2,7 +2,9 @@
 #include "ThrowIfFaild.h"
 #include <iostream>
 #include <cstring>
+#include <algorithm>
 #include <d3dx12.h>
+#include <dxgi1_5.h>
 
 GraphicsDevice::~GraphicsDevice()
 {
@@ -60,6 +62,14 @@ void GraphicsDevice::CreateDevice()
     }
 #endif
 
+    ComPtr<IDXGIFactory5> factory5;
+    if (SUCCEEDED(_factory.As(&factory5)))
+    {
+        BOOL allow = FALSE;
+        factory5->CheckFeatureSupport(DXGI_FEATURE_PRESENT_ALLOW_TEARING, &allow, sizeof(allow));
+        _tearingSupported = allow;
+    }
+
     ThrowIfFailed(_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&_fence)));
     _fenceEvent = CreateEventEx(nullptr, nullptr, 0, EVENT_ALL_ACCESS);
 }
@@ -90,20 +100,22 @@ void GraphicsDevice::CreateDescriptorAllocators()
 
 void GraphicsDevice::CreateSwapChain(HWND hwnd, Resolution size)
 {
-    DXGI_SWAP_CHAIN_DESC sd = {};
-    sd.BufferDesc.Width = size.Width;
-    sd.BufferDesc.Height = size.Height;
-    sd.BufferDesc.RefreshRate = { 60, 1 };
-    sd.BufferDesc.Format = _backBufferFormat;
+    DXGI_SWAP_CHAIN_DESC1 sd = {};
+    sd.Width = size.Width;
+    sd.Height = size.Height;
+    sd.Format = _backBufferFormat;
     sd.SampleDesc = { 1, 0 };
     sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
     sd.BufferCount = SWAPCHAIN_COUNT;
-    sd.OutputWindow = hwnd;
-    sd.Windowed = TRUE;
     sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
-    sd.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
+    sd.Scaling = DXGI_SCALING_STRETCH;   // back buffer smaller than the window (fullscreen at lower resolution) is stretched to fit
+    sd.Flags = SwapChainFlags();
 
-    ThrowIfFailed(_factory->CreateSwapChain(_queue.Get(), &sd, _swapChain.GetAddressOf()));
+    ComPtr<IDXGISwapChain1> swapChain1;
+    ThrowIfFailed(_factory->CreateSwapChainForHwnd(_queue.Get(), hwnd, &sd, nullptr, nullptr, &swapChain1));
+    ThrowIfFailed(swapChain1.As(&_swapChain));
+
+    _factory->MakeWindowAssociation(hwnd, DXGI_MWA_NO_ALT_ENTER);
 
     _backBuffers.resize(SWAPCHAIN_COUNT);
     _backBufferRtv = _rtv.Allocate(SWAPCHAIN_COUNT);
@@ -126,9 +138,36 @@ void GraphicsDevice::ResizeSwapChain(Resolution size)
 
     for (auto& b : _backBuffers) { b.Reset(); }
 
-    ThrowIfFailed(_swapChain->ResizeBuffers(SWAPCHAIN_COUNT, size.Width, size.Height, _backBufferFormat, DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH));
+    ThrowIfFailed(_swapChain->ResizeBuffers(SWAPCHAIN_COUNT, size.Width, size.Height, _backBufferFormat, SwapChainFlags()));
 
     CreateBackBufferViews();
+}
+
+Resolution GraphicsDevice::BackBufferSize() const
+{
+    const D3D12_RESOURCE_DESC desc = _backBuffers[0]->GetDesc();
+    return { (UINT)desc.Width, desc.Height };
+}
+
+std::vector<Resolution> GraphicsDevice::SupportedResolutions() const
+{
+    ComPtr<IDXGIOutput> output;
+    if (FAILED(_swapChain->GetContainingOutput(&output))) { return {}; }
+
+    UINT count = 0;
+    output->GetDisplayModeList(_backBufferFormat, 0, &count, nullptr);
+    std::vector<DXGI_MODE_DESC> modes(count);
+    output->GetDisplayModeList(_backBufferFormat, 0, &count, modes.data());
+
+    std::vector<Resolution> result;
+    for (const DXGI_MODE_DESC& m : modes)
+    {
+        Resolution r = { m.Width, m.Height };
+        if (std::find(result.begin(), result.end(), r) == result.end()) { result.push_back(r); }   // the same size repeats for every refresh rate
+    }
+
+    std::sort(result.begin(), result.end(), [](const Resolution& a, const Resolution& b) { return a.Width * a.Height > b.Width * b.Height; });
+    return result;
 }
 
 ID3D12GraphicsCommandList* GraphicsDevice::BeginFrame()
@@ -161,7 +200,9 @@ void GraphicsDevice::EndFrame()
     ID3D12CommandList* lists[] = { _cmdList.Get() };
     _queue->ExecuteCommandLists(1, lists);
 
-    ThrowIfFailed(_swapChain->Present(0, 0));
+    UINT interval = _vsync ? 1 : 0;
+    UINT flags = (!_vsync && _tearingSupported) ? DXGI_PRESENT_ALLOW_TEARING : 0;
+    ThrowIfFailed(_swapChain->Present(interval, flags));
     _backBufferIndex = (_backBufferIndex + 1) % SWAPCHAIN_COUNT;
 
     _frames[_frameIndex].Fence = ++_currentFence;

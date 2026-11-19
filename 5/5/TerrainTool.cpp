@@ -59,7 +59,7 @@ void TerrainTool::PreDraw(const GameTimer& gt, const EditorFrameContext& ctx)
 	float x = 2.0f * m.x / display.Width - 1.0f;
 	float y = 1.0f - 2.0f * m.y / display.Height;
 
-	DoPick(ctx.framework.GetFrameResources()->PassCB->Resource()->GetGPUVirtualAddress(), x, y);
+	DoPick(ctx.renderer.GetFrameResources()->PassCB->Resource()->GetGPUVirtualAddress(), x, y);
 
 	if (!_input->MouseCaptured && _input->IsDown(VK_LBUTTON))
 	{
@@ -80,7 +80,7 @@ void TerrainTool::DrawOverlay(const EditorFrameContext& ctx)
 {
 	if (_mode == TerrainMode::Settings) { return; }
 
-	DoRing(ctx.framework.GetFrameResources()->PassCB->Resource()->GetGPUVirtualAddress(), ctx.framework.GetGBufferTextures(GBufferIndex::Depth).SRV);
+	DoRing(ctx.renderer.GetFrameResources()->PassCB->Resource()->GetGPUVirtualAddress(), ctx.renderer.GetGBufferTextures(GBufferIndex::Depth).SRV);
 }
 
 void TerrainTool::DoPick(D3D12_GPU_VIRTUAL_ADDRESS passCB, float mouseNdcX, float mouseNdcY)

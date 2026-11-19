@@ -51,6 +51,7 @@ private:
     bool _win32Initialized = false;
     bool _dx12Initialized = false;
 
+    GraphicsDevice& _device;
     DescriptorAllocator& _srvAlloc;
     std::vector<DescriptorRange> _imguiSrvs;
 

@@ -126,6 +126,7 @@
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <AdditionalIncludeDirectories>$(ProjectDir)..\..\DLSS\include;$(ProjectDir)..\..\ThirdParty\imgui;$(ProjectDir)..\..\ThirdParty\imgui\backends;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -148,7 +149,7 @@
     <ClCompile Include="Application.cpp" />
     <ClCompile Include="AssetManager.cpp" />
     <ClCompile Include="Camera.cpp" />
-    <ClCompile Include="D3DFramework.cpp" />
+    <ClCompile Include="Renderer.cpp" />
     <ClCompile Include="D3DUtil.cpp" />
     <ClCompile Include="DeferredReleaseQueue.cpp" />
     <ClCompile Include="DemoScene.cpp" />
@@ -171,6 +172,8 @@
     <ClCompile Include="TerrainRenderer.cpp" />
     <ClCompile Include="TerrainData.cpp" />
     <ClCompile Include="TerrainTool.cpp" />
+    <ClCompile Include="BufferVisualizer.cpp" />
+    <ClCompile Include="EditorViewport.cpp" />
     <ClCompile Include="TextureManager.cpp" />
     <ClCompile Include="VelocityBuffer.cpp" />
     <ClCompile Include="Window.cpp" />
@@ -222,7 +225,7 @@
     <ClInclude Include="RenderSettings.h" />
     <ClInclude Include="SlotPool.h" />
     <ClInclude Include="TAA.h" />
-    <ClInclude Include="D3DFramework.h" />
+    <ClInclude Include="Renderer.h" />
     <ClInclude Include="D3DUtil.h" />
     <ClInclude Include="FrameResource.h" />
     <ClInclude Include="GameTimer.h" />
@@ -233,6 +236,9 @@
     <ClInclude Include="TerrainData.h" />
     <ClInclude Include="TerrainTool.h" />
     <ClInclude Include="TerrainToolPanel.h" />
+    <ClInclude Include="BufferVisualizer.h" />
+    <ClInclude Include="EditorViewport.h" />
+    <ClInclude Include="RenderView.h" />
     <ClInclude Include="World.h" />
     <ClInclude Include="PathManager.h" />
     <ClInclude Include="PostProcess.h" />
@@ -247,56 +253,64 @@
     <ClInclude Include="Window.h" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="..\Shaders\GBuffer.hlsl">
+    <None Include="..\Shaders\Common.hlsli">
       <FileType>Document</FileType>
     </None>
-    <None Include="..\Shaders\GBufferCommon.hlsl">
-      <FileType>Document</FileType>
-    </None>
-    <None Include="..\Shaders\GBufferDS.hlsl">
-      <FileType>Document</FileType>
-    </None>
-    <None Include="..\Shaders\GBufferHS.hlsl">
+    <None Include="..\Shaders\Shadow.hlsli">
       <FileType>Document</FileType>
     </None>
     <None Include="..\Shaders\LightingUtil.hlsl">
       <FileType>Document</FileType>
     </None>
+    <None Include="..\Shaders\GBufferCommon.hlsl">
+      <FileType>Document</FileType>
+    </None>
+    <None Include="..\Shaders\GBuffer.hlsl">
+      <FileType>Document</FileType>
+    </None>
+    <None Include="..\Shaders\GBufferHS.hlsl">
+      <FileType>Document</FileType>
+    </None>
+    <None Include="..\Shaders\GBufferDS.hlsl">
+      <FileType>Document</FileType>
+    </None>
     <None Include="..\Shaders\LightPass.hlsl">
-      <FileType>Document</FileType>
-    </None>
-    <None Include="..\Shaders\PostProcess\Outline.hlsl">
-      <FileType>Document</FileType>
-    </None>
-    <None Include="..\Shaders\PostProcess\PPSUtil.hlsl">
-      <FileType>Document</FileType>
-    </None>
-    <None Include="..\Shaders\PostProcess\TextureOverlay.hlsl">
-      <FileType>Document</FileType>
-    </None>
-    <None Include="..\Shaders\PostProcess\ToneMapping.hlsl">
       <FileType>Document</FileType>
     </None>
     <None Include="..\Shaders\Shadow.hlsl">
       <FileType>Document</FileType>
     </None>
-    <None Include="..\Shaders\Terrain\Terrain.hlsl">
+    <None Include="..\Shaders\TAA.hlsl">
       <FileType>Document</FileType>
     </None>
-    <None Include="..\Shaders\Terrain\TerrainBrush.hlsl">
+    <None Include="..\Shaders\PostProcess\PPSUtil.hlsl">
+      <FileType>Document</FileType>
+    </None>
+    <None Include="..\Shaders\PostProcess\ToneMapping.hlsl">
+      <FileType>Document</FileType>
+    </None>
+    <None Include="..\Shaders\PostProcess\Outline.hlsl">
+      <FileType>Document</FileType>
+    </None>
+    <None Include="..\Shaders\PostProcess\CellShader.hlsl">
+      <FileType>Document</FileType>
+    </None>
+    <None Include="..\Shaders\PostProcess\TextureOverlay.hlsl">
+      <FileType>Document</FileType>
+    </None>
+    <None Include="..\Shaders\Terrain\Terrain.hlsl">
       <FileType>Document</FileType>
     </None>
     <None Include="..\Shaders\Terrain\TerrainPick.hlsl">
       <FileType>Document</FileType>
     </None>
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="..\Shaders\TAA.hlsl">
+    <None Include="..\Shaders\Terrain\TerrainBrush.hlsl">
       <FileType>Document</FileType>
     </None>
-  </ItemGroup>
-  <ItemGroup>
     <None Include="..\Shaders\Terrain\TerrainRing.hlsl">
+      <FileType>Document</FileType>
+    </None>
+    <None Include="..\Shaders\Editor\BufferViewer.hlsl">
       <FileType>Document</FileType>
     </None>
   </ItemGroup>

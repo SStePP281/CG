@@ -1,21 +1,15 @@
 #include "LightingUtil.hlsl"
-
-static const float3 CASCADES_COLORS[CASCADES_COUNT] =
-{
-    { 1.0f, 0.0f, 0.0f },
-    { 0.0f, 1.0f, 0.0f },
-    { 0.0f, 0.0f, 1.0f }
-};
+#include "Common.hlsli"
+#include "Shadow.hlsli"
 
 static const float MAX_REFLECTION_LOD = 4.0f;
 
 Texture2D gAlbedo : register(t0);
 Texture2D gNormal : register(t1);
-Texture2D gMatData : register(t2); // metallic, roughness, AO
+Texture2D gMatData : register(t2);
 Texture2D gDepth : register(t3);
 
 StructuredBuffer<Light> gLights : register(t4);
-Texture2DArray gShadowMap : register(t5);
 
 TextureCube gIrradianceMap : register(t6);
 TextureCube gPrefilteredEnv : register(t7);
@@ -29,37 +23,6 @@ SamplerState gsamLinearWrap : register(s2);
 SamplerState gsamLinearClamp : register(s3);
 SamplerState gsamAnisotropicWrap : register(s4);
 SamplerState gsamAnisotropicClamp : register(s5);
-SamplerComparisonState gsamShadow : register(s6);
-
-cbuffer cbPass : register(b0)
-{
-    float4x4 gView;
-    float4x4 gInvView;
-    
-    float4x4 gProj;
-    float4x4 gInvProj;
-    
-    float4x4 gViewProj;
-    float4x4 gJitteredViewProj;
-    float4x4 gInvViewProj;
-    float4x4 gPrevViewProj;
-    
-    float3 gEyePosW;
-    float cbPerObjectPad1;
-    
-    float2 gRenderTargetSize;
-    float2 gInvRenderTargetSize;
-    
-    float gNearZ;
-    float gFarZ;
-    float gTotalTime;
-    float gDeltaTime;
-
-    int DebugMode;
-    int DebugViewIndex;
-    int DebugUseBeckmann;
-    int TerrainDebug;
-};
 
 cbuffer cbLightInfo : register(b1)
 {
@@ -69,85 +32,11 @@ cbuffer cbLightInfo : register(b1)
     int pad;
 };
 
-struct CascadeData
-{
-    float4x4 gLightViewProj;
-    float4x4 gShadowTransform;
-    float4 gDistances;
-    float4 padding[7];
-};
-
-cbuffer cbShadow : register(b2)
-{
-    CascadeData gCascades[CASCADES_COUNT];
-};
-
 struct VSOut
 {
     float4 PosH : SV_POSITION;
     float2 TexC : TEXCOORD;
 };
-
-float3 ReconstructPosition(float2 texCoord, float depth)
-{
-    float x = texCoord.x * 2.0f - 1.0f;
-    float y = (1.0f - texCoord.y) * 2.0f - 1.0f;
-
-    float4 ndcPos = float4(x, y, depth, 1.0f);
-    float4 worldPos = mul(ndcPos, gInvViewProj);
-
-    return worldPos.xyz / worldPos.w;
-}
-
-uint GetCascadesLayer(float viewZ)
-{
-    uint cascade = 0;
-    
-    [unroll]
-    for (uint j = 0; j < CASCADES_COUNT - 1; j++)
-    {
-        if (viewZ > gCascades[0].gDistances[j])
-        {
-            cascade = j + 1;
-        }
-    }
-    
-    return min(cascade, (uint) (CASCADES_COUNT - 1));
-}
-
-float CalcShadow(float3 posW, float viewZ)
-{
-    uint cascade = GetCascadesLayer(viewZ);
-
-    float4 shadowPos = mul(float4(posW, 1.0f), gCascades[cascade].gShadowTransform);
-    shadowPos.xyz /= shadowPos.w;
-
-    if (shadowPos.x < 0.0f || shadowPos.x > 1.0f || shadowPos.y < 0.0f || shadowPos.y > 1.0f)
-    {
-        return 1.0f;
-    }
-
-    float width, height, elements;
-    gShadowMap.GetDimensions(width, height, elements);
-    float2 dx = 1.0f / float2(width, height);
-
-    float shadow = 0.0f;
-    [unroll]
-    for (int x = -1; x <= 1; x++)
-    {
-        [unroll]
-        for (int y = -1; y <= 1; y++)
-        {
-            float2 offset = float2(x, y) * dx;
-            shadow += gShadowMap.SampleCmpLevelZero(
-                gsamShadow,
-                float3(shadowPos.xy + offset, (float) cascade),
-                shadowPos.z - 0.001f
-            );
-        }
-    }
-    return shadow / 9.0f;
-}
 
 float3 CalculatePBRLighting(float3 N, float3 V, float3 posW, Material mat, float shadowFactor)
 {
@@ -226,6 +115,11 @@ float4 PS(VSOut pin) : SV_Target
     float roughness = matData.g;
     float ao = matData.b;
 
+    if (gViewMode == VIEWMODE_UNLIT || gViewMode == VIEWMODE_WIREFRAME)
+    {
+        return float4(albedo, 1.0f);
+    }
+
     float3 V = normalize(gEyePosW - posW);
 
     Material mat;
@@ -235,6 +129,13 @@ float4 PS(VSOut pin) : SV_Target
     mat.AO = ao;
     mat.UseBeckmann = DebugUseBeckmann;
 
+    if (gViewMode == VIEWMODE_LIGHTING_ONLY)
+    {
+        // Grey clay: only light and shadow are visible.
+        mat.Albedo = float3(0.5f, 0.5f, 0.5f);
+        mat.Metallic = 0.0f;
+    }
+
     float shadowFactor = gShadowsEnabled ? CalcShadow(posW, viewZ) : 1.0f;
 
     float3 Lo = CalculatePBRLighting(N, V, posW, mat, shadowFactor);
@@ -242,39 +143,6 @@ float4 PS(VSOut pin) : SV_Target
     float3 IBL = CalculateIBLAmbient(N, V, mat);
 
     float3 color = IBL * gIBLIntensity + Lo;
-
-    if (DebugMode)
-    {
-        switch (DebugViewIndex)
-        {
-            case 0:
-                break;
-            case 1:
-                return float4(albedo, 1.0f);
-            case 2:
-                return float4(N * 0.5f + 0.5f, 1.0f);
-            case 3:
-                return float4(depth.xxx, 1.0f);
-            case 4:
-                return float4(metallic.xxx, 1.0f);
-            case 5:
-                return float4(roughness.xxx, 1.0f);
-            case 6:
-                return float4(ao.xxx, 1.0f);
-            case 7:
-            {
-                    uint cascade = GetCascadesLayer(viewZ);
-                    float3 cascadeColor = CASCADES_COLORS[cascade];
-                    float shadowMask = 1.0f - shadowFactor;
-                    return float4(color + cascadeColor * shadowMask * 0.3f, 1.0f);
-                }
-            case 8:
-                float2 v = gVelocity.Sample(gsamPointClamp, pin.TexC).xy;
-                return float4(abs(v) * 100.0f, 0.0f, 1.0f);
-            default:
-                return float4(1.0f, 0.0f, 1.0f, 1.0f);
-        }
-    }
 
     return float4(color, 1.0f);
 }

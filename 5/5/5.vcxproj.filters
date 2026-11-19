@@ -1,6 +1,15 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
+    <Filter Include="Shaders\Lighting">
+      <UniqueIdentifier>{c0e28f15-45f2-4ecc-9317-f739fcdfdede}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Shaders\AntiAliasing">
+      <UniqueIdentifier>{c1f78048-4117-49e0-82c2-040faf3419b0}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Shaders\Editor">
+      <UniqueIdentifier>{39210e14-9196-4e3e-b1e7-d45f0902674b}</UniqueIdentifier>
+    </Filter>
     <Filter Include="App">
       <UniqueIdentifier>{f9ffb450-c210-4e1f-b652-22e70a172f01}</UniqueIdentifier>
     </Filter>
@@ -67,6 +76,9 @@
     <Filter Include="Editor\EditorTool\Terrain">
       <UniqueIdentifier>{a3c1e504-a9ac-41d2-a9c8-d95f24e27da5}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Editor\Viewport">
+      <UniqueIdentifier>{5841ab43-9968-4eb3-b33f-3530a3bc3cc5}</UniqueIdentifier>
+    </Filter>
     <Filter Include="Editor\Panels\Settings">
       <UniqueIdentifier>{1d4f193d-b570-4ffa-9d1f-2899be186ab5}</UniqueIdentifier>
     </Filter>
@@ -126,7 +138,7 @@
     <ClCompile Include="Camera.cpp">
       <Filter>Scene</Filter>
     </ClCompile>
-    <ClCompile Include="D3DFramework.cpp">
+    <ClCompile Include="Renderer.cpp">
       <Filter>Renderer</Filter>
     </ClCompile>
     <ClCompile Include="FrameResource.cpp">
@@ -182,6 +194,12 @@
     </ClCompile>
     <ClCompile Include="RenderGUI.cpp">
       <Filter>Editor\Panels\_Base</Filter>
+    </ClCompile>
+    <ClCompile Include="EditorViewport.cpp">
+      <Filter>Editor\Viewport</Filter>
+    </ClCompile>
+    <ClCompile Include="BufferVisualizer.cpp">
+      <Filter>Editor\Viewport</Filter>
     </ClCompile>
     <ClCompile Include="TerrainTool.cpp">
       <Filter>Editor\EditorTool\Terrain</Filter>
@@ -281,7 +299,7 @@
     <ClInclude Include="Octree.h">
       <Filter>Scene</Filter>
     </ClInclude>
-    <ClInclude Include="D3DFramework.h">
+    <ClInclude Include="Renderer.h">
       <Filter>Renderer</Filter>
     </ClInclude>
     <ClInclude Include="FrameResource.h">
@@ -362,6 +380,15 @@
     <ClInclude Include="IEditorTool.h">
       <Filter>Editor\EditorTool\_Base</Filter>
     </ClInclude>
+    <ClInclude Include="EditorViewport.h">
+      <Filter>Editor\Viewport</Filter>
+    </ClInclude>
+    <ClInclude Include="BufferVisualizer.h">
+      <Filter>Editor\Viewport</Filter>
+    </ClInclude>
+    <ClInclude Include="RenderView.h">
+      <Filter>Renderer</Filter>
+    </ClInclude>
     <ClInclude Include="TerrainTool.h">
       <Filter>Editor\EditorTool\Terrain</Filter>
     </ClInclude>
@@ -388,10 +415,19 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <None Include="..\Shaders\GBufferCommon.hlsl">
+    <None Include="packages.config" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\Shaders\Common.hlsli">
+      <Filter>Shaders\Common</Filter>
+    </None>
+    <None Include="..\Shaders\Shadow.hlsli">
       <Filter>Shaders\Common</Filter>
     </None>
     <None Include="..\Shaders\LightingUtil.hlsl">
+      <Filter>Shaders\Common</Filter>
+    </None>
+    <None Include="..\Shaders\GBufferCommon.hlsl">
       <Filter>Shaders\Common</Filter>
     </None>
     <None Include="..\Shaders\GBuffer.hlsl">
@@ -404,22 +440,13 @@
       <Filter>Shaders\GBuffer</Filter>
     </None>
     <None Include="..\Shaders\LightPass.hlsl">
-      <Filter>Shaders</Filter>
+      <Filter>Shaders\Lighting</Filter>
     </None>
     <None Include="..\Shaders\Shadow.hlsl">
-      <Filter>Shaders</Filter>
+      <Filter>Shaders\Lighting</Filter>
     </None>
     <None Include="..\Shaders\TAA.hlsl">
-      <Filter>Shaders</Filter>
-    </None>
-    <None Include="..\Shaders\Terrain\Terrain.hlsl">
-      <Filter>Shaders\Terrain</Filter>
-    </None>
-    <None Include="..\Shaders\Terrain\TerrainBrush.hlsl">
-      <Filter>Shaders\Terrain</Filter>
-    </None>
-    <None Include="..\Shaders\Terrain\TerrainPick.hlsl">
-      <Filter>Shaders\Terrain</Filter>
+      <Filter>Shaders\AntiAliasing</Filter>
     </None>
     <None Include="..\Shaders\PostProcess\PPSUtil.hlsl">
       <Filter>Shaders\PostProcess</Filter>
@@ -427,15 +454,29 @@
     <None Include="..\Shaders\PostProcess\ToneMapping.hlsl">
       <Filter>Shaders\PostProcess</Filter>
     </None>
-    <None Include="..\Shaders\PostProcess\TextureOverlay.hlsl">
-      <Filter>Shaders\PostProcess</Filter>
-    </None>
     <None Include="..\Shaders\PostProcess\Outline.hlsl">
       <Filter>Shaders\PostProcess</Filter>
     </None>
-    <None Include="packages.config" />
+    <None Include="..\Shaders\PostProcess\CellShader.hlsl">
+      <Filter>Shaders\PostProcess</Filter>
+    </None>
+    <None Include="..\Shaders\PostProcess\TextureOverlay.hlsl">
+      <Filter>Shaders\PostProcess</Filter>
+    </None>
+    <None Include="..\Shaders\Terrain\Terrain.hlsl">
+      <Filter>Shaders\Terrain</Filter>
+    </None>
+    <None Include="..\Shaders\Terrain\TerrainPick.hlsl">
+      <Filter>Shaders\Terrain</Filter>
+    </None>
+    <None Include="..\Shaders\Terrain\TerrainBrush.hlsl">
+      <Filter>Shaders\Terrain</Filter>
+    </None>
     <None Include="..\Shaders\Terrain\TerrainRing.hlsl">
       <Filter>Shaders\Terrain</Filter>
+    </None>
+    <None Include="..\Shaders\Editor\BufferViewer.hlsl">
+      <Filter>Shaders\Editor</Filter>
     </None>
   </ItemGroup>
 </Project>

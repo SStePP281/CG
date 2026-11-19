@@ -1,6 +1,6 @@
 ﻿#define NOMINMAX
 
-#include "D3DFramework.h"
+#include "Renderer.h"
 
 #include <cmath>
 #include <iostream>
@@ -24,15 +24,15 @@
 
 using namespace DirectX;
 
-D3DFramework::D3DFramework(Window& window, Input& input, AssetManager& assets, World& world, GraphicsDevice& device, RenderSettings& renderSettings) :
+Renderer::Renderer(Window& window, Input& input, AssetManager& assets, World& world, GraphicsDevice& device, RenderSettings& renderSettings) :
 	_window(&window), _input(input), _assets(&assets), _world(&world), _device(&device), _renderSettings(renderSettings)
 {
 	UpdateRenderResolution();
 }
 
-D3DFramework::~D3DFramework() { if (_device) { _device->Flush(); } }
+Renderer::~Renderer() { if (_device) { _device->Flush(); } }
 
-bool D3DFramework::Initialize()
+bool Renderer::Initialize()
 {
 	_device->BeginImmediate();
 
@@ -53,7 +53,7 @@ bool D3DFramework::Initialize()
 
 		_currentAA = GetAAByMode(_renderSettings.AA.Mode);
 
-		OnDisplayResize(_window->Size());
+		OnDisplayResize(_device->BackBufferSize());   // in fullscreen the back buffer can be smaller than the window
 
 		_noAA->OnResize(*_device, _renderSettings.AA, _display);
 		_TAA->OnResize(*_device, _renderSettings.AA, _display);
@@ -94,12 +94,12 @@ bool D3DFramework::Initialize()
 	return true;
 }
 
-void D3DFramework::UpdateRenderResolution()
+void Renderer::UpdateRenderResolution()
 {
 	_render = _currentAA ? _currentAA->ComputeRenderResolution(_renderSettings.AA, _display) : _display;
 }
 
-void D3DFramework::OnDisplayResize(Resolution display)
+void Renderer::OnDisplayResize(Resolution display)
 {
 	_display = display;
 
@@ -110,7 +110,7 @@ void D3DFramework::OnDisplayResize(Resolution display)
 	OnRenderResize();
 }
 
-void D3DFramework::ApplySettings()
+void Renderer::ApplySettings()
 {
 	if (_renderSettings.Shadow != _applied.Shadow)
 	{
@@ -131,16 +131,6 @@ void D3DFramework::ApplySettings()
 		_applied.AA = _renderSettings.AA;
 	}
 
-	if (_renderSettings.Display != _applied.Display)
-	{
-		if (_renderSettings.Display.WindowSize != _applied.Display.WindowSize)
-		{
-			OnRenderResize();
-		}
-
-		_applied.Display = _renderSettings.Display;
-	}
-
 	const TerrainData* terrainData = _assets->GetTerrain(_world->Terrain());
 	if (_terrain->NeedsRebuild(terrainData))
 	{
@@ -148,7 +138,7 @@ void D3DFramework::ApplySettings()
 	}
 }
 
-void D3DFramework::OnRenderResize()
+void Renderer::OnRenderResize()
 {
 	_renderViewport = _screenViewport;
 	_renderViewport.Width = (float)_render.Width;
@@ -168,7 +158,7 @@ void D3DFramework::OnRenderResize()
 	if (_currentAA != nullptr) { _currentAA->ResetHistory(); }
 }
 
-void D3DFramework::Update(const GameTimer& gt)
+void Renderer::Update(const GameTimer& gt)
 {
 	_currFrameResource = _frameResources[_device->FrameIndex()].get();
 
@@ -181,7 +171,6 @@ void D3DFramework::Update(const GameTimer& gt)
 	_frameStats.RtvCapacity = _device->Rtv().Capacity();
 
 	ApplySettings();
-	OnKeyboardInput(gt);
 
 	AnimateMaterials(gt);
 	AnimateLight(gt);
@@ -195,7 +184,7 @@ void D3DFramework::Update(const GameTimer& gt)
 	UpdateInstanceData(gt);
 }
 
-void D3DFramework::Draw(const GameTimer& gt)
+void Renderer::Draw(const GameTimer& gt)
 {
 	ID3D12GraphicsCommandList* l = _device->CommandList();
 
@@ -259,13 +248,13 @@ void D3DFramework::Draw(const GameTimer& gt)
 	l->ResourceBarrier(1, &toRT);
 
 	float clearColor[4] = { 0, 0, 0, 1 };
-	auto hdrRTV = _isDebugMode ? _device->BackBufferRtv().Cpu() : _ppChain->GetHDRRtv().Cpu();
+	auto hdrRTV = _ppChain->GetHDRRtv().Cpu();
 	l->ClearRenderTargetView(hdrRTV, clearColor, 0, nullptr);
 
 	D3D12_CPU_DESCRIPTOR_HANDLE depth = _gBuffer->Textures[(UINT)GBufferIndex::Depth].DSV.Cpu();
 	l->OMSetRenderTargets(1, &hdrRTV, FALSE, &depth);
 
-	l->SetPipelineState(_psos[_isDebugMode ? "lightPassDebug" : "lightPass"].Get());
+	l->SetPipelineState(_psos["lightPass"].Get());
 	l->SetGraphicsRootSignature(_rootSignatureLightPass.Get());
 
 	auto& gb = _gBuffer->Textures;
@@ -291,40 +280,12 @@ void D3DFramework::Draw(const GameTimer& gt)
 	l->IASetIndexBuffer(nullptr);
 	l->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-	if (_isDebugMode)
-	{
-		// Debug пишет прямо в backbuffer (Display)
-		l->RSSetViewports(1, &_screenViewport);
+	l->RSSetViewports(1, &_renderViewport);
+	l->RSSetScissorRects(1, &_renderScissor);
 
-		std::vector<D3D12_RECT> scissorRects = BuildScissorRects(MAX_DEBUG_LAYER_COUNT, _display);
+	l->SetGraphicsRootConstantBufferView(5, _currFrameResource->PassCB->Resource()->GetGPUVirtualAddress());
 
-		UINT passElementSize = D3DUtil::CalcConstantBufferSize(sizeof(PassConstants));
-
-		for (int i = 0; i < MAX_DEBUG_LAYER_COUNT; i++)
-		{
-			PassConstants debugCB = _mainPassCB;
-			debugCB.DebugMode = 1;
-			debugCB.DebugViewIndex = i;
-
-			_currFrameResource->PassCB->CopyData(i, debugCB);
-
-			l->SetGraphicsRootConstantBufferView(5, _currFrameResource->PassCB->Resource()->GetGPUVirtualAddress() + i * passElementSize);
-			l->RSSetScissorRects(1, &scissorRects[i]);
-			l->DrawInstanced(3, 1, 0, 0);
-		}
-	}
-	else
-	{
-		l->RSSetViewports(1, &_renderViewport);
-		l->RSSetScissorRects(1, &_renderScissor);
-
-		_mainPassCB.DebugMode = 0;
-		_currFrameResource->PassCB->CopyData(0, _mainPassCB);
-
-		l->SetGraphicsRootConstantBufferView(5, _currFrameResource->PassCB->Resource()->GetGPUVirtualAddress());
-
-		l->DrawInstanced(3, 1, 0, 0);
-	}
+	l->DrawInstanced(3, 1, 0, 0);
 
 	auto toSRV = CD3DX12_RESOURCE_BARRIER::Transition(_ppChain->GetHDRBuffer(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
 	l->ResourceBarrier(1, &toSRV);
@@ -344,41 +305,17 @@ void D3DFramework::Draw(const GameTimer& gt)
 
 	////POST_PROCESS
 
-	if (!_isDebugMode)
-	{
-		l->RSSetViewports(1, &_screenViewport);
-		l->RSSetScissorRects(1, &_scissorRect);
+	l->RSSetViewports(1, &_screenViewport);
+	l->RSSetScissorRects(1, &_scissorRect);
 
-		_ppChain->ExecuteAll(l, _currentAA->OutputSrv(), _device->BackBufferRtv());
-	}
+	_ppChain->ExecuteAll(l, _currentAA->OutputSrv(), _device->BackBufferRtv());
 
 	//PRESENT
 
 	_velocityBuffer->Swap();
 }
 
-void D3DFramework::OnKeyboardInput(const GameTimer& gt)
-{
-	if (_input.WasPressed(VK_F1))
-	{
-		_isDebugMode = !_isDebugMode;
-		Sleep(200);
-	}
-
-	if (_input.WasPressed(VK_F2))
-	{
-		_isUseBeckmann = !_isUseBeckmann;
-		Sleep(200);
-	}
-
-	if (_input.WasPressed(VK_F3))
-	{
-		_isTerrainDegub = !_isTerrainDegub;
-		Sleep(200);
-	}
-}
-
-void D3DFramework::AnimateMaterials(const GameTimer& gt)
+void Renderer::AnimateMaterials(const GameTimer& gt)
 {
 	//float t = gt.TotalTime();
 
@@ -394,7 +331,7 @@ void D3DFramework::AnimateMaterials(const GameTimer& gt)
 	//}
 }
 
-void D3DFramework::AnimateLight(const GameTimer& gt)
+void Renderer::AnimateLight(const GameTimer& gt)
 {
 	//float angle = gt.TotalTime() * 0.314f + XM_PIDIV4;
 
@@ -409,7 +346,7 @@ void D3DFramework::AnimateLight(const GameTimer& gt)
 	//}
 }
 
-void D3DFramework::UpdateMaterialCBs(const GameTimer& gt)
+void Renderer::UpdateMaterialCBs(const GameTimer& gt)
 {
 	auto currMaterialCB = _currFrameResource->MaterialCB.get();
 
@@ -428,7 +365,7 @@ void D3DFramework::UpdateMaterialCBs(const GameTimer& gt)
 		});
 }
 
-void D3DFramework::UpdateMainPassCB(const GameTimer& gt)
+void Renderer::UpdateMainPassCB(const GameTimer& gt)
 {
 	Camera& cam = _world->MainCamera();
 
@@ -469,9 +406,9 @@ void D3DFramework::UpdateMainPassCB(const GameTimer& gt)
 	_mainPassCB.FarZ = 1000.0f;
 	_mainPassCB.TotalTime = gt.TotalTime();
 	_mainPassCB.DeltaTime = gt.DeltaTime();
-	_mainPassCB.DebugMode = _isDebugMode ? 1 : 0;
-	_mainPassCB.DebugUseBeckmann = _isUseBeckmann ? 1 : 0;
-	_mainPassCB.TerrainDebug = _isTerrainDegub ? 1 : 0;
+	_mainPassCB.DebugUseBeckmann = 0;
+	_mainPassCB.TerrainDebug = _view.Mode == ViewMode::Wireframe ? 1 : 0;   // LOD colors on the terrain wireframe
+	_mainPassCB.ViewMode = (int)_view.Mode;
 
 	auto currPassCB = _currFrameResource->PassCB.get();
 	currPassCB->CopyData(0, _mainPassCB);
@@ -485,7 +422,7 @@ void D3DFramework::UpdateMainPassCB(const GameTimer& gt)
 	dispCB->CopyData(0, disp);
 }
 
-void D3DFramework::UpdateLightSB(const GameTimer& gt)
+void Renderer::UpdateLightSB(const GameTimer& gt)
 {
 	auto* sb = _currFrameResource->LightSB.get();
 	UINT count = 0;
@@ -513,7 +450,7 @@ void D3DFramework::UpdateLightSB(const GameTimer& gt)
 	_currFrameResource->LightInfoCB->CopyData(0, info);
 }
 
-bool D3DFramework::ShadowsActive() const
+bool Renderer::ShadowsActive() const
 {
 	if (!_renderSettings.Shadow.EnableShadow) { return false; }
 
@@ -525,7 +462,7 @@ bool D3DFramework::ShadowsActive() const
 	return false;
 }
 
-void D3DFramework::UpdateShadowCB(const GameTimer& gt)
+void Renderer::UpdateShadowCB(const GameTimer& gt)
 {
 	const float cascadeNears[] = { 1.0f,  50.0f,  200.0f };
 	const float cascadeFars[] = { 50.0f, 200.0f, 1000.0f };
@@ -638,7 +575,7 @@ void D3DFramework::UpdateShadowCB(const GameTimer& gt)
 	}
 }
 
-void D3DFramework::UpdateTerrainCB(const GameTimer& gt)
+void Renderer::UpdateTerrainCB(const GameTimer& gt)
 {
 	const auto data = _terrain->Data();
 	if (!data) { return; }
@@ -682,7 +619,7 @@ void D3DFramework::UpdateTerrainCB(const GameTimer& gt)
 	for (const auto& t : _terrain->GetShadowTiles()) { writeTile(t); }
 }
 
-void D3DFramework::UpdateInstanceData(const GameTimer& gt)
+void Renderer::UpdateInstanceData(const GameTimer& gt)
 {
 	if (_world->Version() != _builtWorldVersion) { BuildRenderItems(); }
 
@@ -739,7 +676,7 @@ void D3DFramework::UpdateInstanceData(const GameTimer& gt)
 	assert(offset <= 10000 && "InstanceDataSB overflow");
 }
 
-void D3DFramework::BuildRootSignatureGBuffer()
+void Renderer::BuildRootSignatureGBuffer()
 {
 	CD3DX12_DESCRIPTOR_RANGE albedoRange; 
 	albedoRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
@@ -796,7 +733,7 @@ void D3DFramework::BuildRootSignatureGBuffer()
 	));
 }
 
-void D3DFramework::BuildRootSignatureLightPass()
+void Renderer::BuildRootSignatureLightPass()
 {
 	CD3DX12_DESCRIPTOR_RANGE albedoRange; 
 	albedoRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
@@ -858,7 +795,7 @@ void D3DFramework::BuildRootSignatureLightPass()
 		IID_PPV_ARGS(&_rootSignatureLightPass)));
 }
 
-void D3DFramework::BuildRootSignatureShadowPass()
+void Renderer::BuildRootSignatureShadowPass()
 {
 	CD3DX12_ROOT_PARAMETER slotRootParameter[2];
 	slotRootParameter[0].InitAsShaderResourceView(0, 1);
@@ -884,7 +821,7 @@ void D3DFramework::BuildRootSignatureShadowPass()
 	));
 }
 
-void D3DFramework::BuildRootSignatureTerrainPass()
+void Renderer::BuildRootSignatureTerrainPass()
 {
 	CD3DX12_DESCRIPTOR_RANGE texRange;
 	texRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 3, 0);   // 3 SRV
@@ -917,7 +854,7 @@ void D3DFramework::BuildRootSignatureTerrainPass()
 	));
 }
 
-void D3DFramework::BuildGBufferPSO()
+void Renderer::BuildGBufferPSO()
 {
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
 	ZeroMemory(&psoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
@@ -965,9 +902,12 @@ void D3DFramework::BuildGBufferPSO()
 	psoDesc.DSVFormat = GBuffer::DEPTH_DSV_FORMAT;
 
 	ThrowIfFailed(_device->Device()->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&_psos["gbuffer"])));
+
+	psoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
+	ThrowIfFailed(_device->Device()->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&_psos["gbufferWire"])));
 }
 
-void D3DFramework::BuildLightPassPSO()
+void Renderer::BuildLightPassPSO()
 {
 	CD3DX12_BLEND_DESC blendDesc(D3D12_DEFAULT);
 
@@ -1009,11 +949,9 @@ void D3DFramework::BuildLightPassPSO()
 
 	ThrowIfFailed(_device->Device()->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&_psos["lightPass"])));
 	
-	psoDesc.RTVFormats[0] = _device->BackBufferFormat();
-	ThrowIfFailed(_device->Device()->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&_psos["lightPassDebug"])));
 }
 
-void D3DFramework::BuildShadowPassPSO()
+void Renderer::BuildShadowPassPSO()
 {
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
 	ZeroMemory(&psoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
@@ -1046,7 +984,7 @@ void D3DFramework::BuildShadowPassPSO()
 	ThrowIfFailed(_device->Device()->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&_psos["shadowPass"])));
 }
 
-void D3DFramework::BuildTerrainPassPSO()
+void Renderer::BuildTerrainPassPSO()
 {
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
 	ZeroMemory(&psoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
@@ -1116,7 +1054,7 @@ void D3DFramework::BuildTerrainPassPSO()
 	ThrowIfFailed(_device->Device()->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&_psos["terrainShadow"])));
 }
 
-void D3DFramework::BuildShadersAndInputLayout()
+void Renderer::BuildShadersAndInputLayout()
 {
 	_shaders["gbufferVS"] = D3DUtil::CompileShader(LOCAL_PATH_W + L"Shaders/GBuffer.hlsl", nullptr, "VS", "vs_5_1");
 	_shaders["gbufferPS"] = D3DUtil::CompileShader(LOCAL_PATH_W + L"Shaders/GBuffer.hlsl", nullptr, "PS", "ps_5_1");
@@ -1142,7 +1080,7 @@ void D3DFramework::BuildShadersAndInputLayout()
 	};
 }
 
-void D3DFramework::CreatePPS()
+void Renderer::CreatePPS()
 {
 	PassDesc toneDesc = {};
 	toneDesc.Name = "ToneMapping";
@@ -1158,7 +1096,7 @@ void D3DFramework::CreatePPS()
 	_ppChain->CommitAll(_device->Device());
 }
 
-//void D3DFramework::CreatePPS()
+//void Renderer::CreatePPS()
 //{
 //	PassDesc cellDesc = {};
 //	cellDesc.Name = "CellShader";
@@ -1215,7 +1153,7 @@ void D3DFramework::CreatePPS()
 //	_ppChain->CommitAll(_device->Device());
 //}
 
-void D3DFramework::BuildFrameResources()
+void Renderer::BuildFrameResources()
 {
 	int dirLightCount = 0;
 	for (const auto& light : _world->Lights())
@@ -1228,11 +1166,11 @@ void D3DFramework::BuildFrameResources()
 
 	for (UINT i = 0; i < GraphicsDevice::FRAME_COUNT; ++i)
 	{
-		_frameResources.push_back(std::make_unique<FrameResource>(_device->Device(), (UINT)MAX_DEBUG_LAYER_COUNT, AssetManager::MAX_MATERIALS, std::max<UINT>(1, (UINT)_world->Lights().size()), std::max<UINT>(1, dirLightCount) * ShadowMap::CASCADE_COUNT));
+		_frameResources.push_back(std::make_unique<FrameResource>(_device->Device(), 1, AssetManager::MAX_MATERIALS, std::max<UINT>(1, (UINT)_world->Lights().size()), std::max<UINT>(1, dirLightCount) * ShadowMap::CASCADE_COUNT));
 	}
 }
 
-void D3DFramework::BuildRenderItems()
+void Renderer::BuildRenderItems()
 {
 	_allRitems.clear();
 	_opaqueRitems.clear();
@@ -1277,9 +1215,9 @@ void D3DFramework::BuildRenderItems()
 	_builtWorldVersion = _world->Version();
 }
 
-void D3DFramework::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
+void Renderer::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
 {
-	cmdList->SetPipelineState(_psos["gbuffer"].Get());
+	cmdList->SetPipelineState(_psos[_view.Mode == ViewMode::Wireframe ? "gbufferWire" : "gbuffer"].Get());
 	cmdList->SetGraphicsRootSignature(_rootSignatureGBuffer.Get());
 
 	auto passCB = _currFrameResource->PassCB->Resource();
@@ -1331,7 +1269,7 @@ void D3DFramework::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std
 	}
 }
 
-void D3DFramework::DrawRenderItemsShadow(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
+void Renderer::DrawRenderItemsShadow(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
 {
 	auto instanceBuffer = _currFrameResource->InstanceDataSB->Resource();
 	UINT instanceByteSize = sizeof(InstanceData);
@@ -1355,11 +1293,11 @@ void D3DFramework::DrawRenderItemsShadow(ID3D12GraphicsCommandList* cmdList, con
 	}
 }
 
-void D3DFramework::DrawTerrain(ID3D12GraphicsCommandList* cmdList)
+void Renderer::DrawTerrain(ID3D12GraphicsCommandList* cmdList)
 {
 	if (!_terrain->Data()) { return; }
 
-	cmdList->SetPipelineState(_psos[_isTerrainDegub ? "terrainWire" : "terrain"].Get());
+	cmdList->SetPipelineState(_psos[_view.Mode == ViewMode::Wireframe ? "terrainWire" : "terrain"].Get());
 	cmdList->OMSetStencilRef(TerrainRenderer::STENCIL_TERRAIN);
 	cmdList->SetGraphicsRootSignature(_rootSignatureTerrainPass.Get());
 	cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -1389,7 +1327,7 @@ void D3DFramework::DrawTerrain(ID3D12GraphicsCommandList* cmdList)
 	}
 }
 
-void D3DFramework::DrawTerrainShadow(ID3D12GraphicsCommandList* cmdList, const D3D12_GPU_VIRTUAL_ADDRESS& cascadeCB)
+void Renderer::DrawTerrainShadow(ID3D12GraphicsCommandList* cmdList, const D3D12_GPU_VIRTUAL_ADDRESS& cascadeCB)
 {
 	if (!_terrain->Data()) { return; }
 
@@ -1424,7 +1362,7 @@ void D3DFramework::DrawTerrainShadow(ID3D12GraphicsCommandList* cmdList, const D
 	}
 }
 
-void D3DFramework::LoadIBLTextures()
+void Renderer::LoadIBLTextures()
 {
 	std::vector<ComPtr<ID3D12Resource>> uploadHeaps;
 	uploadHeaps.resize(3);
@@ -1469,7 +1407,7 @@ void D3DFramework::LoadIBLTextures()
 	}
 }
 
-std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> D3DFramework::GetStaticSamplers()
+std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> Renderer::GetStaticSamplers()
 {
 	const CD3DX12_STATIC_SAMPLER_DESC pointWrap(
 		0, // shaderRegister
@@ -1534,7 +1472,7 @@ std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> D3DFramework::GetStaticSamplers
 		anisotropicWrap, anisotropicClamp, shadow };
 }
 
-AntiAliasing* D3DFramework::GetAAByMode(AASettings::AAMode mode)
+AntiAliasing* Renderer::GetAAByMode(AASettings::AAMode mode)
 {
 	switch (mode)
 	{
