@@ -45,7 +45,7 @@ struct PassConstants
 
     int DebugUseBeckmann = 0;
     int TerrainDebug = 0;
-    int ViewMode = 0;   // ViewMode in RenderView.h
+    int ViewMode = 0;
     int Pad = 0;
 };
 
@@ -127,6 +127,7 @@ public:
     std::unique_ptr<UploadBuffer<MaterialConstants>> MaterialCB = nullptr;
     std::unique_ptr<UploadBuffer<LightConstants>> LightSB = nullptr;
     std::unique_ptr<UploadBuffer<LightInfoConstants>> LightInfoCB = nullptr;
+    std::unique_ptr<UploadBuffer<AtmosphereConstant>> AtmosphereCB = nullptr;
 
     std::unique_ptr<UploadBuffer<TessellationConstant>> TessellationCB = nullptr;
     std::unique_ptr<UploadBuffer<DisplacementConstant>> DisplacementCB = nullptr;

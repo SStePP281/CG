@@ -44,6 +44,11 @@ TerrainHandle AssetManager::LoadTerrain(const TerrainDesc& desc)
     return _terrains.Add(std::make_unique<TerrainData>(_device, desc));
 }
 
+AtmosphereHandle AssetManager::LoadAtmosphere(const AtmosphereDesc& desc)
+{
+    return _atmosphere.Add(std::make_unique<AtmosphereData>(_device, desc));
+}
+
 void AssetManager::LoadTextures(const ModelParse::MeshInfo& meshData)
 {
     for (const auto& [name, mi] : meshData.Materials)

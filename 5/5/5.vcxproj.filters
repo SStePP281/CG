@@ -210,6 +210,12 @@
     <ClCompile Include="TerrainRenderer.cpp">
       <Filter>Renderer</Filter>
     </ClCompile>
+    <ClCompile Include="AtmosphereRenderer.cpp">
+      <Filter>Renderer</Filter>
+    </ClCompile>
+    <ClCompile Include="AtmosphereData.cpp">
+      <Filter>Assets</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Application.h">
@@ -413,9 +419,21 @@
     <ClInclude Include="ShadowSettingsSection.h">
       <Filter>Editor\Panels\Settings\Sections</Filter>
     </ClInclude>
+    <ClInclude Include="AtmosphereData.h">
+      <Filter>Assets</Filter>
+    </ClInclude>
+    <ClInclude Include="AtmospherePanel.h">
+      <Filter>Editor\Panels</Filter>
+    </ClInclude>
+    <ClInclude Include="AtmosphereRenderer.h">
+      <Filter>Renderer</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
+    <None Include="..\Shaders\Atmosphere.hlsli">
+      <Filter>Shaders\Common</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <None Include="..\Shaders\Common.hlsli">

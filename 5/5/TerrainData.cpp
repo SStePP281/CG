@@ -4,6 +4,7 @@
 #include <ResourceUploadBatch.h>
 #include "ThrowIfFaild.h"
 #include "PathManager.h"
+#include "AtmosphereData.h"
 
 TerrainData::TerrainData(GraphicsDevice& device, const TerrainDesc& desc) : _desc(desc)
 {

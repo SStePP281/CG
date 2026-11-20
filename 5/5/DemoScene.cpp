@@ -17,27 +17,27 @@ static void CreateLights(World& world)
 			return dis(gen);
 		};
 
-	{
-		LightObject dirLight = {};
+	//{
+	//	LightObject dirLight = {};
 
-		dirLight.Position = { 1.0f, 5.0f, 0.0f };
+	//	dirLight.Position = { 1.0f, 5.0f, 0.0f };
 
-		XMFLOAT3 dir = { 1.0f, -0.15f, 0.0f };
-		XMStoreFloat3(&dir, XMVector3Normalize(XMLoadFloat3(&dir)));
-		dirLight.Direction = dir;
+	//	XMFLOAT3 dir = { 1.0f, -0.15f, 0.0f };
+	//	XMStoreFloat3(&dir, XMVector3Normalize(XMLoadFloat3(&dir)));
+	//	dirLight.Direction = dir;
 
-		dirLight.Color = { 3.0f, 2.6f, 2.0f };
+	//	dirLight.Color = { 3.0f, 2.6f, 2.0f };
 
-		dirLight.FalloffStart = 0.f;
-		dirLight.FalloffEnd = 0.f;
-		dirLight.SpotPower = 0.f;
+	//	dirLight.FalloffStart = 0.f;
+	//	dirLight.FalloffEnd = 0.f;
+	//	dirLight.SpotPower = 0.f;
 
-		dirLight.Type = LightType::Directional;
+	//	dirLight.Type = LightType::Directional;
 
-		dirLight.Active = true;
+	//	dirLight.Active = true;
 
-		world.Lights().push_back(dirLight);
-	}
+	//	world.Lights().push_back(dirLight);
+	//}
 
 	for (int i = 0; i < LIGHT_COUNT; ++i)
 	{
@@ -104,6 +104,12 @@ void BuildDemoScene(World& world, AssetManager& assets)
 	td.HeightMap = L"Height.png";
 	td.Layers = { { L"Default.png", 1024.0f }, { L"Grass.png", 16.0f }, { L"Stone.png", 32.0f }, { L"Muddy.png", 32.0f } };
 	world.SetTerrain(assets.LoadTerrain(td));
+
+	AtmosphereDesc ad;
+	ad.IrradianceFileName = L"DiffuseHDR.dds";
+	ad.SpecularFileName = L"SpecularHDR.dds";
+	ad.BrdfFileName = L"Brdf.dds";
+	world.SetAtmosphere(assets.LoadAtmosphere(ad));
 
     CreateLights(world);
 }

@@ -135,7 +135,13 @@
       <AdditionalDependencies>d3d12.lib;dxgi.lib;dxguid.lib;d3dcompiler.lib;nvsdk_ngx_d.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PostBuildEvent>
-      <Command>xcopy /Y /D "$(ProjectDir)..\..\DLSS\lib\Windows_x86_64\dev\nvngx_dlss.dll" "$(OutDir)"</Command>
+      <Command>xcopy /Y /D "$(ProjectDir)..\..\DLSS\lib\Windows_x86_64\rel\nvngx_dlss.dll" "$(OutDir)"
+xcopy /Y /D /E /I /Q "$(ProjectDir)..\Shaders" "$(OutDir)Shaders"
+xcopy /Y /D /E /I /Q "$(ProjectDir)..\HDRI" "$(OutDir)HDRI"
+xcopy /Y /D /E /I /Q "$(ProjectDir)..\Models" "$(OutDir)Models"
+xcopy /Y /D /E /I /Q "$(ProjectDir)..\Terrain" "$(OutDir)Terrain"
+xcopy /Y /D /E /I /Q "$(ProjectDir)..\Textures" "$(OutDir)Textures"</Command>
+      <Message>Release: release DLSS dll and game data next to the exe, so the output folder can be zipped and shared</Message>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -148,6 +154,8 @@
     <ClCompile Include="..\..\ThirdParty\imgui\imgui_widgets.cpp" />
     <ClCompile Include="Application.cpp" />
     <ClCompile Include="AssetManager.cpp" />
+    <ClCompile Include="AtmosphereData.cpp" />
+    <ClCompile Include="AtmosphereRenderer.cpp" />
     <ClCompile Include="Camera.cpp" />
     <ClCompile Include="Renderer.cpp" />
     <ClCompile Include="D3DUtil.cpp" />
@@ -181,6 +189,7 @@
     <ClCompile Include="World.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="..\Shaders\Atmosphere.hlsli" />
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
@@ -196,6 +205,9 @@
     <ClInclude Include="AntiAliasing.h" />
     <ClInclude Include="Application.h" />
     <ClInclude Include="AssetManager.h" />
+    <ClInclude Include="AtmosphereRenderer.h" />
+    <ClInclude Include="AtmosphereData.h" />
+    <ClInclude Include="AtmospherePanel.h" />
     <ClInclude Include="Camera.h" />
     <ClInclude Include="DeferredReleaseQueue.h" />
     <ClInclude Include="DemoScene.h" />

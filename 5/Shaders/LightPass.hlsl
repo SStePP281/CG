@@ -1,4 +1,5 @@
 #include "LightingUtil.hlsl"
+#include "Atmosphere.hlsli"
 #include "Common.hlsli"
 #include "Shadow.hlsli"
 
@@ -27,9 +28,8 @@ SamplerState gsamAnisotropicClamp : register(s5);
 cbuffer cbLightInfo : register(b1)
 {
     uint gLightCount;
-    float gIBLIntensity;
     uint gShadowsEnabled;
-    int pad;
+    int2 pad;
 };
 
 struct VSOut
@@ -101,7 +101,13 @@ float4 PS(VSOut pin) : SV_Target
 
     float depth = gDepth.Sample(gsamPointClamp, uv).r;
     if (depth >= 1.0f)
-        discard;
+    {
+        if (!(gAtmFlags & ATM_ENABLED)) { discard; }
+
+        float3 farW = ReconstructPosition(uv, 1.0f);
+        float3 viewDir = normalize(farW - gEyePosW);
+        return float4(SkyColor(viewDir), 1.0f);
+    }
 
     float3 posW = ReconstructPosition(uv, depth);
     float4 posV = mul(float4(posW, 1.0f), gView);
@@ -131,7 +137,6 @@ float4 PS(VSOut pin) : SV_Target
 
     if (gViewMode == VIEWMODE_LIGHTING_ONLY)
     {
-        // Grey clay: only light and shadow are visible.
         mat.Albedo = float3(0.5f, 0.5f, 0.5f);
         mat.Metallic = 0.0f;
     }
@@ -140,9 +145,14 @@ float4 PS(VSOut pin) : SV_Target
 
     float3 Lo = CalculatePBRLighting(N, V, posW, mat, shadowFactor);
 
-    float3 IBL = CalculateIBLAmbient(N, V, mat);
+    float3 IBL = gIBLIntensity > 0.0f ? CalculateIBLAmbient(N, V, mat) * gIBLIntensity : 0.0f;
+    
+    float3 color = IBL + Lo;
 
-    float3 color = IBL * gIBLIntensity + Lo;
+    if ((gAtmFlags & ATM_ENABLED) && (gAtmFlags & ATM_AFFECT_OBJECTS))
+    {
+        color = ApplyAerialPerspective(color, posW, gEyePosW);
+    }
 
     return float4(color, 1.0f);
 }

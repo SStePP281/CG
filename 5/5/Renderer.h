@@ -35,6 +35,7 @@
 #include "ShadowMap.h"
 #include "PostProcess.h"
 #include "TerrainRenderer.h"
+#include "AtmosphereRenderer.h"
 #include "VelocityBuffers.h"
 #include "AntiAliasing.h"
 #include "NGXManager.h"
@@ -143,8 +144,6 @@ private:
     void DrawTerrainShadow(ID3D12GraphicsCommandList* cmdList, const D3D12_GPU_VIRTUAL_ADDRESS& cascadeCB);
 
 private:
-    void LoadIBLTextures();
-
     std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> GetStaticSamplers();
 
     AntiAliasing* GetAAByMode(AASettings::AAMode mode);
@@ -198,6 +197,7 @@ private:
 
     std::unique_ptr<GBuffer> _gBuffer;
     std::unique_ptr<ShadowMap> _shadowMap;
+    std::unique_ptr<AtmosphereRenderer> _atmosphere;
     std::unique_ptr<TerrainRenderer> _terrain;
     std::unique_ptr<VelocityBuffers> _velocityBuffer;
     std::unique_ptr<PostProcessChain> _ppChain;
@@ -210,13 +210,15 @@ private:
     std::unique_ptr<TAA> _TAA;
     std::unique_ptr<DLAA> _DLAA;
 
-    ComPtr<ID3D12Resource> _iblIrradiance;
-    ComPtr<ID3D12Resource> _iblSpecular;
-    ComPtr<ID3D12Resource> _iblBrdf;
-    DescriptorRange _iblSrv;
-
 private:
     ViewFlags _view;
+
+private:
+    template<class F> void ForEachLight(F&& f) const
+    {
+        for (const LightObject& l : _world->Lights()) { f(l); }
+        if (const LightObject* sun = _atmosphere->Sun()) { f(*sun); }
+    }
 };
 
 #endif // !RENDERER_HPP

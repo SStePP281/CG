@@ -24,6 +24,12 @@
 
 using namespace DirectX;
 
+namespace LightPassRoot
+{
+	// Root parameter slots of the light pass. Use these names, never raw numbers: the slots shift whenever a parameter is added or removed.
+	enum : UINT { GBuffer, Lights, Pass, LightInfo, Shadow, Atmosphere, ShadowMap, IBL, Velocity, Count };
+}
+
 Renderer::Renderer(Window& window, Input& input, AssetManager& assets, World& world, GraphicsDevice& device, RenderSettings& renderSettings) :
 	_window(&window), _input(input), _assets(&assets), _world(&world), _device(&device), _renderSettings(renderSettings)
 {
@@ -53,7 +59,7 @@ bool Renderer::Initialize()
 
 		_currentAA = GetAAByMode(_renderSettings.AA.Mode);
 
-		OnDisplayResize(_device->BackBufferSize());   // in fullscreen the back buffer can be smaller than the window
+		OnDisplayResize(_device->BackBufferSize());
 
 		_noAA->OnResize(*_device, _renderSettings.AA, _display);
 		_TAA->OnResize(*_device, _renderSettings.AA, _display);
@@ -63,7 +69,7 @@ bool Renderer::Initialize()
 	_gBuffer = std::make_unique<GBuffer>(*_device, _render);
 
 	_shadowMap = std::make_unique<ShadowMap>(*_device, _renderSettings.Shadow);
-
+	_atmosphere = std::make_unique<AtmosphereRenderer>();
 	_terrain = std::make_unique<TerrainRenderer>(*_device);
 
 	_velocityBuffer = std::make_unique<VelocityBuffers>(*_device);
@@ -71,8 +77,6 @@ bool Renderer::Initialize()
 
 	_ppChain = std::make_unique<PostProcessChain>();
 	CreatePPS();
-
-	LoadIBLTextures();
 
 	BuildRenderItems();
 	BuildFrameResources();
@@ -136,6 +140,12 @@ void Renderer::ApplySettings()
 	{
 		_terrain->SetData(terrainData);
 	}
+
+	const AtmosphereData* atmosphereData = _assets->GetAtmosphere(_world->Atmosphere());
+	if (_atmosphere->NeedsRebuild(atmosphereData))
+	{
+		_atmosphere->SetData(atmosphereData);
+	}
 }
 
 void Renderer::OnRenderResize()
@@ -177,6 +187,9 @@ void Renderer::Update(const GameTimer& gt)
 
 	UpdateMaterialCBs(gt);
 	UpdateMainPassCB(gt);
+
+	_atmosphere->Update(*_currFrameResource->AtmosphereCB.get());
+
 	UpdateLightSB(gt);
 	UpdateShadowCB(gt);
 	UpdateTerrainCB(gt);
@@ -258,22 +271,20 @@ void Renderer::Draw(const GameTimer& gt)
 	l->SetGraphicsRootSignature(_rootSignatureLightPass.Get());
 
 	auto& gb = _gBuffer->Textures;
-	l->SetGraphicsRootDescriptorTable(0, gb[(UINT)GBufferIndex::Albedo].SRV.Gpu());  // t0 Albedo
-	l->SetGraphicsRootDescriptorTable(1, gb[(UINT)GBufferIndex::Normal].SRV.Gpu());  // t1 Normal
-	l->SetGraphicsRootDescriptorTable(2, gb[(UINT)GBufferIndex::MatData].SRV.Gpu()); // t2 MatData
-	l->SetGraphicsRootDescriptorTable(3, gb[(UINT)GBufferIndex::Depth].SRV.Gpu());   // t3 Depth
+	l->SetGraphicsRootDescriptorTable(LightPassRoot::GBuffer, gb[(UINT)GBufferIndex::Albedo].SRV.Gpu());  // t0 Albedo // t1 Normal // t2 MatData // t3 Depth
 
-	l->SetGraphicsRootDescriptorTable(9, _iblSrv.Gpu(0));		                // t6 DefHDRI
-	l->SetGraphicsRootDescriptorTable(10, _iblSrv.Gpu(1));		                // t7 SpecHDRI
-	l->SetGraphicsRootDescriptorTable(11, _iblSrv.Gpu(2));                       // t8 TableHDRI
-	l->SetGraphicsRootDescriptorTable(12, _velocityBuffer->Current().srv.Gpu()); // t9 Velocity
+	l->SetGraphicsRootShaderResourceView(LightPassRoot::Lights, _currFrameResource->LightSB->Resource()->GetGPUVirtualAddress());	       // t4 LightSB
+	l->SetGraphicsRootConstantBufferView(LightPassRoot::Pass, _currFrameResource->PassCB->Resource()->GetGPUVirtualAddress());	           // b0 PassCB
+	l->SetGraphicsRootConstantBufferView(LightPassRoot::LightInfo, _currFrameResource->LightInfoCB->Resource()->GetGPUVirtualAddress());   // b1 LightInfoCB
+	l->SetGraphicsRootConstantBufferView(LightPassRoot::Shadow, _currFrameResource->ShadowCB->Resource()->GetGPUVirtualAddress());         // b2 ShadowCB
+	l->SetGraphicsRootConstantBufferView(LightPassRoot::Atmosphere, _currFrameResource->AtmosphereCB->Resource()->GetGPUVirtualAddress()); // b3 AtmosphereCB
 
-	l->SetGraphicsRootShaderResourceView(4, _currFrameResource->LightSB->Resource()->GetGPUVirtualAddress());	  // t4 LightSB
-	l->SetGraphicsRootConstantBufferView(5, _currFrameResource->PassCB->Resource()->GetGPUVirtualAddress());		  // b0 PassCB
-	l->SetGraphicsRootConstantBufferView(6, _currFrameResource->LightInfoCB->Resource()->GetGPUVirtualAddress());  // b1 LightInfoCB
-	l->SetGraphicsRootConstantBufferView(7, _currFrameResource->ShadowCB->Resource()->GetGPUVirtualAddress());     // b2 ShadowCB
-
-	l->SetGraphicsRootDescriptorTable(8, _shadowMap->SrvRange.Gpu());   // t5 ShadowMap
+	l->SetGraphicsRootDescriptorTable(LightPassRoot::ShadowMap, _shadowMap->SrvRange.Gpu());             // t5 ShadowMap
+	if (const AtmosphereData* atm = _atmosphere->Data())
+	{
+		l->SetGraphicsRootDescriptorTable(LightPassRoot::IBL, atm->Srv().Gpu());   // t6 irradiance, t7 specular, t8 BRDF
+	}
+	l->SetGraphicsRootDescriptorTable(LightPassRoot::Velocity, _velocityBuffer->Current().srv.Gpu());   // t9 Velocity
 
 	// Fullscreen quad
 	l->IASetVertexBuffers(0, 0, nullptr);
@@ -282,8 +293,6 @@ void Renderer::Draw(const GameTimer& gt)
 
 	l->RSSetViewports(1, &_renderViewport);
 	l->RSSetScissorRects(1, &_renderScissor);
-
-	l->SetGraphicsRootConstantBufferView(5, _currFrameResource->PassCB->Resource()->GetGPUVirtualAddress());
 
 	l->DrawInstanced(3, 1, 0, 0);
 
@@ -407,7 +416,7 @@ void Renderer::UpdateMainPassCB(const GameTimer& gt)
 	_mainPassCB.TotalTime = gt.TotalTime();
 	_mainPassCB.DeltaTime = gt.DeltaTime();
 	_mainPassCB.DebugUseBeckmann = 0;
-	_mainPassCB.TerrainDebug = _view.Mode == ViewMode::Wireframe ? 1 : 0;   // LOD colors on the terrain wireframe
+	_mainPassCB.TerrainDebug = _view.Mode == ViewMode::Wireframe ? 1 : 0;
 	_mainPassCB.ViewMode = (int)_view.Mode;
 
 	auto currPassCB = _currFrameResource->PassCB.get();
@@ -427,25 +436,24 @@ void Renderer::UpdateLightSB(const GameTimer& gt)
 	auto* sb = _currFrameResource->LightSB.get();
 	UINT count = 0;
 
-	for (const LightObject& l : _world->Lights())
-	{
-		if (!l.Active) { continue; }
+	ForEachLight([&](const LightObject& l)
+		{
+			if (!l.Active) { return; }
 
-		LightConstants c = {};
-		c.Strength = l.Color;
-		c.FalloffStart = l.FalloffStart;
-		c.Direction = l.Direction;
-		c.FalloffEnd = l.FalloffEnd;
-		c.Position = l.Position;
-		c.SpotPower = l.SpotPower;
-		c.LightType = (int)l.Type;
+			LightConstants c = {};
+			c.Strength = l.Color;
+			c.FalloffStart = l.FalloffStart;
+			c.Direction = l.Direction;
+			c.FalloffEnd = l.FalloffEnd;
+			c.Position = l.Position;
+			c.SpotPower = l.SpotPower;
+			c.LightType = (int)l.Type;
 
-		sb->CopyData(count++, c);
-	}
+			sb->CopyData(count++, c);
+		});
 
 	LightInfoConstants info = {};
 	info.LightCount = count;
-	info.IBLIntensity = 1.0f;
 	info.ShadowsEnabled = ShadowsActive() ? 1 : 0;
 	_currFrameResource->LightInfoCB->CopyData(0, info);
 }
@@ -454,12 +462,12 @@ bool Renderer::ShadowsActive() const
 {
 	if (!_renderSettings.Shadow.EnableShadow) { return false; }
 
-	for (const LightObject& light : _world->Lights())
-	{
-		if (light.Active && light.Type == LightType::Directional) { return true; }
-	}
-
-	return false;
+	bool found = false;
+	ForEachLight([&](const LightObject& l)
+		{
+			if (l.Active && l.Type == LightType::Directional) { found = true; }
+		});
+	return found;
 }
 
 void Renderer::UpdateShadowCB(const GameTimer& gt)
@@ -478,101 +486,99 @@ void Renderer::UpdateShadowCB(const GameTimer& gt)
 
 	auto currShadowCB = _currFrameResource->ShadowCB.get();
 
-	for (const auto& light : _world->Lights())
-	{
-		if (light.Type != LightType::Directional) { continue; }
-
-		XMVECTOR lightDir = XMVector3Normalize(XMLoadFloat3(&light.Direction));
-
-		XMVECTOR up = XMVectorSet(0, 1, 0, 0);
-		if (fabsf(XMVectorGetY(lightDir)) > 0.99f) { up = XMVectorSet(1, 0, 0, 0); }
-
-		for (UINT cascade = 0; cascade < ShadowMap::CASCADE_COUNT; cascade++)
+	ForEachLight([&](const LightObject& l)
 		{
-			float nearZ = cascadeNears[cascade];
-			float farZ = cascadeFars[cascade];
+			if (l.Type != LightType::Directional) { return; }
 
-			XMMATRIX cascadeProj = XMMatrixPerspectiveFovLH(0.25f * MathHelper::Pi, AspectRatio(), nearZ, farZ);
+			XMVECTOR lightDir = XMVector3Normalize(XMLoadFloat3(&l.Direction));
 
-			XMMATRIX invVP = XMMatrixInverse(nullptr, XMMatrixMultiply(view, cascadeProj));
+			XMVECTOR up = XMVectorSet(0, 1, 0, 0);
+			if (fabsf(XMVectorGetY(lightDir)) > 0.99f) { up = XMVectorSet(1, 0, 0, 0); }
 
-			XMVECTOR corners[8];
-
-			int idx = 0;
-			for (int x = 0; x < 2; x++)
+			for (UINT cascade = 0; cascade < ShadowMap::CASCADE_COUNT; cascade++)
 			{
-				for (int y = 0; y < 2; y++)
+				float nearZ = cascadeNears[cascade];
+				float farZ = cascadeFars[cascade];
+
+				XMMATRIX cascadeProj = XMMatrixPerspectiveFovLH(0.25f * MathHelper::Pi, AspectRatio(), nearZ, farZ);
+
+				XMMATRIX invVP = XMMatrixInverse(nullptr, XMMatrixMultiply(view, cascadeProj));
+
+				XMVECTOR corners[8];
+
+				int idx = 0;
+				for (int x = 0; x < 2; x++)
 				{
-					for (int z = 0; z < 2; z++)
+					for (int y = 0; y < 2; y++)
 					{
-						XMVECTOR pt = XMVectorSet(2.0f * x - 1.0f, 2.0f * y - 1.0f, (float)z, 1.0f);
-						pt = XMVector4Transform(pt, invVP);
-						corners[idx++] = pt / XMVectorGetW(pt);
+						for (int z = 0; z < 2; z++)
+						{
+							XMVECTOR pt = XMVectorSet(2.0f * x - 1.0f, 2.0f * y - 1.0f, (float)z, 1.0f);
+							pt = XMVector4Transform(pt, invVP);
+							corners[idx++] = pt / XMVectorGetW(pt);
+						}
 					}
 				}
+
+				XMVECTOR center = XMVectorZero();
+				for (int i = 0; i < 8; i++) { center += corners[i]; }
+				center /= 8.0f;
+
+				XMMATRIX lightView = XMMatrixLookAtLH(center - lightDir * farZ, center, up);
+
+				float minX = FLT_MAX, maxX = -FLT_MAX;
+				float minY = FLT_MAX, maxY = -FLT_MAX;
+				float minZ = FLT_MAX, maxZ = -FLT_MAX;
+
+				for (int i = 0; i < 8; i++)
+				{
+					XMVECTOR v = XMVector3TransformCoord(corners[i], lightView);
+					float vx = XMVectorGetX(v), vy = XMVectorGetY(v), vz = XMVectorGetZ(v);
+					minX = std::min(minX, vx); maxX = std::max(maxX, vx);
+					minY = std::min(minY, vy); maxY = std::max(maxY, vy);
+					minZ = std::min(minZ, vz); maxZ = std::max(maxZ, vz);
+				}
+
+				BoundingBox sceneBox = _world->Bounds();
+				if (_terrain->Data()) { BoundingBox::CreateMerged(sceneBox, sceneBox, _terrain->Data()->Bounds()); }
+
+				XMFLOAT3 sceneCorners[8];
+				sceneBox.GetCorners(sceneCorners);
+
+				for (const XMFLOAT3& c : sceneCorners)
+				{
+					float vz = XMVectorGetZ(XMVector3TransformCoord(XMLoadFloat3(&c), lightView));
+					minZ = std::min(minZ, vz);
+					maxZ = std::max(maxZ, vz);
+				}
+
+				float worldTexelSizeX = (maxX - minX) / _renderSettings.Shadow.ShadowTextureSize;
+				float worldTexelSizeY = (maxY - minY) / _renderSettings.Shadow.ShadowTextureSize;
+				minX = floorf(minX / worldTexelSizeX) * worldTexelSizeX;
+				maxX = floorf(maxX / worldTexelSizeX) * worldTexelSizeX;
+				minY = floorf(minY / worldTexelSizeY) * worldTexelSizeY;
+				maxY = floorf(maxY / worldTexelSizeY) * worldTexelSizeY;
+
+				XMMATRIX lightProj = XMMatrixOrthographicOffCenterLH(minX, maxX, minY, maxY, minZ, maxZ);
+
+				XMMATRIX lightViewProj = XMMatrixMultiply(lightView, lightProj);
+
+				XMVECTOR originNDC = XMVector3TransformCoord(XMVectorZero(), lightViewProj);
+				float texelSizeNDC = 2.0f / _renderSettings.Shadow.ShadowTextureSize;
+				float snapX = floorf(XMVectorGetX(originNDC) / texelSizeNDC) * texelSizeNDC;
+				float snapY = floorf(XMVectorGetY(originNDC) / texelSizeNDC) * texelSizeNDC;
+				float dx = XMVectorGetX(originNDC) - snapX;
+				float dy = XMVectorGetY(originNDC) - snapY;
+				lightViewProj = XMMatrixMultiply(lightViewProj, XMMatrixTranslation(-dx, -dy, 0.0f));
+
+				ShadowConstant sc;
+				XMStoreFloat4x4(&sc.ViewProj, XMMatrixTranspose(lightViewProj));
+				XMStoreFloat4x4(&sc.ShadowTransform, XMMatrixTranspose(XMMatrixMultiply(lightViewProj, T)));
+				sc.Distances = { cascadeFars[0], cascadeFars[1], cascadeFars[2], 0.0f };
+
+				currShadowCB->CopyData(cascade, sc);
 			}
-
-			XMVECTOR center = XMVectorZero();
-			for (int i = 0; i < 8; i++) { center += corners[i]; }
-			center /= 8.0f;
-
-			XMMATRIX lightView = XMMatrixLookAtLH(center - lightDir * farZ, center, up);
-
-			float minX = FLT_MAX, maxX = -FLT_MAX;
-			float minY = FLT_MAX, maxY = -FLT_MAX;
-			float minZ = FLT_MAX, maxZ = -FLT_MAX;
-
-			for (int i = 0; i < 8; i++)
-			{
-				XMVECTOR v = XMVector3TransformCoord(corners[i], lightView);
-				float vx = XMVectorGetX(v), vy = XMVectorGetY(v), vz = XMVectorGetZ(v);
-				minX = std::min(minX, vx); maxX = std::max(maxX, vx);
-				minY = std::min(minY, vy); maxY = std::max(maxY, vy);
-				minZ = std::min(minZ, vz); maxZ = std::max(maxZ, vz);
-			}
-
-			BoundingBox sceneBox = _world->Bounds();
-			if (_terrain->Data()) { BoundingBox::CreateMerged(sceneBox, sceneBox, _terrain->Data()->Bounds()); }
-
-			XMFLOAT3 sceneCorners[8];
-			sceneBox.GetCorners(sceneCorners);
-
-			for (const XMFLOAT3& c : sceneCorners)
-			{
-				float vz = XMVectorGetZ(XMVector3TransformCoord(XMLoadFloat3(&c), lightView));
-				minZ = std::min(minZ, vz);
-				maxZ = std::max(maxZ, vz);
-			}
-
-			float worldTexelSizeX = (maxX - minX) / _renderSettings.Shadow.ShadowTextureSize;
-			float worldTexelSizeY = (maxY - minY) / _renderSettings.Shadow.ShadowTextureSize;
-			minX = floorf(minX / worldTexelSizeX) * worldTexelSizeX;
-			maxX = floorf(maxX / worldTexelSizeX) * worldTexelSizeX;
-			minY = floorf(minY / worldTexelSizeY) * worldTexelSizeY;
-			maxY = floorf(maxY / worldTexelSizeY) * worldTexelSizeY;
-
-			XMMATRIX lightProj = XMMatrixOrthographicOffCenterLH(minX, maxX, minY, maxY, minZ, maxZ);
-
-			XMMATRIX lightViewProj = XMMatrixMultiply(lightView, lightProj);
-
-			XMVECTOR originNDC = XMVector3TransformCoord(XMVectorZero(), lightViewProj);
-			float texelSizeNDC = 2.0f / _renderSettings.Shadow.ShadowTextureSize;
-			float snapX = floorf(XMVectorGetX(originNDC) / texelSizeNDC) * texelSizeNDC;
-			float snapY = floorf(XMVectorGetY(originNDC) / texelSizeNDC) * texelSizeNDC;
-			float dx = XMVectorGetX(originNDC) - snapX;
-			float dy = XMVectorGetY(originNDC) - snapY;
-			lightViewProj = XMMatrixMultiply(lightViewProj, XMMatrixTranslation(-dx, -dy, 0.0f));
-
-			ShadowConstant sc;
-			XMStoreFloat4x4(&sc.ViewProj, XMMatrixTranspose(lightViewProj));
-			XMStoreFloat4x4(&sc.ShadowTransform, XMMatrixTranspose(XMMatrixMultiply(lightViewProj, T)));
-			sc.Distances = { cascadeFars[0], cascadeFars[1], cascadeFars[2], 0.0f };
-
-			currShadowCB->CopyData(cascade, sc);
-		}
-
-		break;
-	}
+		});
 }
 
 void Renderer::UpdateTerrainCB(const GameTimer& gt)
@@ -735,51 +741,32 @@ void Renderer::BuildRootSignatureGBuffer()
 
 void Renderer::BuildRootSignatureLightPass()
 {
-	CD3DX12_DESCRIPTOR_RANGE albedoRange; 
-	albedoRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
-
-	CD3DX12_DESCRIPTOR_RANGE normalRange;
-	normalRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1);
-
-	CD3DX12_DESCRIPTOR_RANGE matDataRange;
-	matDataRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 2);
-
-	CD3DX12_DESCRIPTOR_RANGE depthRange;
-	depthRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 3);
+	CD3DX12_DESCRIPTOR_RANGE gbufferRange;
+	gbufferRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 4, 0);
 
 	CD3DX12_DESCRIPTOR_RANGE shadowRange;
 	shadowRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 5);
 
-	CD3DX12_DESCRIPTOR_RANGE irradianceRange;
-	irradianceRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 6);
-
-	CD3DX12_DESCRIPTOR_RANGE specularRange;
-	specularRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 7);
-
-	CD3DX12_DESCRIPTOR_RANGE brdfRange;
-	brdfRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 8);
+	CD3DX12_DESCRIPTOR_RANGE iblRange;
+	iblRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 3, 6);
 
 	CD3DX12_DESCRIPTOR_RANGE velocityRange;
 	velocityRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 9);
 
-	CD3DX12_ROOT_PARAMETER slotRootParameter[13];
-	slotRootParameter[0].InitAsDescriptorTable(1, &albedoRange);	 // t0 Albedo
-	slotRootParameter[1].InitAsDescriptorTable(1, &normalRange);	 // t1 Normal
-	slotRootParameter[2].InitAsDescriptorTable(1, &matDataRange);	 // t2 MatData
-	slotRootParameter[3].InitAsDescriptorTable(1, &depthRange);		 // t3 Depth
-	slotRootParameter[4].InitAsShaderResourceView(4);				 // t4 LightSB
-	slotRootParameter[5].InitAsConstantBufferView(0);				 // b0 PassCB
-	slotRootParameter[6].InitAsConstantBufferView(1);				 // b1 LightInfoCB
-	slotRootParameter[7].InitAsConstantBufferView(2);				 // b2 ShadowCB
-	slotRootParameter[8].InitAsDescriptorTable(1, &shadowRange);	 // t5 ShadowMap
-	slotRootParameter[9].InitAsDescriptorTable(1, &irradianceRange); // t6 DiffuseHDR
-	slotRootParameter[10].InitAsDescriptorTable(1, &specularRange);  // t7 SpecularHDR
-	slotRootParameter[11].InitAsDescriptorTable(1, &brdfRange);      // t8 Brdf
-	slotRootParameter[12].InitAsDescriptorTable(1, &velocityRange);	 // t9 velocity
+	CD3DX12_ROOT_PARAMETER slotRootParameter[LightPassRoot::Count];
+	slotRootParameter[LightPassRoot::GBuffer].InitAsDescriptorTable(1, &gbufferRange);	  // t0 Albedo // t1 Normal // t2 MatData // t3 Depth
+	slotRootParameter[LightPassRoot::Lights].InitAsShaderResourceView(4);          // t4 LightSB
+	slotRootParameter[LightPassRoot::Pass].InitAsConstantBufferView(0);            // b0 PassCB
+	slotRootParameter[LightPassRoot::LightInfo].InitAsConstantBufferView(1);       // b1 LightInfoCB
+	slotRootParameter[LightPassRoot::Shadow].InitAsConstantBufferView(2);          // b2 ShadowCB
+	slotRootParameter[LightPassRoot::Atmosphere].InitAsConstantBufferView(3);      // b3 Atmosphere
+	slotRootParameter[LightPassRoot::ShadowMap].InitAsDescriptorTable(1, &shadowRange);   // t5 ShadowMap
+	slotRootParameter[LightPassRoot::IBL].InitAsDescriptorTable(1, &iblRange);           // t6 irradiance, t7 specular, t8 BRDF
+	slotRootParameter[LightPassRoot::Velocity].InitAsDescriptorTable(1, &velocityRange); // t9 velocity
 
 	auto staticSamplers = GetStaticSamplers();
 
-	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(13, slotRootParameter, (UINT)staticSamplers.size(), staticSamplers.data(), D3D12_ROOT_SIGNATURE_FLAG_NONE);
+	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(LightPassRoot::Count, slotRootParameter, (UINT)staticSamplers.size(), staticSamplers.data(), D3D12_ROOT_SIGNATURE_FLAG_NONE);
 
 	ComPtr<ID3DBlob> serializedRootSig = nullptr;
 	ComPtr<ID3DBlob> errorBlob = nullptr;
@@ -1166,7 +1153,9 @@ void Renderer::BuildFrameResources()
 
 	for (UINT i = 0; i < GraphicsDevice::FRAME_COUNT; ++i)
 	{
-		_frameResources.push_back(std::make_unique<FrameResource>(_device->Device(), 1, AssetManager::MAX_MATERIALS, std::max<UINT>(1, (UINT)_world->Lights().size()), std::max<UINT>(1, dirLightCount) * ShadowMap::CASCADE_COUNT));
+		_frameResources.push_back(std::make_unique<FrameResource>(_device->Device(), 1, AssetManager::MAX_MATERIALS,
+																						std::max<UINT>(1, (UINT)_world->Lights().size() + 1),
+																						std::max<UINT>(1, dirLightCount) * ShadowMap::CASCADE_COUNT));
 	}
 }
 
@@ -1359,51 +1348,6 @@ void Renderer::DrawTerrainShadow(ID3D12GraphicsCommandList* cmdList, const D3D12
 		cmdList->DrawIndexedInstanced(mesh->Submeshes[0].IndexCount, 1, 0, 0, 0);
 
 		_frameStats.ShadowDraws++;
-	}
-}
-
-void Renderer::LoadIBLTextures()
-{
-	std::vector<ComPtr<ID3D12Resource>> uploadHeaps;
-	uploadHeaps.resize(3);
-
-	_iblSrv = _device->Srv().Allocate(3);
-
-	auto LoadDDS = [&](const std::wstring& path, ComPtr<ID3D12Resource>& resource, bool isCubemap, int idx)
-	{
-		ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(_device->Device(), _device->CommandList(), path.c_str(), resource, uploadHeaps[idx]));
-
-		D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
-		srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-		srvDesc.Format = resource->GetDesc().Format;
-
-		if (isCubemap)
-		{
-			srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBE;
-			srvDesc.TextureCube.MostDetailedMip = 0;
-			srvDesc.TextureCube.MipLevels = resource->GetDesc().MipLevels;
-			srvDesc.TextureCube.ResourceMinLODClamp = 0.0f;
-		}
-		else
-		{
-			srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-			srvDesc.Texture2D.MostDetailedMip = 0;
-			srvDesc.Texture2D.MipLevels = resource->GetDesc().MipLevels;
-			srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
-		}
-
-		_device->Device()->CreateShaderResourceView(resource.Get(), &srvDesc, _iblSrv.Cpu(idx));
-	};
-
-	std::wstring hdriPath = LOCAL_PATH_W + L"HDRI/";
-
-	LoadDDS(hdriPath + L"DiffuseHDR.dds", _iblIrradiance, true, 0);
-	LoadDDS(hdriPath + L"SpecularHDR.dds", _iblSpecular, true, 1);
-	LoadDDS(hdriPath + L"Brdf.dds", _iblBrdf, false, 2);
-
-	for (auto& upload : uploadHeaps)
-	{
-		_device->Release().Push(upload);
 	}
 }
 

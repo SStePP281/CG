@@ -1,12 +1,8 @@
 #ifndef SHADOW_HLSLI
 #define SHADOW_HLSLI
 
-// Cascaded shadow lookup shared by the light pass and the buffer viewer,
-// so the debug view selects cascades exactly like the real lighting does.
-// Needs cbPass (Common.hlsli) for gView. Registers: cbShadow b2, shadow map t5, comparison sampler s6.
-
 #ifndef CASCADES_COUNT
-#define CASCADES_COUNT 3   // must match ShadowMap::CASCADE_COUNT
+#define CASCADES_COUNT 3
 #endif
 
 static const float3 CASCADES_COLORS[CASCADES_COUNT] =
@@ -48,7 +44,6 @@ uint GetCascadesLayer(float viewZ)
     return min(cascade, (uint) (CASCADES_COUNT - 1));
 }
 
-// 1 = lit, 0 = fully in shadow (3x3 PCF).
 float CalcShadow(float3 posW, float viewZ)
 {
     uint cascade = GetCascadesLayer(viewZ);

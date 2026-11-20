@@ -1,10 +1,13 @@
 #include "Editor.h"
+
 #include "InfoPanel.h"
+#include "AtmospherePanel.h"
+
 #include "TerrainTool.h"
 
 #include "DisplaySettingsSection.h"
-#include "ShadowSettingsSection.h"
 #include "AASettingsSection.h"
+#include "ShadowSettingsSection.h"
 
 
 Editor::Editor(Window& window, Input& input, GraphicsDevice& device, World& world, AssetManager& asset, Renderer& renderer, RenderSettings& renderSettings) :
@@ -19,13 +22,14 @@ Editor::Editor(Window& window, Input& input, GraphicsDevice& device, World& worl
 
 	{
 		_gui->AddPanel<InfoPanel>(_renderer->GetFrameStats(), _renderer->GetFrameHistory());
+		if (AtmosphereData* atmosphere = _asset->GetAtmosphere(_world->Atmosphere())) { _gui->AddPanel<AtmospherePanel>(*atmosphere); }
 	}
 
 	{
 		_projectSettings = &_gui->AddPanel<ProjectSettingsPanel>();
 		_projectSettings->AddSection<DisplaySettingsSection>(_renderSettings.Display, _device->SupportedResolutions());
-		_projectSettings->AddSection<ShadowSettingsSection>(_renderSettings.Shadow);
 		_projectSettings->AddSection<AASettingsSection>(_renderSettings.AA);
+		_projectSettings->AddSection<ShadowSettingsSection>(_renderSettings.Shadow);
 	}
 
 	{

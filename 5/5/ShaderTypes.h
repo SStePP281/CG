@@ -5,6 +5,8 @@
 #include <DirectXMath.h>
 #include "MathHelper.h"
 
+using XMFLOAT3 = DirectX::XMFLOAT3;
+
 struct alignas(16) MaterialConstants
 {
 	DirectX::XMFLOAT4X4 MatTransform = MathHelper::Identity4x4();
@@ -23,13 +25,13 @@ struct alignas(16) MaterialConstants
 
 struct alignas(16) LightConstants
 {
-	DirectX::XMFLOAT3 Strength = { 0.5f, 0.5f, 0.5f };
+	XMFLOAT3 Strength = { 0.5f, 0.5f, 0.5f };
 	float FalloffStart = 1.0f;
 
-	DirectX::XMFLOAT3 Direction = { 0.0f, -1.0f, 0.0f };
+	XMFLOAT3 Direction = { 0.0f, -1.0f, 0.0f };
 	float FalloffEnd = 10.0f;
 
-	DirectX::XMFLOAT3 Position = { 0.0f, 0.0f, 0.0f };
+	XMFLOAT3 Position = { 0.0f, 0.0f, 0.0f };
 	float SpotPower = 64.0f;
 
 	int LightType;
@@ -39,9 +41,29 @@ struct alignas(16) LightConstants
 struct alignas(16) LightInfoConstants
 {
 	UINT LightCount;
+	UINT ShadowsEnabled = 1;
+	UINT Pad[2] = { 0, 0 };
+};
+
+struct alignas(16) AtmosphereConstant
+{
+	XMFLOAT3 SunDir = {};
+	float SunIntensity = 0.0f;
+
+	XMFLOAT3 SunColor = {};
+	float MieG = 0.0f;
+
+	XMFLOAT3 BetaR = {};
+	float BetaM = 0.0f;
+
+	float HeightR = 0.0f;
+	float HeightM = 0.0f;
+	float MetersPerUnit = 0.0f;
+
+	int AtmFlags = 0;
 	float IBLIntensity = 1.0f;
-	UINT  ShadowsEnabled = 1;
-	UINT Pad;
+	int Pad[2] = { 0,0 };
+
 };
 
 #endif // !SHADER_TYPES_HPP

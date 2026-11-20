@@ -9,9 +9,11 @@
 #include "LightObject.h"
 #include "GameTimer.h"
 #include "Camera.h"
+#include "AtmosphereData.h"
 #include "Octree.h"
 #include "SlotPool.h"
 #include "AssetManager.h"
+#include <optional>
 
 class World
 {
@@ -27,6 +29,9 @@ public:
 
     void SetTerrain(TerrainHandle h) { _terrain = h; _current++; }
     TerrainHandle Terrain() const { return _terrain; }
+
+    void SetAtmosphere(AtmosphereHandle h) { _atmosphere = h; _current++; }
+    AtmosphereHandle Atmosphere() const { return _atmosphere; }
 
     template<class F> void ForEachObject(F&& f) { _objects.ForEach(std::forward<F>(f)); }
 
@@ -53,6 +58,7 @@ private:
     Camera _camera;
 
     TerrainHandle _terrain;
+    AtmosphereHandle _atmosphere;
 
     std::unique_ptr<Octree<ObjectId>> _octree;
     DirectX::BoundingBox _bounds;

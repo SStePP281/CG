@@ -8,6 +8,7 @@ FrameResource::FrameResource(ID3D12Device* device, UINT passCount, UINT material
 
 	LightSB = std::make_unique<UploadBuffer<LightConstants>>(device, lightCount, false);
 	LightInfoCB = std::make_unique<UploadBuffer<LightInfoConstants>>(device, 1, true);
+	AtmosphereCB = std::make_unique<UploadBuffer<AtmosphereConstant>>(device, 1, true);
 
 	TessellationCB = std::make_unique<UploadBuffer<TessellationConstant>>(device, 1, true);
 	DisplacementCB = std::make_unique<UploadBuffer<DisplacementConstant>>(device, 1, true);

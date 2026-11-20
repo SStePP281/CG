@@ -87,9 +87,9 @@ struct AASettings
 struct RenderSettings
 {
 	DisplaySettings Display;
+	AASettings AA;
 
 	ShadowSettings Shadow;
-	AASettings AA;
 
 	bool operator==(const RenderSettings& other) const
 	{

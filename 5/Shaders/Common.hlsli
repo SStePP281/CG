@@ -27,11 +27,10 @@ cbuffer cbPass : register(b0)
 
     int DebugUseBeckmann;
     int TerrainDebug;
-    int gViewMode;   // ViewMode in RenderView.h
+    int gViewMode;
     int Pad;
 };
 
-// Must match enum class ViewMode in RenderView.h.
 #define VIEWMODE_LIT             0
 #define VIEWMODE_UNLIT           1
 #define VIEWMODE_WIREFRAME       2
